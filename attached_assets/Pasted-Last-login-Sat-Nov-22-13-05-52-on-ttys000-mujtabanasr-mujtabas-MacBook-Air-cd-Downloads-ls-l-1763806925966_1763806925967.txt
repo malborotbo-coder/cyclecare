@@ -1,0 +1,56 @@
+Last login: Sat Nov 22 13:05:52 on ttys000
+mujtabanasr@mujtabas-MacBook-Air ~ % cd ~/Downloads
+ls -lh cycle-care-app-final.zip
+ls: cycle-care-app-final.zip: No such file or directory
+mujtabanasr@mujtabas-MacBook-Air Downloads % cd ~/Downloads
+ls -lh cycle-care-app-final.zip
+-rw-r--r--@ 1 mujtabanasr  staff   7.7M Nov 22 13:21 cycle-care-app-final.zip
+mujtabanasr@mujtabas-MacBook-Air Downloads % unzip cycle-care-app-final.zip
+Archive:  cycle-care-app-final.zip
+   creating: App
+   creating: App/App.xcodeproj
+  inflating: App/App.xcodeproj/project.pbxproj  
+   creating: App/App.xcworkspace
+   creating: App/App.xcworkspace/xcshareddata
+  inflating: App/App.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist  
+   creating: App/App
+  inflating: App/App/AppDelegate.swift  
+   creating: App/App/Assets.xcassets
+   creating: App/App/Assets.xcassets/AppIcon.appiconset
+  inflating: App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png  
+  inflating: App/App/Assets.xcassets/AppIcon.appiconset/Contents.json  
+  inflating: App/App/Assets.xcassets/Contents.json  
+   creating: App/App/Assets.xcassets/Splash.imageset
+  inflating: App/App/Assets.xcassets/Splash.imageset/Contents.json  
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-1.png  
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-2.png  
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png  
+   creating: App/App/Base.lproj
+  inflating: App/App/Base.lproj/LaunchScreen.storyboard  
+  inflating: App/App/Base.lproj/Main.storyboard  
+  inflating: App/App/Info.plist      
+  inflating: App/App/capacitor.config.json  
+   creating: App/App/public
+  inflating: App/App/public/favicon.png  
+   creating: App/App/public/assets
+  inflating: App/App/public/assets/Premium_black_orange_road_bike_ab4ecb10-CVTjjKNE.png  
+  inflating: App/App/public/assets/Bike_maintenance_close-up_d3f91622-CgcH3n7Y.png  
+  inflating: App/App/public/assets/Professional_bike_workshop_scene_2f400594-BT2k0GlJ.png  
+  inflating: App/App/public/assets/cycle-care-logo-BmnRrp7o.png  
+  inflating: App/App/public/assets/Professional_cyclist_rear_view_landscape_bad0f0cd-Bav5Lgm7.png  
+  inflating: App/App/public/assets/index-BNAn9m7F.js  
+  inflating: App/App/public/assets/Modern_bike_in_Riyadh_2027f785-nl5v_3jF.png  
+  inflating: App/App/public/assets/index-BEPZYIY8.css  
+  inflating: App/App/public/assets/html2canvas.esm-CBrSDip1.js  
+  inflating: App/App/public/assets/purify.es-B6FQ9oRL.js  
+  inflating: App/App/public/assets/index.es-D2MR6PAu.js  
+  inflating: App/App/public/index.html  
+ extracting: App/App/public/cordova.js  
+ extracting: App/App/public/cordova_plugins.js  
+  inflating: App/App/config.xml      
+  inflating: App/Podfile             
+mujtabanasr@mujtabas-MacBook-Air Downloads % cd App
+mujtabanasr@mujtabas-MacBook-Air App % pod install
+Analyzing dependencies
+[!] No podspec found for `Capacitor` in `../../node_modules/@capacitor/ios`
+mujtabanasr@mujtabas-MacBook-Air App % 

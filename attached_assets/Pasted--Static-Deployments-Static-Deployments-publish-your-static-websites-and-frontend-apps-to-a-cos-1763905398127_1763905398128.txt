@@ -1,0 +1,105 @@
+# Static Deployments
+
+> Static Deployments publish your static websites and frontend apps to a cost-effective cloud server.
+
+Static Deployments host your Replit App's static files, such as HTML, CSS, and JavaScript
+on a cloud server. The server automatically uses caching and scaling strategies to deliver
+your content quickly and economically.
+
+Static Deployments are ideal for the following use cases:
+
+* Marketing landing pages
+* Portfolio websites
+* Product and API documentation sites
+
+<Note>
+  Static Deployments are not compatible with Replit Apps created using Agent.
+  Agent automatically creates full-stack apps that require a backend server. For
+  Agent-generated apps, use one of the following deployment types: - [Autoscale
+  Deployment](/cloud-services/deployments/autoscale-deployments) - [Reserved VM
+  Deployment](/cloud-services/deployments/reserved-vm-deployments)
+</Note>
+
+<Frame>
+  <img src="https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=6759388105bd6f2801da48eed6ffb83d" alt="screenshot of the Publishing workspace tool" data-og-width="1920" width="1920" data-og-height="1080" height="1080" data-path="images/deployments/static/static-deployments.jpg" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=280&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=9e796de64ef75b150d531e4741faff00 280w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=560&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=9cf5e5dea6fcf775142506831199a83a 560w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=840&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=d7e8999bbdb3d72591e3bd2464b7a718 840w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=1100&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=1c79852d30764cce0b9f0fd6e60a7239 1100w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=1650&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=57bbf93aa23a4891ca4b3be9bd496b0b 1650w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployments.jpg?w=2500&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=50a4dd6d551536d094136f9928cb9481 2500w" />
+</Frame>
+
+## Features
+
+Static Deployments include the following features:
+
+* **Cost-effective hosting**: Pay only for the amount of data your website serves.
+* **HTTP routing options**: Configure response headers, URL rewrites, and redirects.
+* **Custom domains**: Configure a custom domain or use a `<app-name>.replit.app` URL to access your app.
+* **Custom error pages**: Create and serve a custom 404 error page.
+* **Monitoring**: View logs and monitor your published app's status.
+
+## Usage
+
+You can access Static Deployments in the Deployments workspace tool.
+
+<Accordion title="How to access Static Deployments">
+  From the left **Tool dock**:
+
+  1. Select <img class="icon-svg" src="https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=5b2c72713cc17ac272098bcbfd624d84" alt="All tools icon" data-og-width="16" width="16" data-og-height="16" height="16" data-path="images/icons/workspace-all-tools-button.svg" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=280&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=284639f38f8e91da05d14611e44a9ae6 280w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=560&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=d0e802a9c50a81e5c825cf1ddce00a64 560w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=840&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=b5c4e38a7cf923221d2412e904bbdc94 840w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=1100&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=3b43a87adf314fbb300376b404ab8a22 1100w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=1650&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=a11f8a405c4156ff625219a372c2ceca 1650w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-all-tools-button.svg?w=2500&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=7c86d2f1bfa4611aeca168daf29d08ff 2500w" /> **All tools** to see a list of workspace tools.
+  2. Select <img class="icon-svg" src="https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=df3fa2573b451c54591523c9d9111db1" alt="Deployments icon" data-og-width="16" width="16" data-og-height="16" height="16" data-path="images/icons/deploy-icon.svg" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=280&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=115e9383e0350a6ef201a41f78f8a19a 280w, https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=560&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=667b93ae66d0b69569409fb90d9fc280 560w, https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=840&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=ae927e5aadcb7a470ad726f0acb0f782 840w, https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=1100&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=16ee8f7b3d9db6b4f74ea8c2ebb6730f 1100w, https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=1650&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=ad04a5984543c13895fd30182294ec0a 1650w, https://mintcdn.com/replit/rBzGsKp9NcWJ7sib/images/icons/deploy-icon.svg?w=2500&fit=max&auto=format&n=rBzGsKp9NcWJ7sib&q=85&s=2449268bce371256727b17027eb180f3 2500w" /> **Deployments**.
+  3. Select the **Static** option and then select **Set up your published app**.
+
+  From the **Search bar**:
+
+  1. Select the <img class="icon-svg" src="https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=4a0eb8f6b17ff6761d53167334a68b30" alt="magnifying glass icon" data-og-width="16" width="16" data-og-height="16" height="16" data-path="images/icons/workspace-search-icon.svg" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=280&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=baa20919b2c8e7db2fad2562c732edd0 280w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=560&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=5fcfa3935da89ed6c1c6f893998c4f4a 560w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=840&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=2a24f3fcc4dd990d9062598eab165cff 840w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=1100&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=a3258e068d5ead6bacadcbe6e5785575 1100w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=1650&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=d08ebecb3063ed18a657beb563ac9c3c 1650w, https://mintcdn.com/replit/7jcTEkTXPQwUz2BL/images/icons/workspace-search-icon.svg?w=2500&fit=max&auto=format&n=7jcTEkTXPQwUz2BL&q=85&s=e63dd2009929a4b375b86e44ed6d7732 2500w" /> magnifying glass at the top to open the search tool
+  2. Type "Deployments" to locate the tool and select it from the results.
+  3. Select the **Static** option and then select **Set up your published app**.
+</Accordion>
+
+<Frame title="Static Deployment configuration screen in the Deployments tool">
+  <img src="https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=d8cb5b3286737d3c0164a97b7e7793e4" alt="Static Deployment options screen" data-og-width="3434" width="3434" data-og-height="1384" height="1384" data-path="images/deployments/static/static-deployment-options.png" data-optimize="true" data-opv="3" srcset="https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=280&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=e795160a9e2a69252edd5cd36f72902b 280w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=560&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=533f82ff98d926bd4b422bbb779cf7f8 560w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=840&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=d8d2a21815e14da8f3a423768424a52a 840w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=1100&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=729cb899978bbd57c1d759bde76bedb3 1100w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=1650&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=d20ffc39393082e5895e3330a27511e8 1650w, https://mintcdn.com/replit/jSmYU1wBTvl8UMyc/images/deployments/static/static-deployment-options.png?w=2500&fit=max&auto=format&n=jSmYU1wBTvl8UMyc&q=85&s=dbd5996b9fcac9304c190b31757c1a70 2500w" />
+</Frame>
+
+### Primary domain
+
+Specify the subdomain part of the hostname for your published app. After you publish, you can access your published app at `https://<subdomain>.replit.app`.
+
+To learn how to use a custom domain, see [Custom Domains](cloud-services/deployments/custom-domains/).
+
+### Private deployment
+
+<Info>
+  The private published app feature is available for Teams and Enterprise plans
+  only.
+</Info>
+
+Private published apps grant permission to your app only to members of your team or organization.
+This control lets you toggle whether to make your published app private.
+
+To learn how to set up a private deployment, see [Private Deployments](/cloud-services/deployments/private-deployments/).
+
+### Public directory
+
+Specify the base directory path in your Replit App that contains the static files you want to serve publicly.
+After you deploy, the cloud host serves all pages and assets in that directory.
+
+The default value, `/`, is the root directory of your Replit App.
+
+### Build command
+
+Specify a build command to run in your Replit App's shell when you create your Deployment.
+
+For example, if you generate a static site using <a href="https://gohugo.io/" target="_blank">Hugo</a>,
+you might use the command `hugo --minify` to generate the files and optimize asset file sizes.
+
+### Deployment secrets
+
+Select **Add deployment secret** to add environment variables or secrets your build command needs to run securely.
+
+For example, if your site generator requires an API key to create your static site, you might pass it
+`API_KEY=<your secret name>`.
+
+## Next steps
+
+* [Static Deployment Configuration](/cloud-services/deployments/static-deployments-advanced): Configure HTTP headers, a custom 404 page, and URL rewrites
+* [Published App Monitoring](/cloud-services/deployments/monitoring-a-deployment): View logs and monitor your published app
+* [Publishing costs](/billing/deployment-pricing): View the costs associated with publishing
+* [Pricing](https://replit.com/pricing): View the pricing and allowances for each plan type
+* [Usage Allowances](/billing/about-usage-based-billing): Learn about scheduled deployment usage limits and billing units
+

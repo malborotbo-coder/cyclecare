@@ -1,0 +1,33 @@
+find . -name "index.html" -type f 2>/dev/null | head -5
+
+cat vite.config.ts
+cd: no such file or directory: /Users/mujtabanasr/Desktop/MyApp
+total 88
+drwxr-x---+ 22 mujtabanasr  staff    704 Nov 20 19:22 .
+drwxr-xr-x   5 root         admin    160 Nov 18 15:27 ..
+-r--------   1 mujtabanasr  staff      7 Nov 18 15:27 .CFUserTextEncoding
+-rw-r--r--@  1 mujtabanasr  staff  10244 Nov 20 16:54 .DS_Store
+drwx------+ 71 mujtabanasr  staff   2272 Nov 20 18:37 .Trash
+drwxr-xr-x   3 mujtabanasr  staff     96 Nov 19 23:46 .cocoapods
+-rw-r--r--   1 mujtabanasr  staff     29 Nov 20 19:22 .env.local
+-rw-r--r--   1 mujtabanasr  staff     55 Nov 19 13:45 .gitconfig
+drwxr-xr-x   6 mujtabanasr  staff    192 Nov 19 23:31 .npm
+drwxr-xr-x   5 mujtabanasr  staff    160 Nov 20 17:03 .swiftpm
+-rw-r--r--   1 mujtabanasr  staff     43 Nov 19 23:14 .zprofile
+-rw-------   1 mujtabanasr  staff  14195 Nov 20 19:22 .zsh_history
+drwx------  92 mujtabanasr  staff   2944 Nov 20 19:22 .zsh_sessions
+drwx------@  5 mujtabanasr  staff    160 Nov 19 10:38 Applications
+drwx------+  8 mujtabanasr  staff    256 Nov 20 19:16 Desktop
+drwx------+  3 mujtabanasr  staff     96 Nov 18 15:27 Documents
+drwx------+ 13 mujtabanasr  staff    416 Nov 20 19:16 Downloads
+drwx------@ 93 mujtabanasr  staff   2976 Nov 19 13:45 Library
+drwx------   4 mujtabanasr  staff    128 Nov 18 17:10 Movies
+drwx------+  4 mujtabanasr  staff    128 Nov 18 22:46 Music
+drwx------+  4 mujtabanasr  staff    128 Nov 18 15:27 Pictures
+drwxr-xr-x+  4 mujtabanasr  staff    128 Nov 18 15:27 Public
+./Library/Developer/Xcode/DerivedData/App-ewxuhkcclgfjbydksdjlrmixarfj/Build/Products/Debug-iphonesimulator/App.app/public/index.html
+./Library/Developer/Xcode/DerivedData/App-ewxuhkcclgfjbydksdjlrmixarfj/Build/Products/Debug-iphoneos/App.app/public/index.html
+./Library/Developer/CoreSimulator/Devices/2FF2FE5E-7D4A-4487-9833-F7316A9CA4EA/data/Library/Caches/com.apple.containermanagerd/Dead/temp.KsbZSB/2B4C1051-0D63-4D0F-9F56-C077AE1AE577/App.app/public/index.html
+./Library/Developer/CoreSimulator/Devices/2FF2FE5E-7D4A-4487-9833-F7316A9CA4EA/data/Library/Caches/com.apple.containermanagerd/Dead/temp.m58lmD/5F4B3F3F-9AE0-4CE6-BE6B-C40775C16003/App.app/public/index.html
+./Library/Developer/CoreSimulator/Devices/2FF2FE5E-7D4A-4487-9833-F7316A9CA4EA/data/Library/Caches/com.apple.containermanagerd/Dead/temp.bojXQv/463265EA-6919-403C-A3AB-105B2851067B/App.app/public/index.html
+cat: vite.config.ts: No such file or directory

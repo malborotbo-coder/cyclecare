@@ -1,0 +1,111 @@
+modules = ["nodejs-20", "web", "postgresql-16"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["zip"]
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["npm", "run", "build"]
+run = ["npm", "run", "start"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 34723
+externalPort = 4200
+
+[[ports]]
+localPort = 34841
+externalPort = 9000
+
+[[ports]]
+localPort = 35555
+externalPort = 8099
+
+[[ports]]
+localPort = 37029
+externalPort = 8081
+
+[[ports]]
+localPort = 37063
+externalPort = 6000
+
+[[ports]]
+localPort = 38123
+externalPort = 5000
+
+[[ports]]
+localPort = 39925
+externalPort = 8008
+
+[[ports]]
+localPort = 40345
+externalPort = 3000
+
+[[ports]]
+localPort = 41267
+externalPort = 3001
+
+[[ports]]
+localPort = 42725
+externalPort = 8080
+
+[[ports]]
+localPort = 42937
+externalPort = 3002
+
+[[ports]]
+localPort = 43165
+externalPort = 6800
+
+[[ports]]
+localPort = 43743
+externalPort = 8000
+
+[[ports]]
+localPort = 46363
+externalPort = 5173
+
+[[ports]]
+localPort = 46453
+externalPort = 3003
+
+[env]
+PORT = "5000"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[agent]
+integrations = ["javascript_log_in_with_replit:1.0.0", "javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+ADMIN_EMAILS = "malborotbo@gmail.com"
+SUPABASE_URL = "https://voypbnslwxpjscxwsxzi.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZveXBibnNsd3hwanNjeHdzeHppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNDY1NjMsImV4cCI6MjA3OTcyMjU2M30.xalZkuPdrybUBMzN11lZtKkt7cPcFSMfft8F_GNZEKw"
+FIREBASE_PROJECT_ID = "cyclecare-aa686"

@@ -1,0 +1,64 @@
+ inflating: App/App.xcodeproj/project.pbxproj  
+replace App/App.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist  
+replace App/App/AppDelegate.swift? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/AppDelegate.swift  
+replace App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png  
+replace App/App/Assets.xcassets/AppIcon.appiconset/Contents.json? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/AppIcon.appiconset/Contents.json  
+replace App/App/Assets.xcassets/Contents.json? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/Contents.json  
+replace App/App/Assets.xcassets/Splash.imageset/Contents.json? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/Splash.imageset/Contents.json  
+replace App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-1.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-1.png  
+replace App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-2.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732-2.png  
+replace App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png  
+replace App/App/Base.lproj/LaunchScreen.storyboard? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Base.lproj/LaunchScreen.storyboard  
+replace App/App/Base.lproj/Main.storyboard? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Base.lproj/Main.storyboard  
+replace App/App/Info.plist? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/Info.plist      
+replace App/App/capacitor.config.json? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/capacitor.config.json  
+replace App/App/public/favicon.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/favicon.png  
+replace App/App/public/assets/Premium_black_orange_road_bike_ab4ecb10-CVTjjKNE.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/Premium_black_orange_road_bike_ab4ecb10-CVTjjKNE.png  
+replace App/App/public/assets/Bike_maintenance_close-up_d3f91622-CgcH3n7Y.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/Bike_maintenance_close-up_d3f91622-CgcH3n7Y.png  
+replace App/App/public/assets/Professional_bike_workshop_scene_2f400594-BT2k0GlJ.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/Professional_bike_workshop_scene_2f400594-BT2k0GlJ.png  
+replace App/App/public/assets/cycle-care-logo-BmnRrp7o.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/cycle-care-logo-BmnRrp7o.png  
+replace App/App/public/assets/Professional_cyclist_rear_view_landscape_bad0f0cd-Bav5Lgm7.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: 
+error:  invalid response [{ENTER}]
+replace App/App/public/assets/Professional_cyclist_rear_view_landscape_bad0f0cd-Bav5Lgm7.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/Professional_cyclist_rear_view_landscape_bad0f0cd-Bav5Lgm7.png  
+replace App/App/public/assets/index-BNAn9m7F.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/index-BNAn9m7F.js  
+replace App/App/public/assets/Modern_bike_in_Riyadh_2027f785-nl5v_3jF.png? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/Modern_bike_in_Riyadh_2027f785-nl5v_3jF.png  
+replace App/App/public/assets/index-BEPZYIY8.css? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/index-BEPZYIY8.css  
+replace App/App/public/assets/html2canvas.esm-CBrSDip1.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/html2canvas.esm-CBrSDip1.js  
+replace App/App/public/assets/purify.es-B6FQ9oRL.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/purify.es-B6FQ9oRL.js  
+replace App/App/public/assets/index.es-D2MR6PAu.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/assets/index.es-D2MR6PAu.js  
+replace App/App/public/index.html? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/public/index.html  
+replace App/App/public/cordova.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+ extracting: App/App/public/cordova.js  
+replace App/App/public/cordova_plugins.js? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+ extracting: App/App/public/cordova_plugins.js  
+replace App/App/config.xml? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/App/config.xml      
+replace App/Podfile? [y]es, [n]o, [A]ll, [N]one, [r]ename: y
+  inflating: App/Podfile             
+mujtabanasr@mujtabas-MacBook-Air App % 

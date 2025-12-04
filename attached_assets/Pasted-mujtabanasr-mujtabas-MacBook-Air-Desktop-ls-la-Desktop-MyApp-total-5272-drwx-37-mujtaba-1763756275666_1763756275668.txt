@@ -1,0 +1,40 @@
+mujtabanasr@mujtabas-MacBook-Air Desktop % ls -la ~/Desktop/MyApp
+total 5272
+drwx------@  37 mujtabanasr  staff    1184 Nov 21 23:15 .
+drwx------+   8 mujtabanasr  staff     256 Nov 21 23:15 ..
+-rw-r--r--@   1 mujtabanasr  staff   10244 Nov 21 22:49 .DS_Store
+drwxr-xr-x@   6 mujtabanasr  staff     192 Nov 17 09:07 .cache
+drwxr-xr-x@   4 mujtabanasr  staff     128 Nov 19 09:13 .config
+-rw-r--r--@   1 mujtabanasr  staff      29 Nov 21 13:25 .env.local
+-rw-r--r--@   1 mujtabanasr  staff      67 Nov 13 07:19 .gitignore
+drwxr-xr-x@   3 mujtabanasr  staff      96 Nov 13 07:16 .local
+-rw-r--r--@   1 mujtabanasr  staff    1427 Nov 19 11:40 .replit
+drwxr-xr-x@   3 mujtabanasr  staff      96 Nov 19 09:42 .upm
+-rw-r--r--@   1 mujtabanasr  staff    8964 Nov 19 09:51 IOS_SETUP_GUIDE_AR.md
+-rw-r--r--@   1 mujtabanasr  staff   37659 Nov 19 07:05 after-tab-technicians.png
+drwxr-xr-x@  10 mujtabanasr  staff     320 Nov 17 19:56 attached_assets
+-rw-r--r--@   1 mujtabanasr  staff  576984 Nov 17 07:52 authpage-logo.png
+-rwxr-xr-x@   1 mujtabanasr  staff     306 Nov 19 09:48 build-ios.sh
+-rw-r--r--@   1 mujtabanasr  staff     347 Nov 21 13:09 capacitor.config.ts
+drwxr-xr-x@   5 mujtabanasr  staff     160 Nov 17 09:08 client
+-rw-r--r--@   1 mujtabanasr  staff     459 Nov 13 07:19 components.json
+drwxr-xr-x    8 mujtabanasr  staff     256 Nov 20 12:35 cyclecare
+drwxr-xr-x    8 mujtabanasr  staff     256 Nov 20 12:35 cyclecare.
+-rw-r--r--@   1 mujtabanasr  staff    5779 Nov 13 07:20 design_guidelines.md
+drwxr-xr-x    3 mujtabanasr  staff      96 Nov 21 14:19 dist
+-rw-r--r--@   1 mujtabanasr  staff     325 Nov 13 07:19 drizzle.config.ts
+-rw-r--r--@   1 mujtabanasr  staff  576984 Nov 17 08:01 home-light.png
+-rw-r--r--@   1 mujtabanasr  staff  421731 Nov 17 07:53 homepage-logo-quickbooking.png
+-rw-r--r--@   1 mujtabanasr  staff  576984 Nov 17 08:00 login-dark.png
+drwxr-xr-x@ 484 mujtabanasr  staff   15488 Nov 21 22:42 node_modules
+-rw-r--r--@   1 mujtabanasr  staff  412828 Nov 21 22:53 package-lock.json
+-rw-r--r--@   1 mujtabanasr  staff    3968 Nov 21 22:42 package.json
+-rw-r--r--@   1 mujtabanasr  staff      80 Nov 13 07:19 postcss.config.js
+drwxr-xr-x@   5 mujtabanasr  staff     160 Nov 17 09:14 public
+-rw-r--r--@   1 mujtabanasr  staff    5988 Nov 19 07:18 replit.md
+drwxr-xr-x@  10 mujtabanasr  staff     320 Nov 19 09:17 server
+drwxr-xr-x@   3 mujtabanasr  staff      96 Nov 19 07:32 shared
+-rw-r--r--@   1 mujtabanasr  staff    4050 Nov 13 07:19 tailwind.config.ts
+-rw-r--r--@   1 mujtabanasr  staff     657 Nov 13 07:19 tsconfig.json
+-rw-r--r--@   1 mujtabanasr  staff    1080 Nov 13 07:19 vite.config.ts
+mujtabanasr@mujtabas-MacBook-Air Desktop % 

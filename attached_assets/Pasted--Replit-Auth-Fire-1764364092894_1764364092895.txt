@@ -1,0 +1,72 @@
+مرحبا، أحتاج منكم تنفيذ الخطوات التالية لإستبدال نظام تسجيل الدخول الحالي (Replit Auth)
+واعتماد Firebase Authentication بالكامل لجميع منصات التطبيق (Web – iOS – Android).
+
+➤ أولاً: ربط المشروع مع Firebase
+– استخدموا إعدادات Firebase التالية:
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDWNlm0_J4TCkxgClw9xQId62OctYDszdU",
+  authDomain: "cyclecare-aa686.firebaseapp.com",
+  projectId: "cyclecare-aa686",
+  storageBucket: "cyclecare-aa686.firebasestorage.app",
+  messagingSenderId: "129179738500",
+  appId: "1:129179738500:web:31c32a5c0d1289bc6cbdd1",
+  measurementId: "G-7M5F3G89CZ"
+};
+
+➤ ثانياً: المطلوب في الواجهة Frontend (React/Vite)
+1. إنشاء ملف firebase.ts داخل src/lib
+2. إضافة الكود التالي في firebase.ts:
+
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDWNlm0_J4TCkxgClw9xQId62OctYDszdU",
+  authDomain: "cyclecare-aa686.firebaseapp.com",
+  projectId: "cyclecare-aa686",
+  storageBucket: "cyclecare-aa686.firebasestorage.app",
+  messagingSenderId: "129179738500",
+  appId: "1:129179738500:web:31c32a5c0d1289bc6cbdd1",
+  measurementId: "G-7M5F3G89CZ"
+};
+
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+
+3. إضافة دعم طرق التحقق التالية:
+- Email/Password
+- Google Sign-In
+- Phone Authentication (OTP)
+- إضافة أزرار Login UI لهذه الطرق
+
+➤ ثالثاً: المطلوب في Backend (Node/Express)
+1. إزالة نظام تسجيل الدخول الخاص بـ Replit بالكامل:
+   – حذف openid-client
+   – حذف passport OIDC Strategy
+   – حذف getOidcConfig
+   – حذف أي ملفات أو routes خاصة بـ Replit Auth
+   – حذف استخدام ISSUER_URL و REPL_ID
+
+2. إضافة Firebase Auth بدلاً عنه:
+
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+
+3. تجهيز endpoint للـ logout والدخول باستخدام Firebase Session Token.
+
+➤ رابعاً: تحديث تطبيق iOS و Android
+– إضافة Firebase SDK للمنصتين
+– ربط auth مع التطبيق
+– تفعيل Google Sign-in + Phone Auth في iOS/Android
+– التأكد من عمل جلسات المستخدم بشكل صحيح مع الواجهة
+
+باختصار:
+أريد إزالة Replit Auth تماماً، واستبداله بـ Firebase Authentication
+مع دعم جميع طرق التحقق (Google – Email – Phone OTP)
+وربطها مع الواجهة والباك إند و iOS و Android.
+
+شكراً لكم.

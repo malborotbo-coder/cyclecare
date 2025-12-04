@@ -1,0 +1,27 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "*.com.cyclecatrtec.app"
+        ],
+        "components": [
+          {
+            "/": "/api/auth/callback",
+            "comment": "OAuth callback redirect"
+          },
+          {
+            "/": "/auth/*",
+            "comment": "Authentication routes"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "*.com.cyclecatrtec.app"
+    ]
+  }
+}

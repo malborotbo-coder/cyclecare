@@ -1,0 +1,103 @@
+{
+    "title": "Recording 11/23/2025 at 10:28:33 PM",
+    "steps": [
+        {
+            "type": "setViewport",
+            "width": 915,
+            "height": 712,
+            "deviceScaleFactor": 1,
+            "isMobile": false,
+            "hasTouch": false,
+            "isLandscape": false
+        },
+        {
+            "type": "navigate",
+            "url": "https://cyclecaretec.com/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "https://cyclecaretec.com/",
+                    "title": "cyclecare"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "html"
+                ],
+                [
+                    "xpath//html"
+                ],
+                [
+                    "pierce/html"
+                ]
+            ],
+            "offsetY": 40,
+            "offsetX": 110
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/تسجيل الخروج",
+                    "aria/[role=\"generic\"]"
+                ],
+                [
+                    "body > div:nth-of-type(2) span"
+                ],
+                [
+                    "xpath///*[@data-testid=\"menu-item-logout\"]/span"
+                ],
+                [
+                    "pierce/body > div:nth-of-type(2) span"
+                ],
+                [
+                    "text/تسجيل الخروج"
+                ]
+            ],
+            "offsetY": 2,
+            "offsetX": 81
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "html"
+                ],
+                [
+                    "xpath//html"
+                ],
+                [
+                    "pierce/html"
+                ]
+            ],
+            "offsetY": 48,
+            "offsetX": 107
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/تسجيل الخروج"
+                ],
+                [
+                    "[data-testid='menu-item-logout']"
+                ],
+                [
+                    "xpath///*[@data-testid=\"menu-item-logout\"]"
+                ],
+                [
+                    "pierce/[data-testid='menu-item-logout']"
+                ]
+            ],
+            "offsetY": 3,
+            "offsetX": 108
+        }
+    ]
+}
