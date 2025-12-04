@@ -2,7 +2,15 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// ⭐ استيراد Google OAuth
+import { setupGoogleAuth } from "./googleAuth";
+
 const app = express();
+
+// ⭐ ضروري جداً تفعيل GoogleAuth قبل أي راوت
+(async () => {
+  await setupGoogleAuth(app);
+})();
 
 // دعم قراءة RAW BODY
 declare module "http" {
@@ -21,14 +29,7 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// ———————————————————————————————
-// ⭐ أهم خطوة: تفعيل رفع الملفات
-// تصبح كل عمليات الرفع عبر:
-// POST /api/public/technicians/upload
-// ———————————————————————————————
-// ———————————————————————————————
 // لوق لكل API
-// ———————————————————————————————
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -55,9 +56,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ———————————————————————————————
-// 🔥 API TEST ENDPOINT
-// ———————————————————————————————
+// TEST API
 app.get("/api/test", (req, res) => {
   res.json({ ok: true, message: "API is working 🎉" });
 });
