@@ -1,18 +1,11 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-
-// ⭐ استيراد Google OAuth
 import { setupGoogleAuth } from "./googleAuth";
 
 const app = express();
 
-// ⭐ ضروري جداً تفعيل GoogleAuth قبل أي راوت
-(async () => {
-  await setupGoogleAuth(app);
-})();
-
-// دعم قراءة RAW BODY
+// دعم RAW BODY
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -24,78 +17,71 @@ app.use(
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
-  }),
+  })
 );
 
 app.use(express.urlencoded({ extended: false }));
 
-// لوق لكل API
+// لوق API
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+  let captured: any;
+
+  res.json = function (body, ...args) {
+    captured = body;
+    return originalResJson.apply(res, [body, ...args]);
   };
 
   res.on("finish", () => {
-    const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-      if (logLine.length > 80) logLine = logLine.slice(0, 79) + "…";
-      log(logLine);
+      const duration = Date.now() - start;
+      let line = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (captured) line += ` :: ${JSON.stringify(captured)}`;
+      log(line);
     }
   });
 
   next();
 });
 
-// TEST API
+// ===========================
+// 🔥 الأهم: GoogleAuth هنا
+// ===========================
+await setupGoogleAuth(app);
+
+// TEST
 app.get("/api/test", (req, res) => {
-  res.json({ ok: true, message: "API is working 🎉" });
+  res.json({ ok: true });
 });
 
-// ———————————————————————————————
-// تشغيل السيرفر
-// ———————————————————————————————
 (async () => {
+
+  // ===========================
+  // 🔥 API ROUTES هنا
+  // ===========================
   const server = await registerRoutes(app);
 
   // Error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    res.status(status).json({ message });
-    throw err;
+    const status = err.status || 500;
+    res.status(status).json({ message: err.message || "Server error" });
   });
 
-  // Serve PWA public
-  app.use(express.static("public"));
-
-  // VITE في التطوير فقط
+  // ===========================
+  // 🔥 FRONTEND STATIC آخر شيء
+  // ===========================
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
+  const port = Number(process.env.PORT) || 5000;
 
-  server.on("error", (err: any) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`Server error: Port ${port} already in use. Retrying...`);
-      server.close();
-      setTimeout(() => server.listen(port, "0.0.0.0"), 3000);
-    } else {
-      throw err;
-    }
+  server.listen(port, "0.0.0.0", () => {
+    log(`Server running on port ${port}`);
   });
-
-  server.listen(port, "0.0.0.0", () => log(`serving on port ${port}`));
 })();
