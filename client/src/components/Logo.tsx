@@ -4,6 +4,8 @@ interface LogoProps {
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
   showText?: boolean;
+  clickable?: boolean;
+  onClick?: () => void;
 }
 
 const sizeClasses = {
@@ -13,9 +15,21 @@ const sizeClasses = {
   xl: "w-40 h-40",
 };
 
-export default function Logo({ size = "md", className = "", showText = false }: LogoProps) {
+export default function Logo({ size = "md", className = "", showText = false, clickable = true, onClick }: LogoProps) {
+  const handleClick = () => {
+    if (clickable && onClick) {
+      onClick();
+    } else if (clickable) {
+      window.location.href = "/";
+    }
+  };
+
   return (
-    <div className={`flex items-center gap-3 ${className}`} data-testid="logo-cyclecarelogo">
+    <div 
+      className={`flex items-center gap-3 ${className} ${clickable ? 'cursor-pointer' : ''}`} 
+      data-testid="logo-cyclecarelogo"
+      onClick={handleClick}
+    >
       <img
         src={logoImage}
         alt="Cycle Care Logo"

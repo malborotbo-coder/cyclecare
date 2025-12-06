@@ -94,8 +94,11 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     >
       {/* Language Toggle - Top Right */}
       <div 
-        className="absolute right-4 z-50"
-        style={{ top: isNative ? 'calc(env(safe-area-inset-top, 0px) + 16px)' : '16px' }}
+        className="absolute z-50"
+        style={{ 
+          top: isNative ? 'calc(env(safe-area-inset-top, 0px) + 16px)' : '16px',
+          right: isNative ? 'calc(env(safe-area-inset-right, 0px) + 16px)' : '16px'
+        }}
       >
         <button
           onClick={toggleLanguage}
