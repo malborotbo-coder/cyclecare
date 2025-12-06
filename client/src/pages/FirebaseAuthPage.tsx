@@ -385,9 +385,15 @@ export default function FirebaseAuthPage() {
 
 
   return (
-    <div className="min-h-screen bg-slate-900 overflow-hidden flex flex-col">
+    <div 
+      className="min-h-screen bg-slate-900 overflow-hidden flex flex-col"
+      style={{ paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px' }}
+    >
       {/* Language Toggle - Top Right */}
-      <div className="absolute top-4 right-4 z-50">
+      <div 
+        className="absolute right-4 z-50"
+        style={{ top: isNative ? 'calc(env(safe-area-inset-top, 0px) + 16px)' : '16px' }}
+      >
         <button
           onClick={toggleLanguage}
           className="px-4 py-2 bg-primary text-white font-semibold rounded-lg text-sm hover:opacity-90 transition"

@@ -4,6 +4,7 @@ import { ChevronRight, ChevronLeft } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { motion, AnimatePresence } from "framer-motion";
 import cycleCareLogo from "@assets/1_1764502393151.png";
+import { Capacitor } from "@capacitor/core";
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -42,7 +43,8 @@ const slides = [
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const { lang } = useLanguage();
+  const { lang, toggleLanguage } = useLanguage();
+  const isNative = Capacitor.isNativePlatform();
 
   const slide = slides[currentSlide];
   const isLastSlide = currentSlide === slides.length - 1;
@@ -86,7 +88,24 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 overflow-hidden">
+    <div 
+      className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 overflow-hidden"
+      style={{ paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px' }}
+    >
+      {/* Language Toggle - Top Right */}
+      <div 
+        className="absolute right-4 z-50"
+        style={{ top: isNative ? 'calc(env(safe-area-inset-top, 0px) + 16px)' : '16px' }}
+      >
+        <button
+          onClick={toggleLanguage}
+          className="px-4 py-2 bg-primary text-white font-semibold rounded-lg text-sm hover:opacity-90 transition"
+          data-testid="button-language-toggle-onboarding"
+        >
+          {isArabic ? "EN" : "العربية"}
+        </button>
+      </div>
+
       {/* Static Background - Removed animations for performance */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-slate-700/20 rounded-full blur-3xl" />
