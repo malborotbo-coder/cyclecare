@@ -6,21 +6,17 @@
       "use": "@vercel/node"
     },
     {
-      "src": "dist/public/**/*",
+      "src": "dist/public/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     {
-      "src": "^/api/(.*)$",
+      "src": "/api/(.*)",
       "dest": "server/index.js"
     },
     {
-      "src": "^/api/auth/google/callback$",
-      "dest": "server/index.js"
-    },
-    {
-      "src": "^/(.*)$",
+      "src": "/(.*)",
       "dest": "dist/public/index.html"
     }
   ]
