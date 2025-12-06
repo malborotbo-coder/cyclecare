@@ -1561,7 +1561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const orders = await storage.getOrdersByUserId(userId);
+      const orders = await storage.getUserOrders(userId);
       res.json(orders);
     } catch (error) {
       console.error("Error fetching orders:", error);
