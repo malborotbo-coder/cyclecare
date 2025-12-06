@@ -6,3 +6,5 @@ vite.config.ts.*
 *.tar.gz*.zip
 ziDRS1Gy
 ziYfgTQf
+.vercel
+.env*.local
