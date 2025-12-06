@@ -59,9 +59,10 @@ export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   const { itemCount } = useCart();
   const [, setLocation] = useLocation();
 
-  const { data: user } = useQuery<SessionUser>({
+  const { data: sessionData } = useQuery<{ user: SessionUser | null }>({
     queryKey: ["/api/auth/session"],
   });
+  const user = sessionData?.user;
 
   const t = {
     ar: {
