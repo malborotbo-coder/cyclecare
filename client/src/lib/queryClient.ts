@@ -19,45 +19,37 @@ async function getAuthToken(): Promise<string | null> {
     return phoneSession;
   }
   
-  // Check if we have a Firebase token stored - always refresh it
-  const hasFirebaseToken = localStorage.getItem("firebase_token");
-  if (hasFirebaseToken) {
-    try {
-      const currentUser = auth.currentUser;
-      if (currentUser) {
-        // Always get fresh token to handle expiry (force refresh if needed)
-        const freshToken = await currentUser.getIdToken(false);
-        // Update stored token with fresh one
-        localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
-        localStorage.setItem("firebase_token", freshToken);
-        return freshToken;
-      }
-    } catch (error) {
-      console.error("Error refreshing Firebase ID token:", error);
-      // Token refresh failed, clear stored tokens
-      localStorage.removeItem("firebase_token");
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-    }
-  }
+  // Get stored tokens
+  const storedFirebaseToken = localStorage.getItem("firebase_token");
+  const storedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
   
-  // Check for JWT token (Google OAuth) - these are longer lived
-  const jwtToken = localStorage.getItem(AUTH_TOKEN_KEY);
-  if (jwtToken && !hasFirebaseToken) {
-    return jwtToken;
-  }
-  
-  // Try Firebase auth directly if user is logged in
+  // Try to refresh Firebase token if we have a current user
   try {
     const currentUser = auth.currentUser;
     if (currentUser) {
-      const idToken = await currentUser.getIdToken();
-      // Store for future use
-      localStorage.setItem(AUTH_TOKEN_KEY, idToken);
-      localStorage.setItem("firebase_token", idToken);
-      return idToken;
+      // Get fresh token (force refresh if token is old)
+      const freshToken = await currentUser.getIdToken(false);
+      // Update stored tokens
+      localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
+      localStorage.setItem("firebase_token", freshToken);
+      console.log("[Auth] Firebase token refreshed");
+      return freshToken;
     }
   } catch (error) {
-    console.error("Error getting Firebase ID token:", error);
+    console.error("[Auth] Error refreshing Firebase ID token:", error);
+  }
+  
+  // If Firebase currentUser is not available yet (after page reload), 
+  // use stored token as fallback - it's still valid for ~1 hour
+  if (storedFirebaseToken) {
+    console.log("[Auth] Using stored Firebase token (currentUser not ready)");
+    return storedFirebaseToken;
+  }
+  
+  // Check for JWT token (Google OAuth) - these are longer lived
+  if (storedAuthToken) {
+    console.log("[Auth] Using stored JWT token");
+    return storedAuthToken;
   }
   
   return null;

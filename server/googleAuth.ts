@@ -514,20 +514,24 @@ export async function setupGoogleAuth(app: Express) {
     if ((req as any).firebaseUser) {
       console.log("[GoogleAuth] Returning Firebase user:", (req as any).firebaseUser.uid);
       
-      // Fetch latest isAdmin status from database
+      // isAdmin from middleware (set by ADMIN_EMAILS or ADMIN_PHONE_NUMBER check)
       let isAdmin = (req as any).firebaseUser.isAdmin || false;
+      
+      // Also check database for isAdmin status (user might be marked admin in DB)
       try {
         const email = (req as any).firebaseUser.email;
         if (email) {
           const dbUser = await storage.getUserByEmail(email);
-          if (dbUser) {
-            isAdmin = dbUser.isAdmin || false;
-            console.log("[GoogleAuth] Firebase user DB isAdmin status:", isAdmin);
+          if (dbUser && dbUser.isAdmin) {
+            isAdmin = true;
+            console.log("[GoogleAuth] Firebase user DB isAdmin status: true");
           }
         }
       } catch (e) {
         console.log("[GoogleAuth] Could not fetch Firebase user from DB");
       }
+      
+      console.log("[GoogleAuth] Final isAdmin status:", isAdmin);
       
       return res.json({
         user: {
