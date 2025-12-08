@@ -192,12 +192,20 @@ export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecor
 export type InsertMaintenanceRecord = z.infer<typeof insertMaintenanceRecordSchema>;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
 
+// Parts categories - simplified to 2 options only
+export const partCategoryEnum = pgEnum("part_category", [
+  "spare_parts",  // قطع غيار
+  "accessories",  // اكسسوارات
+]);
+
+export type PartCategory = typeof partCategoryEnum.enumValues[number];
+
 // Parts catalog
 export const parts = pgTable("parts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name").notNull(),
   nameEn: varchar("name_en").notNull(),
-  category: varchar("category").notNull(), // tires, chains, brakes, etc.
+  category: varchar("category").notNull(), // "spare_parts" or "accessories"
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   inStock: boolean("in_stock").default(true),
   imageUrl: varchar("image_url"),

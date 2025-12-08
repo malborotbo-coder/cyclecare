@@ -18,6 +18,7 @@ import {
   ScanFace,
 } from "lucide-react";
 import cycleCareLogo from "@assets/1_1764502393151.png";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { motion } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
@@ -251,15 +252,26 @@ export default function FirebaseAuthPage() {
       setError("");
       setIsLoading(true);
       
+      let userCredential;
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        userCredential = await createUserWithEmailAndPassword(auth, email, password);
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
       }
       
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 500);
+      // Get ID token and store for API authentication
+      const idToken = await userCredential.user.getIdToken();
+      console.log('[EmailAuth] Got Firebase ID token, length:', idToken.length);
+      
+      // Store token for backend authentication (will be used by queryClient)
+      localStorage.setItem('firebase_token', idToken);
+      localStorage.setItem('auth_token', idToken);
+      
+      // Clear cache to ensure fresh auth state
+      sessionStorage.clear();
+      
+      console.log('[EmailAuth] Auth tokens stored, redirecting...');
+      window.location.href = "/";
     } catch (err: any) {
       console.error("Email auth error:", err);
       
@@ -386,9 +398,17 @@ export default function FirebaseAuthPage() {
 
   return (
     <div 
-      className="min-h-screen bg-slate-900 overflow-hidden flex flex-col"
+      className="min-h-screen overflow-hidden flex flex-col relative"
       style={{ paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px' }}
     >
+      {/* Background Image with Dark Overlay */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: `url(${workshopBg})` }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/60 to-black/80" />
+      </div>
+
       {/* Language Toggle - Top Right */}
       <div 
         className="absolute z-50"
@@ -399,7 +419,7 @@ export default function FirebaseAuthPage() {
       >
         <button
           onClick={toggleLanguage}
-          className="px-4 py-2 bg-primary text-white font-semibold rounded-lg text-sm hover:opacity-90 transition"
+          className="px-4 py-2 bg-primary text-white font-semibold rounded-lg text-sm hover:opacity-90 transition backdrop-blur-sm"
           data-testid="button-language-toggle"
         >
           {isArabic ? "EN" : "العربية"}
@@ -407,7 +427,7 @@ export default function FirebaseAuthPage() {
       </div>
 
       {/* Top Section - Logo */}
-      <div className="relative flex-1 bg-gradient-to-br from-slate-800 via-slate-700 to-slate-800 overflow-hidden flex items-center justify-center min-h-72">
+      <div className="relative flex-1 overflow-hidden flex items-center justify-center min-h-72 z-10">
         <motion.div
           className="relative z-10 flex items-center justify-center"
           initial={{ opacity: 0, scale: 0.5 }}
@@ -417,7 +437,7 @@ export default function FirebaseAuthPage() {
           <motion.img
             src={cycleCareLogo}
             alt="Cycle Care"
-            className="w-56 h-auto object-contain"
+            className="w-56 h-auto object-contain drop-shadow-2xl"
             animate={{
               scale: [1, 1.02, 1],
             }}
@@ -431,7 +451,7 @@ export default function FirebaseAuthPage() {
       </div>
 
       {/* Bottom Section - Sign In Options */}
-      <div className="relative px-4 py-6 pb-12 bg-slate-900">
+      <div className="relative px-4 py-6 pb-12 z-10 backdrop-blur-sm bg-black/30 rounded-t-3xl">
         <motion.div
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
