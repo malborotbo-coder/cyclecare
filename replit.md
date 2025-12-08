@@ -10,9 +10,12 @@ I prefer simple language in explanations. I want iterative development, where yo
 
 ### UI/UX Decisions
 -   **Color Scheme**: Primary Orange (#E86A4B), Secondary Teal (#3B9B9B). Solid colors are used across all UI elements for a clean, professional appearance (no gradients).
--   **Logo**: Official Cycle Care logo (cycle-care-logo.png) with configurable sizes.
+-   **Logo**: Official Cycle Care logo (cycle-care-logo.png) with configurable sizes. Clicking logo navigates to home using wouter.
 -   **Typography**: Tajawal font for modern Arabic.
 -   **Layout**: Mobile-first design with iPhone safe-area-inset support.
+-   **Navigation**: Unified AppLayout with AppHeader (orange bg) and SideMenu (Sheet drawer). No bottom navigation bar.
+    -   **AppHeader**: Logo (left), page title (center), 3-dot menu icon (right)
+    -   **SideMenu**: Home, Services, Parts Catalog, Technician Registration, Admin (conditional on isAdmin), Logout
 -   **Components**: Shadcn UI with custom theming.
 -   **Bilingual Support**: Arabic (RTL) and English (LTR) interface with dynamic text updates, proper date/currency formatting, and legal pages.
 -   **Dark Mode**: Full dark mode support with true black background and theme persistence. Dark mode is the default theme.

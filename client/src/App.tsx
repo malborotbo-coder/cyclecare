@@ -19,7 +19,7 @@ import ProfilePage from "@/pages/ProfilePage";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsOfService";
 import PaymentPage from "@/pages/PaymentPage";
-import BottomNav from "@/components/BottomNav";
+import AppLayout from "@/components/layout/AppLayout";
 import { InstallPWA } from "@/components/InstallPWA";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -133,60 +133,6 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function PageWithNav({ children }: { children: React.ReactNode }) {
-  const [location, setLocation] = useLocation();
-  const isNative = Capacitor.isNativePlatform();
-
-  const getActiveTab = (path: string) => {
-    if (path === "/") return "home";
-    if (path === "/booking") return "services";
-    if (path === "/parts") return "parts";
-    if (path === "/cart") return "parts";
-    if (path === "/checkout") return "parts";
-    if (path === "/bikes") return "profile";
-    if (path === "/profile") return "profile";
-    if (path === "/history") return "profile";
-    if (path === "/technician") return "technician";
-    if (path === "/admin") return "admin";
-    return "home";
-  };
-
-  return (
-    <div 
-      className="flex flex-col w-full bg-background"
-      style={{
-        minHeight: 'max(100vh, 100dvh)',
-        paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',
-      }}
-    >
-      <main 
-        className="flex-1 overflow-y-auto"
-        style={{
-          paddingBottom: isNative ? 'calc(80px + env(safe-area-inset-bottom, 0px))' : '80px',
-        }}
-      >
-        {children}
-      </main>
-      <div 
-        className="fixed bottom-0 left-0 right-0 w-full"
-        style={{
-          paddingBottom: isNative ? 'env(safe-area-inset-bottom, 0px)' : '0px',
-        }}
-      >
-        <BottomNav
-          activeTab={getActiveTab(location)}
-          onTabChange={(tab) => {
-            if (tab === "home") setLocation("/");
-            else if (tab === "services") setLocation("/booking");
-            else if (tab === "technician") setLocation("/technician");
-            else if (tab === "admin") setLocation("/admin");
-            else setLocation(`/${tab}`);
-          }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function Router() {
   return (
@@ -212,78 +158,80 @@ function Router() {
           <AuthWrapper>
             <Switch>
               <Route path="/">
-                <PageWithNav>
+                <AppLayout>
                   <HomePage />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/booking">
-                <PageWithNav>
+                <AppLayout>
                   <ServiceBooking />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/payment">
-                <PageWithNav>
+                <AppLayout>
                   <PaymentPage />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/parts">
-                <PageWithNav>
+                <AppLayout>
                   <PartsCatalog />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/cart">
-                <PageWithNav>
+                <AppLayout>
                   <Cart />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/checkout">
-                <PageWithNav>
+                <AppLayout>
                   <Checkout />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               {/* User Profile route */}
               <Route path="/my-profile">
-                <ProfilePage />
+                <AppLayout>
+                  <ProfilePage />
+                </AppLayout>
               </Route>
 
               {/* Bike Profile route */}
               <Route path="/profile">
-                <PageWithNav>
+                <AppLayout>
                   <BikeProfile />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/bikes">
-                <PageWithNav>
+                <AppLayout>
                   <BikeProfile />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               {/* Technician routes - both paths work */}
               <Route path="/technician">
-                <PageWithNav>
+                <AppLayout>
                   <TechnicianDashboard />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/technician/dashboard">
-                <PageWithNav>
+                <AppLayout>
                   <TechnicianDashboard />
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               <Route path="/admin">
-                <PageWithNav>
+                <AppLayout>
                   <Suspense fallback={<FullScreenLoader />}>
                     <AdminDashboard />
                   </Suspense>
-                </PageWithNav>
+                </AppLayout>
               </Route>
 
               {/* 404 Page */}

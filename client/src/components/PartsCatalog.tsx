@@ -154,16 +154,6 @@ export default function PartsCatalog() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-[100] bg-primary/90 backdrop-blur-md text-white border-b border-white/10 shadow-lg">
-        <div className="container mx-auto px-4 py-2 flex items-center justify-between gap-2">
-          <Logo size="sm" />
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <LanguageToggle currentLang={language} onToggle={toggleLanguage} />
-          </div>
-        </div>
-      </header>
-
       <div
         className="relative h-48 bg-cover bg-center"
         style={{ backgroundImage: `url(${maintenanceImage})` }}

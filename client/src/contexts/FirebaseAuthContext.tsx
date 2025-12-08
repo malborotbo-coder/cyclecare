@@ -50,19 +50,27 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       // Check for JWT token first (Google Auth)
       const authToken = getAuthToken();
       
+      // Also check for Firebase token stored separately
+      const firebaseToken = localStorage.getItem("firebase_token");
+      
       // Check for phone session
       const phoneSession = localStorage.getItem("phone_session");
       const phoneUserId = localStorage.getItem("phone_user_id");
       const phoneNumber = localStorage.getItem("phone_number");
       
-      // Build headers with Authorization
+      // Build headers with Authorization - prefer Firebase token
       const headers: HeadersInit = {};
-      if (authToken) {
+      if (firebaseToken) {
+        headers["Authorization"] = `Bearer ${firebaseToken}`;
+        console.log("[Auth] Using Firebase token for session check");
+      } else if (authToken) {
         headers["Authorization"] = `Bearer ${authToken}`;
         console.log("[Auth] Using JWT token for session check");
       } else if (phoneSession) {
         headers["Authorization"] = `Bearer ${phoneSession}`;
         console.log("[Auth] Using phone session for session check");
+      } else {
+        console.log("[Auth] No token found for session check");
       }
       
       const response = await fetch("/api/auth/session", { headers });
@@ -71,7 +79,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         const data = await response.json();
         const userData = data.user || data;
         if (userData && userData.id) {
-          console.log("[Auth] Session found:", userData.email || userData.phone || userData.id);
+          console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
           setUser(userData);
           return;
         }

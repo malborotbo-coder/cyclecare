@@ -1,4 +1,5 @@
 import logoImage from "@assets/1_1764502393151.png";
+import { useLocation } from "wouter";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg" | "xl";
@@ -16,11 +17,13 @@ const sizeClasses = {
 };
 
 export default function Logo({ size = "md", className = "", showText = false, clickable = true, onClick }: LogoProps) {
+  const [, setLocation] = useLocation();
+
   const handleClick = () => {
     if (clickable && onClick) {
       onClick();
     } else if (clickable) {
-      window.location.href = "/";
+      setLocation("/");
     }
   };
 

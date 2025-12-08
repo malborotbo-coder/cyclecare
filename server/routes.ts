@@ -23,10 +23,11 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Firebase Auth + Twilio OTP for phone authentication
+  // IMPORTANT: Must be registered BEFORE Google Auth so Firebase middleware runs on all /api routes
+  await setupFirebaseAuth(app);
   // Auth middleware - Google OAuth (direct, no Replit)
   await setupGoogleAuth(app);
-  // Firebase Auth + Twilio OTP for phone authentication
-  await setupFirebaseAuth(app);
 
   // PUBLIC ROUTES (no authentication required)
   // Upload route for technician documents - uploads to Supabase Storage
