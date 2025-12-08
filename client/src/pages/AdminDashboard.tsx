@@ -604,7 +604,7 @@ export default function AdminDashboard() {
 
   const handleCreatePartWithImage = async () => {
     const name = (document.getElementById('part-name') as HTMLInputElement)?.value;
-    const category = (document.getElementById('part-category') as HTMLInputElement)?.value;
+    const category = (document.getElementById('part-category-hidden') as HTMLInputElement)?.value;
     const price = (document.getElementById('part-price') as HTMLInputElement)?.value;
     const inStock = (document.getElementById('part-instock') as HTMLInputElement)?.checked ?? true;
     
@@ -653,7 +653,7 @@ export default function AdminDashboard() {
       
       // Reset form
       (document.getElementById('part-name') as HTMLInputElement).value = '';
-      (document.getElementById('part-category') as HTMLInputElement).value = '';
+      (document.getElementById('part-category-hidden') as HTMLInputElement).value = '';
       (document.getElementById('part-price') as HTMLInputElement).value = '';
       setNewPartImage(null);
     } catch (error) {
@@ -1399,13 +1399,23 @@ export default function AdminDashboard() {
                       id="part-name" 
                       data-testid="input-part-name"
                     />
-                    <input 
-                      type="text" 
-                      placeholder={txt.category} 
-                      className="border p-2 rounded bg-background" 
-                      id="part-category"
-                      data-testid="input-part-category" 
-                    />
+                    <Select onValueChange={(value) => {
+                      const el = document.getElementById('part-category-hidden') as HTMLInputElement;
+                      if (el) el.value = value;
+                    }}>
+                      <SelectTrigger className="h-10" data-testid="select-part-category">
+                        <SelectValue placeholder={txt.category} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="spare_parts">
+                          {lang === 'ar' ? 'قطع غيار' : 'Spare Parts'}
+                        </SelectItem>
+                        <SelectItem value="accessories">
+                          {lang === 'ar' ? 'اكسسوارات' : 'Accessories'}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <input type="hidden" id="part-category-hidden" />
                     <input 
                       type="number" 
                       placeholder={txt.price} 
@@ -1528,15 +1538,30 @@ export default function AdminDashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold truncate">{part.name}</p>
                             {editingPartId === part.id ? (
-                              <Input
-                                value={editingCategory}
-                                onChange={(e) => setEditingCategory(e.target.value)}
-                                placeholder={lang === 'ar' ? 'التصنيف' : 'Category'}
-                                className="mt-1 h-8 text-sm"
-                                data-testid={`input-edit-category-${part.id}`}
-                              />
+                              <Select 
+                                value={editingCategory} 
+                                onValueChange={setEditingCategory}
+                              >
+                                <SelectTrigger className="mt-1 h-8 text-sm w-40" data-testid={`select-edit-category-${part.id}`}>
+                                  <SelectValue placeholder={lang === 'ar' ? 'التصنيف' : 'Category'} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="spare_parts">
+                                    {lang === 'ar' ? 'قطع غيار' : 'Spare Parts'}
+                                  </SelectItem>
+                                  <SelectItem value="accessories">
+                                    {lang === 'ar' ? 'اكسسوارات' : 'Accessories'}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
                             ) : (
-                              <p className="text-sm text-muted-foreground">{part.category}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {part.category === 'spare_parts' 
+                                  ? (lang === 'ar' ? 'قطع غيار' : 'Spare Parts')
+                                  : part.category === 'accessories'
+                                  ? (lang === 'ar' ? 'اكسسوارات' : 'Accessories')
+                                  : part.category}
+                              </p>
                             )}
                             <Button
                               variant={part.inStock ? "default" : "secondary"}

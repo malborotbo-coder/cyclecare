@@ -76,16 +76,8 @@ function PartCard({ part, onAddToCart }: PartCardProps) {
 
 const categoryLabels: Record<string, { ar: string; en: string }> = {
   all: { ar: "الكل", en: "All" },
-  brakes: { ar: "فرامل", en: "Brakes" },
-  chains: { ar: "سلاسل", en: "Chains" },
-  tires: { ar: "إطارات", en: "Tires" },
-  wheels: { ar: "عجلات", en: "Wheels" },
-  seats: { ar: "مقاعد", en: "Seats" },
-  handlebars: { ar: "مقود", en: "Handlebars" },
-  pedals: { ar: "دواسات", en: "Pedals" },
-  lights: { ar: "أضواء", en: "Lights" },
-  accessories: { ar: "إكسسوارات", en: "Accessories" },
-  parts: { ar: "قطع غيار", en: "Parts" },
+  spare_parts: { ar: "قطع غيار", en: "Spare Parts" },
+  accessories: { ar: "اكسسوارات", en: "Accessories" },
 };
 
 export default function PartsCatalog() {

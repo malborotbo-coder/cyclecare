@@ -15,16 +15,18 @@ I prefer simple language in explanations. I want iterative development, where yo
 -   **Layout**: Mobile-first design with iPhone safe-area-inset support.
 -   **Components**: Shadcn UI with custom theming.
 -   **Bilingual Support**: Arabic (RTL) and English (LTR) interface with dynamic text updates, proper date/currency formatting, and legal pages.
--   **Dark Mode**: Full dark mode support with true black background and theme persistence.
+-   **Dark Mode**: Full dark mode support with true black background and theme persistence. Dark mode is the default theme.
 
 ### Technical Implementations
 -   **Frontend**: React, TypeScript, Vite, Wouter for routing.
 -   **Backend**: Express.js, PostgreSQL (Neon), Drizzle ORM.
 -   **Authentication**: Hybrid authentication supporting:
     -   **JWT-based Google OAuth**: Stateless JWT tokens for Google login (works reliably with Replit's reverse proxy and Capacitor native apps). Tokens include issuer/audience validation and 7-day expiration.
+    -   **Email/Password Login**: Firebase Authentication with automatic token refresh. Tokens stored in localStorage and refreshed via `getIdToken()` on each API request.
     -   **Phone OTP**: Session-based authentication for phone number login.
     -   **AuthCallback Page**: `/auth/callback` validates tokens server-side before storing in localStorage.
     -   **Deep Link Support**: Native Capacitor apps handle OAuth redirects and JWT token capture.
+    -   **Login Page UI**: Beautiful bike repair workshop background image with dark overlay, animated logo, and RTL/LTR language toggle.
 -   **State Management**: TanStack Query.
 -   **Security**: JWT with HS256 signing (requires SESSION_SECRET 32+ chars), issuer/audience validation, authentication middleware for protected routes, and admin role management.
 -   **Admin Features**: `isAdmin` field, middleware, admin-specific API endpoints, and a comprehensive admin dashboard UI.
@@ -40,7 +42,7 @@ I prefer simple language in explanations. I want iterative development, where yo
 -   **Bike Profile Management**: Tracking bikes with IDs, service history, and maintenance schedules, including customer photo uploads.
 -   **Service Booking**: 5-step wizard with location and payment method selection.
 -   **Technician Dashboard**: Technicians can accept/decline service requests and manage appointments.
--   **Parts Catalog**: Browsing and filtering bike parts by dynamic categories with image support.
+-   **Parts Catalog**: Browsing and filtering bike parts by 2 categories only: "spare_parts" (قطع غيار) and "accessories" (اكسسوارات). Admin uses Select dropdown for category selection.
 -   **Maintenance Records**: Tracking service history linked to technicians.
 -   **Technician Registration**: Public self-registration page with an approval workflow (`isApproved` field) and document viewing for admins.
 -   **Admin Dashboard**: Centralized view of users, bikes, technicians, service requests, user roles, invoices, and statistics.

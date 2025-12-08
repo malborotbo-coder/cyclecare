@@ -13,23 +13,47 @@ const mockTechnicians = [
 
 // Helper to get auth token - supports JWT, phone session, and Firebase tokens
 async function getAuthToken(): Promise<string | null> {
-  // First check for JWT token (Google Auth)
-  const jwtToken = localStorage.getItem(AUTH_TOKEN_KEY);
-  if (jwtToken) {
-    return jwtToken;
-  }
-  
-  // Then check for phone session (fallback auth)
+  // Check for phone session first (non-Firebase)
   const phoneSession = localStorage.getItem("phone_session");
   if (phoneSession) {
     return phoneSession;
   }
   
-  // Then try Firebase auth
+  // Check if we have a Firebase token stored - always refresh it
+  const hasFirebaseToken = localStorage.getItem("firebase_token");
+  if (hasFirebaseToken) {
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // Always get fresh token to handle expiry (force refresh if needed)
+        const freshToken = await currentUser.getIdToken(false);
+        // Update stored token with fresh one
+        localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
+        localStorage.setItem("firebase_token", freshToken);
+        return freshToken;
+      }
+    } catch (error) {
+      console.error("Error refreshing Firebase ID token:", error);
+      // Token refresh failed, clear stored tokens
+      localStorage.removeItem("firebase_token");
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  }
+  
+  // Check for JWT token (Google OAuth) - these are longer lived
+  const jwtToken = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (jwtToken && !hasFirebaseToken) {
+    return jwtToken;
+  }
+  
+  // Try Firebase auth directly if user is logged in
   try {
     const currentUser = auth.currentUser;
     if (currentUser) {
       const idToken = await currentUser.getIdToken();
+      // Store for future use
+      localStorage.setItem(AUTH_TOKEN_KEY, idToken);
+      localStorage.setItem("firebase_token", idToken);
       return idToken;
     }
   } catch (error) {
