@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import admin from "firebase-admin";
 import twilio from "twilio";
 import { storage } from "./storage";
+import { verifyJWT } from "./jwt";
 
 declare global {
   var otpSessions: Record<string, { phoneNumber: string; code: string; timestamp: number; verified: boolean }> | undefined;
@@ -371,10 +372,24 @@ export const isAuthenticated = (
   res: Response,
   next: NextFunction
 ) => {
-  // Check Firebase/Phone Auth first
+  // Check Firebase/Phone Auth first (set by firebaseMiddleware)
   if (req.firebaseUser) {
     console.log("[Auth Check] Firebase/Phone user:", req.firebaseUser.uid);
     return next();
+  }
+  
+  // Check for JWT token in Authorization header (Google OAuth / custom JWT)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const payload = verifyJWT(token);
+    
+    if (payload) {
+      // Attach JWT user to request for downstream handlers
+      (req as any).jwtUser = payload;
+      console.log("[Auth Check] JWT user:", payload.email);
+      return next();
+    }
   }
   
   // Check Replit Auth (Passport session)
@@ -399,44 +414,64 @@ export const isAdmin = async (
   res: Response,
   next: NextFunction
 ) => {
+  // Helper to check if email is in ADMIN_EMAILS
+  const isAdminEmail = (email: string | undefined | null): boolean => {
+    if (!email) return false;
+    const adminEmails = (process.env.ADMIN_EMAILS || "malborotbo@gmail.com").split(",").map((e: string) => e.trim().toLowerCase());
+    return adminEmails.includes(email.toLowerCase());
+  };
+
   try {
+    // Check JWT user first (set by isAuthenticated middleware)
+    const jwtUser = (req as any).jwtUser;
+    if (jwtUser) {
+      if (jwtUser.isAdmin === true || isAdminEmail(jwtUser.email)) {
+        console.log("[Admin Check] JWT admin user verified:", jwtUser.email);
+        return next();
+      }
+      console.log("[Admin Check] JWT user not admin:", jwtUser.email);
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
     // Check if phone auth user with isAdmin flag set by middleware
-    if (req.firebaseUser?.isAdmin === true) {
-      console.log("[Admin Check] Phone auth admin user verified");
-      return next();
+    if (req.firebaseUser) {
+      if (req.firebaseUser.isAdmin === true || isAdminEmail(req.firebaseUser.email)) {
+        console.log("[Admin Check] Firebase/Phone admin user verified:", req.firebaseUser.email || req.firebaseUser.uid);
+        return next();
+      }
+      
+      // Check Firebase custom claims for Firebase auth users
+      if (auth && !req.firebaseUser.uid.startsWith('phone_') && !req.firebaseUser.uid.startsWith('session_')) {
+        try {
+          const userRecord = await auth.getUser(req.firebaseUser.uid);
+          if (userRecord.customClaims?.admin === true) {
+            console.log("[Admin Check] Firebase custom claims admin verified");
+            return next();
+          }
+        } catch (e) {
+          // User not found in Firebase
+        }
+      }
+      
+      console.log("[Admin Check] Firebase user not admin:", req.firebaseUser.uid);
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     // Check Replit Auth user (req.user from passport)
     const replitUser = (req as any).user;
     if (replitUser?.claims) {
-      const userEmail = replitUser.claims.email?.toLowerCase();
-      const adminEmails = (process.env.ADMIN_EMAILS || "malborotbo@gmail.com").split(",").map((e: string) => e.trim().toLowerCase());
-      
-      if (userEmail && adminEmails.includes(userEmail)) {
+      const userEmail = replitUser.claims.email;
+      if (isAdminEmail(userEmail)) {
         console.log("[Admin Check] Replit Auth admin user verified:", userEmail);
         return next();
       }
+      console.log("[Admin Check] Replit user not admin:", userEmail);
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Check Firebase custom claims for Firebase auth users
-    if (auth && req.firebaseUser?.uid && !req.firebaseUser.uid.startsWith('phone_')) {
-      try {
-        const userRecord = await auth.getUser(req.firebaseUser.uid);
-        const isAdminUser = userRecord.customClaims?.admin === true;
-
-        if (isAdminUser) {
-          console.log("[Admin Check] Firebase admin user verified");
-          return next();
-        }
-      } catch (e) {
-        // User not found in Firebase, continue to next check
-      }
-    }
-
-    // Not an admin
-    const userId = req.firebaseUser?.uid || replitUser?.claims?.sub || 'unknown';
-    console.log("[Admin Check] Access denied for user:", userId);
-    return res.status(403).json({ message: "Forbidden" });
+    // No authenticated user found
+    console.log("[Admin Check] No authenticated user for admin check");
+    return res.status(401).json({ message: "Unauthorized" });
   } catch (error) {
     console.error("Admin check error:", error);
     res.status(403).json({ message: "Forbidden" });

@@ -31,7 +31,8 @@ I prefer simple language in explanations. I want iterative development, where yo
     -   **Deep Link Support**: Native Capacitor apps handle OAuth redirects and JWT token capture.
     -   **Login Page UI**: Beautiful bike repair workshop background image with dark overlay, animated logo, and RTL/LTR language toggle.
 -   **State Management**: TanStack Query.
--   **Security**: JWT with HS256 signing (requires SESSION_SECRET 32+ chars), issuer/audience validation, authentication middleware for protected routes, and admin role management.
+-   **Security**: JWT with HS256 signing (requires SESSION_SECRET 32+ chars), issuer/audience validation, authentication middleware for protected routes, and admin role management. JWT utilities in `server/jwt.ts`.
+-   **Admin Access**: Controlled by `ADMIN_EMAILS` env var (e.g., malborotbo@gmail.com) and `ADMIN_PHONE_NUMBER` secret. Both `isAuthenticated` and `isAdmin` middlewares in `server/firebaseMiddleware.ts` check JWT tokens, Firebase auth, and Replit Auth sessions.
 -   **Admin Features**: `isAdmin` field, middleware, admin-specific API endpoints, and a comprehensive admin dashboard UI.
 -   **Internationalization**: Context API for language management, automatic RTL/LTR switching, and comprehensive translation.
 -   **Payment System**: Conceptual payment flow supporting Apple Pay, Credit Card, STC Pay, and Bank Transfer, with a `payments` table.
