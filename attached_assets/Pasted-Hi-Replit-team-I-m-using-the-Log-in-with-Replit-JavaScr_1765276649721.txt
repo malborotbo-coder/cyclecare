@@ -1,0 +1,73 @@
+Hi Replit team,
+
+I'm using the "Log in with Replit" JavaScript blueprint with an Express backend and a React/Vite frontend. The project is deployed on Replit with a custom domain:
+
+    https://cyclecaretec.com
+
+The admin panel is at:
+
+    https://cyclecaretec.com/admin
+
+### What works
+
+- The Replit OAuth login flow works.
+- After logging in, the browser console shows:
+
+  [AuthCallback] Redirecting to: /admin
+  [Auth] Session found: malborotbo@gmail.com
+  isAdmin: true
+
+So the auth callback is correctly identifying me as an admin.
+
+### What is broken
+
+Once I’m on `/admin`, **all** admin API requests fail with HTTP 401 Unauthorized, even though the session shows `isAdmin: true`.
+
+Examples from Chrome DevTools → Network tab:
+
+- GET https://cyclecaretec.com/api/admin/bikes → 401 (Unauthorized)
+- GET https://cyclecaretec.com/api/admin/service-requests → 401
+- GET https://cyclecaretec.com/api/admin/technicians → 401
+- GET https://cyclecaretec.com/api/admin/users → 401
+- GET https://cyclecaretec.com/api/admin/discount-codes → 401
+- GET https://cyclecaretec.com/api/admin/invoices → 401
+- GET https://cyclecaretec.com/api/admin/user-roles → 401
+- PATCH https://cyclecaretec.com/api/admin/parts/<partId> → 401
+
+On the frontend console I see repeated messages like:
+
+  [Auth] Using JWT token for session check
+  [Auth] Using stored JWT token
+
+and then every admin request returns 401.  
+Because of this, I cannot create, update, or even list parts, users, technicians, invoices, etc. The UI just shows an error (my app shows a red button saying “حدث خطأ”, i.e. “An error occurred”).
+
+### Suspected cause
+
+It looks like the login / session is working at the Replit/Auth level, but the admin API endpoints are not seeing an authenticated user:
+
+- Either the authorization information (JWT or session cookie) is not being attached to requests to `/api/admin/*`, or
+- The token/cookie that the frontend is using does not match what the backend expects (for example: different JWT secret / format, or the admin middleware is looking in a different place than where the login is storing the auth data), or
+- There is some issue with cookies / domains / proxying when using the custom domain `cyclecaretec.com` that makes the Replit session not available on the `/api/admin/*` routes, so the middleware always returns 401.
+
+From my side, I only see:
+
+- Successful login with isAdmin: true in the console.
+- Then 401 for every `/api/admin/*` call.
+
+### What I need help with
+
+Could you please:
+
+1. Check on the Replit side why requests to `/api/admin/*` are consistently returning 401 immediately after a successful admin login.
+2. Verify that the auth/session mechanism used by the "Log in with Replit" blueprint (openid-client + passport + express-session) is correctly wired to the admin routes under `/api/admin/*` when running on a custom domain (`cyclecaretec.com`).
+3. Confirm if there is any additional configuration needed for:
+   - Cookies / sessions when using a custom domain
+   - Attaching the correct JWT / session to API requests from the React frontend on `/admin`.
+
+I’ve attached screenshots showing:
+- The admin UI loaded on https://cyclecaretec.com/admin
+- The console logs with “[Auth] Session found … isAdmin: true”
+- The Network/Console view where all `/api/admin/...` requests return 401 Unauthorized.
+
+Thanks in advance for helping me fix this. Right now I’m completely blocked from managing any admin data (parts, users, technicians, invoices, etc.) because of these 401 responses.

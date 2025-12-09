@@ -4,113 +4,12 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
 import crypto from "crypto";
+import { storage } from "./storage";
+import { signJWT, verifyJWT, JWTPayload } from "./jwt";
 
-// =============================================
-// JWT Token Functions (Stateless Auth)
-// =============================================
-function getJWTSecret(): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error("[JWT] SESSION_SECRET must be set and at least 32 characters long");
-  }
-  return secret;
-}
-
-const JWT_SECRET = getJWTSecret();
-const JWT_EXPIRES_IN = 7 * 24 * 60 * 60; // 7 days in seconds
-const JWT_ISSUER = "cyclecare-app";
-const JWT_AUDIENCE = "cyclecare-users";
-
-interface JWTPayload {
-  sub: string;
-  email: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  profileImageUrl: string | null;
-  isAdmin: boolean;
-  iss: string;
-  aud: string;
-  iat: number;
-  exp: number;
-}
-
-function base64UrlEncode(str: string): string {
-  return Buffer.from(str).toString("base64url");
-}
-
-function base64UrlDecode(str: string): string {
-  return Buffer.from(str, "base64url").toString("utf8");
-}
-
-export function signJWT(payload: Omit<JWTPayload, "iat" | "exp" | "iss" | "aud">): string {
-  const header = { alg: "HS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  
-  const fullPayload: JWTPayload = {
-    ...payload,
-    iss: JWT_ISSUER,
-    aud: JWT_AUDIENCE,
-    iat: now,
-    exp: now + JWT_EXPIRES_IN,
-  };
-  
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(fullPayload));
-  const signature = crypto
-    .createHmac("sha256", JWT_SECRET)
-    .update(`${encodedHeader}.${encodedPayload}`)
-    .digest("base64url");
-  
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
-}
-
-export function verifyJWT(token: string): JWTPayload | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    
-    const [encodedHeader, encodedPayload, signature] = parts;
-    
-    // Verify signature
-    const expectedSignature = crypto
-      .createHmac("sha256", JWT_SECRET)
-      .update(`${encodedHeader}.${encodedPayload}`)
-      .digest("base64url");
-    
-    if (signature !== expectedSignature) {
-      console.log("[JWT] Invalid signature");
-      return null;
-    }
-    
-    // Decode payload
-    const payload = JSON.parse(base64UrlDecode(encodedPayload)) as JWTPayload;
-    
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) {
-      console.log("[JWT] Token expired");
-      return null;
-    }
-    
-    // Verify issuer and audience
-    if (payload.iss !== JWT_ISSUER) {
-      console.log("[JWT] Invalid issuer:", payload.iss);
-      return null;
-    }
-    
-    if (payload.aud !== JWT_AUDIENCE) {
-      console.log("[JWT] Invalid audience:", payload.aud);
-      return null;
-    }
-    
-    return payload;
-  } catch (error) {
-    console.error("[JWT] Verification error:", error);
-    return null;
-  }
-}
+// Re-export JWT functions for backwards compatibility
+export { signJWT, verifyJWT };
 
 declare module "express-session" {
   interface SessionData {
@@ -603,36 +502,59 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 };
 
 export const isAdmin: RequestHandler = async (req, res, next) => {
+  // Helper to check if email is in ADMIN_EMAILS
+  const isAdminEmail = (email: string | undefined): boolean => {
+    if (!email) return false;
+    const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase());
+    return adminEmails.includes(email.toLowerCase());
+  };
+
   // 1. Check JWT user first
   if ((req as any).jwtUser) {
-    if ((req as any).jwtUser.isAdmin === true) {
-      console.log("[Auth] JWT admin user authorized");
+    const jwtUser = (req as any).jwtUser;
+    // Check both isAdmin flag and ADMIN_EMAILS
+    if (jwtUser.isAdmin === true || isAdminEmail(jwtUser.email)) {
+      console.log("[Auth] JWT admin user authorized:", jwtUser.email);
       return next();
     }
+    console.log("[Auth] JWT user not admin:", jwtUser.email);
     return res.status(403).json({ message: "Forbidden: Admin access required" });
   }
 
   // 2. Check Firebase/Phone Auth
   if ((req as any).firebaseUser) {
-    if ((req as any).firebaseUser.isAdmin === true) {
-      console.log("[Auth] Firebase admin user authorized");
+    const fbUser = (req as any).firebaseUser;
+    // Check both isAdmin flag and ADMIN_EMAILS
+    if (fbUser.isAdmin === true || isAdminEmail(fbUser.email)) {
+      console.log("[Auth] Firebase admin user authorized:", fbUser.email || fbUser.uid);
       return next();
     }
+    console.log("[Auth] Firebase user not admin:", fbUser.email || fbUser.uid);
     return res.status(403).json({ message: "Forbidden: Admin access required" });
   }
 
-  // 3. Check legacy Passport session
+  // 3. Check legacy Passport session (Replit Auth / OpenID Connect)
   const user = req.user as any;
   if (!user?.claims?.sub) {
+    console.log("[Auth] No authenticated user for admin check");
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const dbUser = await storage.getUser(`google_${user.claims.sub}`);
-  if (!dbUser || !dbUser.isAdmin) {
-    console.log("[Auth] User is not admin:", user.claims.sub);
-    return res.status(403).json({ message: "Forbidden: Admin access required" });
+  const userEmail = user.claims?.email;
+  
+  // Check ADMIN_EMAILS first
+  if (isAdminEmail(userEmail)) {
+    console.log("[Auth] Passport admin user authorized via ADMIN_EMAILS:", userEmail);
+    return next();
   }
 
-  console.log("[Auth] Passport admin user authorized:", user.claims.sub);
-  return next();
+  // Fallback: check database
+  const dbUser = await storage.getUser(`google_${user.claims.sub}`);
+  if (dbUser?.isAdmin) {
+    console.log("[Auth] Passport admin user authorized via DB:", user.claims.sub);
+    return next();
+  }
+
+  console.log("[Auth] User is not admin:", userEmail || user.claims.sub);
+  return res.status(403).json({ message: "Forbidden: Admin access required" });
 };
