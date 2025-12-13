@@ -1,4 +1,4 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupGoogleAuth } from "./googleAuth";
@@ -47,41 +47,41 @@ app.use((req, res, next) => {
   next();
 });
 
-// ===========================
-// 🔥 الأهم: GoogleAuth هنا
-// ===========================
-await setupGoogleAuth(app);
-
-// TEST
-app.get("/api/test", (req, res) => {
-  res.json({ ok: true });
-});
-
 (async () => {
+  try {
+    // 🔥 Google Auth (لازم داخل async)
+    await setupGoogleAuth(app);
 
-  // ===========================
-  // 🔥 API ROUTES هنا
-  // ===========================
-  const server = await registerRoutes(app);
+    // 🔥 Route اختبار مؤكد
+    app.get("/api/test", (_req, res) => {
+      res.json({ ok: true });
+    });
 
-  // Error handler
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || 500;
-    res.status(status).json({ message: err.message || "Server error" });
-  });
+    // 🔥 تسجيل كل الـ API
+    const server = await registerRoutes(app);
 
-  // ===========================
-  // 🔥 FRONTEND STATIC آخر شيء
-  // ===========================
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    // Error handler
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || 500;
+      res.status(status).json({
+        message: err.message || "Server error",
+      });
+    });
+
+    // 🔥 Frontend
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+
+    const port = Number(process.env.PORT) || 3000;
+
+    server.listen(port, "0.0.0.0", () => {
+      log(`🚀 Server running on port ${port}`);
+    });
+  } catch (err) {
+    console.error("❌ Failed to start server:", err);
+    process.exit(1);
   }
-
-  const port = Number(process.env.PORT) || 5000;
-
-  server.listen(port, "0.0.0.0", () => {
-    log(`Server running on port ${port}`);
-  });
 })();
