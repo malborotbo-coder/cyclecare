@@ -22,8 +22,11 @@ export default function AuthCallback() {
       const redirectTo = params.get("redirectTo") || "/";
       const error = params.get("error");
 
+      // ----------------------------
+      // 1️⃣ OAuth error from server
+      // ----------------------------
       if (error) {
-        console.error("[AuthCallback] Error from OAuth:", error);
+        console.error("[AuthCallback] OAuth error:", error);
         clearExistingToken();
         setStatus("error");
         setErrorMessage(error);
@@ -31,6 +34,9 @@ export default function AuthCallback() {
         return;
       }
 
+      // ----------------------------
+      // 2️⃣ No token received
+      // ----------------------------
       if (!token) {
         console.error("[AuthCallback] No token received");
         clearExistingToken();
@@ -40,42 +46,58 @@ export default function AuthCallback() {
         return;
       }
 
-      console.log("[AuthCallback] Token received, validating with server...");
-      
+      // ----------------------------
+      // 3️⃣ IMPORTANT: store token immediately
+      // ----------------------------
+      console.log("[AuthCallback] Storing token locally");
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      window.dispatchEvent(new CustomEvent("auth-token-updated"));
+
+      // ----------------------------
+      // 4️⃣ Validate token with server
+      // ----------------------------
       try {
         const response = await fetch("/api/auth/session", {
           headers: {
-            "Authorization": `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
           },
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log("[AuthCallback] Token validated successfully, user:", data.email);
-          
-          localStorage.setItem(AUTH_TOKEN_KEY, token);
-          window.dispatchEvent(new CustomEvent("auth-token-updated"));
-          
-          if (Capacitor.isNativePlatform() && data.email) {
-            try {
-              const saved = await saveCredentialsWithBiometric(token, data.email);
-              console.log("[AuthCallback] Biometric credentials saved:", saved);
-            } catch (err) {
-              console.log("[AuthCallback] Biometric save skipped:", err);
-            }
-          }
-          
-          console.log("[AuthCallback] Redirecting to:", redirectTo);
-          setLocation(redirectTo);
-        } else {
+        if (!response.ok) {
           console.error("[AuthCallback] Token validation failed:", response.status);
           clearExistingToken();
           setStatus("error");
           setErrorMessage("رمز المصادقة غير صالح");
           setTimeout(() => setLocation("/auth?error=invalid_token"), 2000);
+          return;
         }
+
+        const data = await response.json();
+
+        console.log(
+          "[AuthCallback] Token validated successfully, user:",
+          data?.user?.email
+        );
+
+        // ----------------------------
+        // 5️⃣ Save biometric (mobile only)
+        // ----------------------------
+        if (Capacitor.isNativePlatform() && data?.user?.email) {
+          try {
+            await saveCredentialsWithBiometric(token, data.user.email);
+            console.log("[AuthCallback] Biometric credentials saved");
+          } catch (err) {
+            console.log("[AuthCallback] Biometric save skipped:", err);
+          }
+        }
+
+        // ----------------------------
+        // 6️⃣ Redirect user
+        // ----------------------------
+        console.log("[AuthCallback] Redirecting to:", redirectTo);
+        setLocation(redirectTo);
       } catch (err) {
-        console.error("[AuthCallback] Error validating token:", err);
+        console.error("[AuthCallback] Validation error:", err);
         clearExistingToken();
         setStatus("error");
         setErrorMessage("حدث خطأ أثناء التحقق من رمز المصادقة");
@@ -86,13 +108,18 @@ export default function AuthCallback() {
     validateAndStoreToken();
   }, [setLocation]);
 
+  // ----------------------------
+  // UI
+  // ----------------------------
   if (status === "error") {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
           <p className="text-muted-foreground">{errorMessage || "حدث خطأ"}</p>
-          <p className="text-sm text-muted-foreground mt-2">جاري إعادة التوجيه...</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            جاري إعادة التوجيه...
+          </p>
         </div>
       </div>
     );
@@ -102,7 +129,9 @@ export default function AuthCallback() {
     <div className="flex items-center justify-center min-h-screen bg-background">
       <div className="text-center">
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-muted-foreground">جاري التحقق من تسجيل الدخول...</p>
+        <p className="text-muted-foreground">
+          جاري التحقق من تسجيل الدخول...
+        </p>
       </div>
     </div>
   );
