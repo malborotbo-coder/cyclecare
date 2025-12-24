@@ -6,11 +6,11 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { signJWT, verifyJWT, JWTPayload } from "./jwt";
+import { signJWT, verifyJWT } from "./jwt";
 
-// Re-export JWT functions for backwards compatibility
-export { signJWT, verifyJWT };
-
+// ---------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------
 interface OAuthStatePayload {
   nonce: string;
   codeVerifier: string;
@@ -20,603 +20,226 @@ interface OAuthStatePayload {
   exp: number;
 }
 
-declare module "express-session" {
-  interface SessionData {
-    redirectTo?: string;
-    nativeCallback?: string;
-    oauth_state?: string;
-    oauth_nonce?: string;
-    oauth_code_verifier?: string;
+// ---------------------------------------------------------------------
+// OAuth helpers
+// ---------------------------------------------------------------------
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function getStateSecret(): string {
+  if (!process.env.SESSION_SECRET) {
+    throw new Error("[GoogleAuth] SESSION_SECRET is missing");
   }
+  return process.env.SESSION_SECRET;
 }
 
-// Cache the Google OIDC configuration
+function signOAuthState(payload: Omit<OAuthStatePayload, "exp">): string {
+  const body: OAuthStatePayload = {
+    ...payload,
+    exp: Date.now() + OAUTH_STATE_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+  const sig = crypto
+    .createHmac("sha256", getStateSecret())
+    .update(encoded)
+    .digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+function verifyOAuthState(state?: string): OAuthStatePayload | null {
+  if (!state) return null;
+  const [encoded, sig] = state.split(".");
+  if (!encoded || !sig) return null;
+
+  const expected = crypto
+    .createHmac("sha256", getStateSecret())
+    .update(encoded)
+    .digest("base64url");
+
+  if (expected !== sig) return null;
+
+  const payload = JSON.parse(
+    Buffer.from(encoded, "base64url").toString("utf8"),
+  ) as OAuthStatePayload;
+
+  if (payload.exp < Date.now()) return null;
+  return payload;
+}
+
+// ---------------------------------------------------------------------
+// Google OIDC config (cached)
+// ---------------------------------------------------------------------
 const getGoogleConfig = memoize(
   async () => {
-    console.log("[GoogleAuth] Discovering Google OIDC configuration...");
-    const config = await client.discovery(
+    return await client.discovery(
       new URL("https://accounts.google.com"),
       process.env.GOOGLE_CLIENT_ID!,
       process.env.GOOGLE_CLIENT_SECRET!,
     );
-    console.log("[GoogleAuth] Google OIDC configuration discovered successfully");
-    return config;
   },
-  { maxAge: 3600 * 1000 },
+  { maxAge: 60 * 60 * 1000 },
 );
 
-// Generate random string for state/nonce
-function generateRandomString(length: number = 32): string {
-  return crypto.randomBytes(length).toString("hex");
-}
-
-// Generate PKCE code verifier
-function generateCodeVerifier(): string {
-  return crypto.randomBytes(32).toString("base64url");
-}
-
-// Generate PKCE code challenge from verifier
-function generateCodeChallenge(verifier: string): string {
-  return crypto.createHash("sha256").update(verifier).digest("base64url");
-}
-
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
-function getStateSecret(): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error("[GoogleAuth] SESSION_SECRET is required for OAuth state signing");
-  }
-  return secret;
-}
-
-function signOAuthState(payload: Omit<OAuthStatePayload, "exp">): string {
-  const exp = Date.now() + OAUTH_STATE_TTL_MS;
-  const body: OAuthStatePayload = { ...payload, exp };
-  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
-  const signature = crypto
-    .createHmac("sha256", getStateSecret())
-    .update(encoded)
-    .digest("base64url");
-  return `${encoded}.${signature}`;
-}
-
-function verifyOAuthState(state: string | undefined): OAuthStatePayload | null {
-  if (!state) return null;
-  const parts = state.split(".");
-  if (parts.length !== 2) return null;
-
-  const [encoded, signature] = parts;
-  const expectedSig = crypto
-    .createHmac("sha256", getStateSecret())
-    .update(encoded)
-    .digest("base64url");
-
-  if (signature !== expectedSig) {
-    console.error("[GoogleAuth] OAuth state signature mismatch");
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as OAuthStatePayload;
-    if (!payload.exp || payload.exp < Date.now()) {
-      console.error("[GoogleAuth] OAuth state expired");
-      return null;
-    }
-    return payload;
-  } catch (err) {
-    console.error("[GoogleAuth] OAuth state parse error:", err);
-    return null;
-  }
-}
-
+// ---------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------
 export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
+  const store = new pgStore({
     conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
-    ttl: sessionTtl,
     tableName: "sessions",
-  });
-
-  const isLocalDev =
-    process.env.NODE_ENV === "development" && !process.env.REPL_ID;
-
-  const isProd = process.env.NODE_ENV === "production";
-  const cookieDomain =
-    process.env.SESSION_COOKIE_DOMAIN ||
-    (isProd ? ".cyclecaretec.com" : undefined);
-  const useSecureCookies = !isLocalDev;
-  const sameSite = useSecureCookies ? "none" : "lax";
-
-  console.log("[Session] Configuring session with:", {
-    isLocalDev,
-    nodeEnv: process.env.NODE_ENV,
-    replId: !!process.env.REPL_ID,
-    cookieDomain,
-    useSecureCookies,
-    sameSite,
   });
 
   return session({
     secret: process.env.SESSION_SECRET!,
-    store: sessionStore,
+    store,
     proxy: true,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // Hosted environments need secure + SameSite=None; local dev stays lax/http
-      secure: useSecureCookies,
-      sameSite: sameSite as "lax" | "none",
-      domain: cookieDomain,
-      maxAge: sessionTtl,
+      secure: true,
+      sameSite: "none",
+      domain: ".cyclecaretec.com",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   });
 }
 
-async function upsertGoogleUser(claims: any) {
-  const adminEmails = (process.env.ADMIN_EMAILS || "malborotbo@gmail.com")
-    .split(",")
-    .filter((e) => e.trim());
-  
-  const isAdmin = adminEmails.some(
-    (email) => email.trim().toLowerCase() === claims.email?.toLowerCase(),
-  );
-
-  const userData: any = {
-    id: `google_${claims.sub}`,
-    email: claims.email,
-    firstName: claims.given_name || claims.name?.split(' ')[0],
-    lastName: claims.family_name || claims.name?.split(' ').slice(1).join(' '),
-    profileImageUrl: claims.picture,
-  };
-
-  if (isAdmin) userData.isAdmin = true;
-
-  console.log("[GoogleAuth] Upserting user:", userData.email, "isAdmin:", isAdmin);
-  await storage.upsertUser(userData);
-  
-  return userData;
-}
-
+// ---------------------------------------------------------------------
+// Main setup
+// ---------------------------------------------------------------------
 export async function setupGoogleAuth(app: Express) {
-  // Behind Cloudflare/Render we need to trust the proxy so secure cookies stick
   app.set("trust proxy", true);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
 
-  passport.serializeUser((user: any, cb) => {
-    console.log("[GoogleAuth] Serializing user:", user?.claims?.email);
-    // Serialize only essential data to avoid data loss
-    const serialized = {
-      claims: {
-        sub: user?.claims?.sub,
-        email: user?.claims?.email,
-        first_name: user?.claims?.first_name,
-        last_name: user?.claims?.last_name,
-        profile_image_url: user?.claims?.profile_image_url,
-      },
-      access_token: user?.access_token,
-      refresh_token: user?.refresh_token,
-      expires_at: user?.expires_at,
-    };
-    console.log("[GoogleAuth] Serialized data:", JSON.stringify(serialized).substring(0, 100));
-    cb(null, JSON.stringify(serialized));
-  });
-  
-  passport.deserializeUser((serialized: any, cb) => {
-    try {
-      console.log("[GoogleAuth] Deserializing:", typeof serialized, serialized ? serialized.substring(0, 50) : "null");
-      const user = typeof serialized === "string" ? JSON.parse(serialized) : serialized;
-      console.log("[GoogleAuth] Deserialized user:", user?.claims?.email);
-      cb(null, user);
-    } catch (err) {
-      console.error("[GoogleAuth] Deserialization error:", err);
-      cb(err);
-    }
-  });
-
-  // Check if Google credentials are configured
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.warn("[GoogleAuth] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured");
-    
-    app.get("/api/auth/google", (req, res) => {
-      res.status(500).json({ error: "Google OAuth not configured" });
-    });
-    return;
-  }
-
-  console.log("[GoogleAuth] Google OAuth configured with Client ID:", process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "...");
-
-  // Fixed OAuth domain - use cyclecaretec.com for Google OAuth
   const OAUTH_DOMAIN = "cyclecaretec.com";
-  
-  // Helper function to get the correct host for OAuth redirects
-  function getOAuthHost(req: any): string {
-    // Always use the fixed domain for OAuth to avoid redirect_uri_mismatch
-    console.log(`[GoogleAuth] Using fixed OAuth domain: ${OAUTH_DOMAIN}`);
-    return OAUTH_DOMAIN;
-  }
 
-  // ---------------------------------------
-  // 🔥 GOOGLE LOGIN START
-  // ---------------------------------------
+  // -------------------------------------------------------------------
+  // START GOOGLE LOGIN
+  // -------------------------------------------------------------------
   app.get("/api/auth/google", async (req, res) => {
     try {
-      const oauthHost = getOAuthHost(req);
-      console.log(`[GoogleAuth] Login request - Host: ${oauthHost}`);
-
       const redirectTo = (req.query.redirectTo as string) || "/";
       const nativeCallback = req.query.nativeCallback as string | undefined;
 
-      // Generate state, nonce, and PKCE values
-      const state = generateRandomString();
-      const nonce = generateRandomString();
-      const codeVerifier = generateCodeVerifier();
-      const codeChallenge = generateCodeChallenge(codeVerifier);
+      const nonce = crypto.randomBytes(16).toString("hex");
+      const codeVerifier = crypto.randomBytes(32).toString("base64url");
+      const codeChallenge = crypto
+        .createHash("sha256")
+        .update(codeVerifier)
+        .digest("base64url");
 
-      const stateToken = signOAuthState({
+      const state = signOAuthState({
         nonce,
         codeVerifier,
         redirectTo,
-        nativeCallback: nativeCallback ? decodeURIComponent(nativeCallback) : undefined,
-        stateId: state,
+        nativeCallback,
+        stateId: crypto.randomBytes(8).toString("hex"),
       });
 
-      // Build callback URL based on correct host
-      const callbackUrl = `https://${oauthHost}/api/auth/google/callback`;
-      console.log(`[GoogleAuth] Callback URL: ${callbackUrl}`);
+      const callbackUrl = `https://${OAUTH_DOMAIN}/api/auth/google/callback`;
 
       const config = await getGoogleConfig();
 
-      // Build authorization URL using openid-client v6 API
       const authUrl = client.buildAuthorizationUrl(config, {
         redirect_uri: callbackUrl,
         scope: "openid email profile",
-        state: stateToken,
+        state,
         nonce,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
         prompt: "select_account",
       });
 
-      console.log(`[GoogleAuth] Redirecting to Google...`);
-
-      res.redirect(authUrl.href);
-    } catch (error) {
-      console.error("[GoogleAuth] Login error:", error);
-      res.redirect("/auth?error=google_auth_failed");
+      return res.redirect(authUrl.href);
+    } catch (e) {
+      console.error("[GoogleAuth] Login error", e);
+      return res.redirect("/auth?error=google_auth_failed");
     }
   });
 
-  // Also support legacy /api/login route for backwards compatibility
-  app.get("/api/login", async (req, res) => {
-    const provider = req.query.provider as string;
-    if (provider === "google" || !provider) {
-      // Forward to Google auth
-      const params = new URLSearchParams();
-      if (req.query.redirectTo) params.set("redirectTo", req.query.redirectTo as string);
-      if (req.query.nativeCallback) params.set("nativeCallback", req.query.nativeCallback as string);
-      return res.redirect(`/api/auth/google?${params.toString()}`);
-    }
-    // For other providers (like Apple), return error for now
-    res.status(400).json({ error: `Provider ${provider} not supported yet` });
-  });
-
-  // ---------------------------------------
-  // 🔥 GOOGLE CALLBACK
-  // ---------------------------------------
+  // -------------------------------------------------------------------
+  // GOOGLE CALLBACK  ✅ (FIXED)
+  // -------------------------------------------------------------------
   app.get("/api/auth/google/callback", async (req, res) => {
     try {
-      const oauthHost = getOAuthHost(req);
-      console.log(`[GoogleAuth] Callback request - Host: ${oauthHost}`);
-      console.log(`[GoogleAuth] Query params:`, req.query);
-
-      const { error: oauthError, error_description, code } = req.query;
-
-      if (oauthError) {
-        console.error("[GoogleAuth] OAuth error:", oauthError, error_description);
-        const stateData = verifyOAuthState(req.query.state as string | undefined);
-        const nativeCallback = stateData?.nativeCallback;
-        if (nativeCallback) {
-          return res.redirect(`${nativeCallback}?error=auth_failed`);
-        }
-        return res.redirect("/auth?error=auth_failed");
-      }
-
-      if (!code) {
-        console.error("[GoogleAuth] No authorization code received");
-        return res.redirect("/auth?error=no_code");
-      }
-
-      // Build callback URL using correct host
-      const callbackUrl = `https://${oauthHost}/api/auth/google/callback`;
-      
-      const stateData = verifyOAuthState(req.query.state as string | undefined);
+      const stateData = verifyOAuthState(req.query.state as string);
       if (!stateData) {
-        console.error("[GoogleAuth] Invalid or expired OAuth state");
         return res.redirect("/auth?error=invalid_state");
       }
 
+      if (!req.query.code) {
+        return res.redirect("/auth?error=no_code");
+      }
+
+      const callbackUrl = `https://${OAUTH_DOMAIN}/api/auth/google/callback`;
+
+      // 🔥 FIX: build URL from callbackUrl (NOT req.url)
+      const currentUrl = new URL(callbackUrl);
+      currentUrl.search = new URLSearchParams(req.query as any).toString();
+
       const config = await getGoogleConfig();
 
-      // Exchange code for tokens using PKCE
-      const currentUrl = new URL(req.url, `https://${oauthHost}`);
-      
       const tokenSet = await client.authorizationCodeGrant(config, currentUrl, {
         expectedState: req.query.state as string,
         expectedNonce: stateData.nonce,
         pkceCodeVerifier: stateData.codeVerifier,
       });
 
-      console.log("[GoogleAuth] Tokens received successfully");
-
-      // Get user info from tokens
       const claims = tokenSet.claims();
-      console.log("[GoogleAuth] User claims:", claims?.email);
 
-      // Upsert user in database
-      const userData = await upsertGoogleUser(claims);
+      const isAdmin =
+        (process.env.ADMIN_EMAILS || "")
+          .split(",")
+          .map((e) => e.trim().toLowerCase())
+          .includes(claims.email?.toLowerCase());
 
-      const nativeCallback = stateData.nativeCallback;
-      const redirectTo = stateData.redirectTo || "/";
-
-      // =============================================
-      // 🔥 NEW: Generate JWT Token (Stateless Auth)
-      // =============================================
-      const jwtPayload = {
-        sub: userData.id,
-        email: userData.email || null,
-        firstName: userData.firstName || null,
-        lastName: userData.lastName || null,
-        profileImageUrl: userData.profileImageUrl || null,
-        isAdmin: userData.isAdmin || false,
+      const user = {
+        id: `google_${claims.sub}`,
+        email: claims.email,
+        firstName: claims.given_name,
+        lastName: claims.family_name,
+        profileImageUrl: claims.picture,
+        isAdmin,
       };
-      
-      const token = signJWT(jwtPayload);
-      console.log("[GoogleAuth] JWT token generated for:", userData.email);
 
-      // Redirect with token in URL (will be captured by client)
-      if (nativeCallback) {
-        console.log("[GoogleAuth] Native callback redirect with token");
-        return res.redirect(`${nativeCallback}?token=${token}`);
-      }
+      await storage.upsertUser(user);
 
-      // For web: redirect to auth callback page with token
-      console.log("[GoogleAuth] Web redirect with token to:", redirectTo);
-      const callbackPage = `/auth/callback?token=${encodeURIComponent(token)}&redirectTo=${encodeURIComponent(redirectTo)}`;
-      res.redirect(callbackPage);
-    } catch (error: any) {
-      console.error("[GoogleAuth] Callback error:", error.message || error);
-      const nativeCallback = req.session.nativeCallback;
-      if (nativeCallback) {
-        return res.redirect(`${nativeCallback}?error=auth_failed`);
-      }
-      res.redirect("/auth?error=callback_failed");
-    }
-  });
-
-  // ---------------------------------------
-  // 🔥 LOGOUT
-  // ---------------------------------------
-  app.post("/api/logout", (req, res) => {
-    console.log("[GoogleAuth] Logout requested");
-
-    req.user = undefined;
-
-    req.logout((logoutErr: any) => {
-      if (logoutErr) console.error("[GoogleAuth] Passport logout error:", logoutErr);
-
-      if (req.session) {
-        req.session.destroy((err: any) => {
-          if (err) console.error("[GoogleAuth] Session destroy error:", err);
-
-          res.clearCookie("connect.sid", {
-            path: "/",
-            httpOnly: true,
-            secure: process.env.NODE_ENV !== "development",
-            sameSite: "lax",
-          });
-
-          console.log("[GoogleAuth] Logout complete");
-          res.status(200).json({ success: true });
-        });
-      } else {
-        res.clearCookie("connect.sid");
-        console.log("[GoogleAuth] Logout complete (no session)");
-        res.status(200).json({ success: true });
-      }
-    });
-  });
-
-  // ---------------------------------------
-  // 🔥 GET CURRENT USER SESSION (JWT + Firebase)
-  // ---------------------------------------
-  app.get("/api/auth/session", async (req, res) => {
-    // 1. Check JWT token in Authorization header
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      const payload = verifyJWT(token);
-      
-      if (payload) {
-        console.log("[GoogleAuth] JWT session valid for:", payload.email);
-        
-        // Fetch latest isAdmin status from database (not from token)
-        let isAdmin = payload.isAdmin;
-        try {
-          const dbUser = await storage.getUserByEmail(payload.email || "");
-          if (dbUser) {
-            isAdmin = dbUser.isAdmin || false;
-            console.log("[GoogleAuth] DB isAdmin status:", isAdmin);
-          }
-        } catch (e) {
-          console.log("[GoogleAuth] Could not fetch user from DB, using token isAdmin");
-        }
-        
-        return res.json({
-          user: {
-            id: payload.sub,
-            email: payload.email,
-            firstName: payload.firstName,
-            lastName: payload.lastName,
-            profileImageUrl: payload.profileImageUrl,
-            isAdmin: isAdmin,
-            source: "google_auth" as const,
-          }
-        });
-      }
-    }
-    
-    // 2. Check Firebase/Phone auth (from firebaseMiddleware)
-    if ((req as any).firebaseUser) {
-      console.log("[GoogleAuth] Returning Firebase user:", (req as any).firebaseUser.uid);
-      
-      // isAdmin from middleware (set by ADMIN_EMAILS or ADMIN_PHONE_NUMBER check)
-      let isAdmin = (req as any).firebaseUser.isAdmin || false;
-      
-      // Also check database for isAdmin status (user might be marked admin in DB)
-      try {
-        const email = (req as any).firebaseUser.email;
-        if (email) {
-          const dbUser = await storage.getUserByEmail(email);
-          if (dbUser && dbUser.isAdmin) {
-            isAdmin = true;
-            console.log("[GoogleAuth] Firebase user DB isAdmin status: true");
-          }
-        }
-      } catch (e) {
-        console.log("[GoogleAuth] Could not fetch Firebase user from DB");
-      }
-      
-      console.log("[GoogleAuth] Final isAdmin status:", isAdmin);
-      
-      return res.json({
-        user: {
-          id: (req as any).firebaseUser.uid,
-          email: (req as any).firebaseUser.email,
-          firstName: null,
-          lastName: null,
-          phone: (req as any).firebaseUser.phone_number,
-          isAdmin: isAdmin,
-          source: "firebase_auth" as const,
-        }
+      const jwt = signJWT({
+        sub: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImageUrl: user.profileImageUrl,
+        isAdmin,
       });
+
+      const redirectTo = stateData.redirectTo || "/";
+      return res.redirect(
+        `/auth/callback?token=${encodeURIComponent(jwt)}&redirectTo=${encodeURIComponent(
+          redirectTo,
+        )}`,
+      );
+    } catch (e) {
+      console.error("[GoogleAuth] Callback error", e);
+      return res.redirect("/auth?error=callback_failed");
     }
-    
-    // 3. Check legacy Passport session (fallback)
-    const user = req.user as any;
-    if (user && user.claims?.sub) {
-      console.log("[GoogleAuth] Returning Passport session user:", user.claims?.email);
-      return res.json({
-        user: {
-          id: `google_${user.claims.sub}`,
-          email: user.claims?.email,
-          firstName: user.claims?.first_name,
-          lastName: user.claims?.last_name,
-          profileImageUrl: user.claims?.profile_image_url,
-          isAdmin: false,
-          source: "replit_auth" as const,
-        }
-      });
-    }
-    
-    console.log("[GoogleAuth] No authenticated user found");
-    res.status(401).json({ user: null });
   });
 }
 
-// ---------------------------------------
-// 🔥 Middlewares (JWT + Firebase + Passport)
-// ---------------------------------------
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  // 1. Check JWT token in Authorization header
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    const payload = verifyJWT(token);
-    
+// ---------------------------------------------------------------------
+// Session check
+// ---------------------------------------------------------------------
+export const isAuthenticated: RequestHandler = (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) {
+    const payload = verifyJWT(auth.slice(7));
     if (payload) {
-      // Attach user to request for downstream handlers
       (req as any).jwtUser = payload;
-      console.log("[Auth] JWT user authenticated:", payload.email);
       return next();
     }
   }
-  
-  // 2. Check Firebase/Phone Auth (from firebaseMiddleware)
-  if ((req as any).firebaseUser) {
-    console.log("[Auth] Firebase/Phone user authenticated:", (req as any).firebaseUser.uid);
-    return next();
-  }
-
-  // 3. Check legacy Passport session
-  const user = req.user as any;
-  if (user && user.claims?.sub) {
-    console.log("[Auth] Passport user authenticated:", user.claims?.sub);
-    return next();
-  }
-
   return res.status(401).json({ message: "Unauthorized" });
-};
-
-export const isAdmin: RequestHandler = async (req, res, next) => {
-  // Helper to check if email is in ADMIN_EMAILS
-  const isAdminEmail = (email: string | undefined): boolean => {
-    if (!email) return false;
-    const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase());
-    return adminEmails.includes(email.toLowerCase());
-  };
-
-  // 1. Check JWT user first
-  if ((req as any).jwtUser) {
-    const jwtUser = (req as any).jwtUser;
-    // Check both isAdmin flag and ADMIN_EMAILS
-    if (jwtUser.isAdmin === true || isAdminEmail(jwtUser.email)) {
-      console.log("[Auth] JWT admin user authorized:", jwtUser.email);
-      return next();
-    }
-    console.log("[Auth] JWT user not admin:", jwtUser.email);
-    return res.status(403).json({ message: "Forbidden: Admin access required" });
-  }
-
-  // 2. Check Firebase/Phone Auth
-  if ((req as any).firebaseUser) {
-    const fbUser = (req as any).firebaseUser;
-    // Check both isAdmin flag and ADMIN_EMAILS
-    if (fbUser.isAdmin === true || isAdminEmail(fbUser.email)) {
-      console.log("[Auth] Firebase admin user authorized:", fbUser.email || fbUser.uid);
-      return next();
-    }
-    console.log("[Auth] Firebase user not admin:", fbUser.email || fbUser.uid);
-    return res.status(403).json({ message: "Forbidden: Admin access required" });
-  }
-
-  // 3. Check legacy Passport session (Replit Auth / OpenID Connect)
-  const user = req.user as any;
-  if (!user?.claims?.sub) {
-    console.log("[Auth] No authenticated user for admin check");
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const userEmail = user.claims?.email;
-  
-  // Check ADMIN_EMAILS first
-  if (isAdminEmail(userEmail)) {
-    console.log("[Auth] Passport admin user authorized via ADMIN_EMAILS:", userEmail);
-    return next();
-  }
-
-  // Fallback: check database
-  const dbUser = await storage.getUser(`google_${user.claims.sub}`);
-  if (dbUser?.isAdmin) {
-    console.log("[Auth] Passport admin user authorized via DB:", user.claims.sub);
-    return next();
-  }
-
-  console.log("[Auth] User is not admin:", userEmail || user.claims.sub);
-  return res.status(403).json({ message: "Forbidden: Admin access required" });
 };
