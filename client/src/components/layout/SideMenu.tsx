@@ -124,7 +124,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
             </Button>
           ))}
 
-          {user?.isAdmin && (
+          {user?.isAdmin === true && (
             <Button
               variant={isActive("/admin") ? "default" : "ghost"}
               className={`justify-start gap-3 h-12 text-base ${
@@ -169,7 +169,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
               <p className="text-sm font-medium truncate">
                 {user.email || user.phone || "User"}
               </p>
-              {user.isAdmin && (
+              {user.isAdmin === true && (
                 <p className="text-xs text-primary mt-1">
                   {lang === "ar" ? "مسؤول" : "Admin"}
                 </p>

@@ -133,7 +133,7 @@ export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
             onClick={() => onTabChange('technician')}
             testId="nav-technician"
           />
-          {user?.isAdmin && (
+          {user?.isAdmin === true && (
             <NavItem
               icon={<Shield className="w-6 h-6" />}
               label={t[language].admin}

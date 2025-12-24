@@ -8,6 +8,9 @@ async function startServer() {
   try {
     const app = express();
 
+    // Trust reverse proxies (Render/Cloudflare) so secure cookies work correctly
+    app.set("trust proxy", true);
+
     // دعم RAW BODY
     app.use(
       express.json({

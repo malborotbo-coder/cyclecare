@@ -11,6 +11,15 @@ import { signJWT, verifyJWT, JWTPayload } from "./jwt";
 // Re-export JWT functions for backwards compatibility
 export { signJWT, verifyJWT };
 
+interface OAuthStatePayload {
+  nonce: string;
+  codeVerifier: string;
+  redirectTo: string;
+  nativeCallback?: string;
+  stateId: string;
+  exp: number;
+}
+
 declare module "express-session" {
   interface SessionData {
     redirectTo?: string;
@@ -51,6 +60,56 @@ function generateCodeChallenge(verifier: string): string {
   return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getStateSecret(): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("[GoogleAuth] SESSION_SECRET is required for OAuth state signing");
+  }
+  return secret;
+}
+
+function signOAuthState(payload: Omit<OAuthStatePayload, "exp">): string {
+  const exp = Date.now() + OAUTH_STATE_TTL_MS;
+  const body: OAuthStatePayload = { ...payload, exp };
+  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", getStateSecret())
+    .update(encoded)
+    .digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+function verifyOAuthState(state: string | undefined): OAuthStatePayload | null {
+  if (!state) return null;
+  const parts = state.split(".");
+  if (parts.length !== 2) return null;
+
+  const [encoded, signature] = parts;
+  const expectedSig = crypto
+    .createHmac("sha256", getStateSecret())
+    .update(encoded)
+    .digest("base64url");
+
+  if (signature !== expectedSig) {
+    console.error("[GoogleAuth] OAuth state signature mismatch");
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as OAuthStatePayload;
+    if (!payload.exp || payload.exp < Date.now()) {
+      console.error("[GoogleAuth] OAuth state expired");
+      return null;
+    }
+    return payload;
+  } catch (err) {
+    console.error("[GoogleAuth] OAuth state parse error:", err);
+    return null;
+  }
+}
+
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
@@ -64,22 +123,34 @@ export function getSession() {
   const isLocalDev =
     process.env.NODE_ENV === "development" && !process.env.REPL_ID;
 
+  const isProd = process.env.NODE_ENV === "production";
+  const cookieDomain =
+    process.env.SESSION_COOKIE_DOMAIN ||
+    (isProd ? ".cyclecaretec.com" : undefined);
+  const useSecureCookies = !isLocalDev;
+  const sameSite = useSecureCookies ? "none" : "lax";
+
   console.log("[Session] Configuring session with:", {
     isLocalDev,
     nodeEnv: process.env.NODE_ENV,
     replId: !!process.env.REPL_ID,
+    cookieDomain,
+    useSecureCookies,
+    sameSite,
   });
 
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
+    proxy: true,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // For Replit and production: use secure + sameSite none to allow cross-origin redirects
-      secure: true,
-      sameSite: "none" as const,
+      // Hosted environments need secure + SameSite=None; local dev stays lax/http
+      secure: useSecureCookies,
+      sameSite: sameSite as "lax" | "none",
+      domain: cookieDomain,
       maxAge: sessionTtl,
     },
   });
@@ -111,7 +182,8 @@ async function upsertGoogleUser(claims: any) {
 }
 
 export async function setupGoogleAuth(app: Express) {
-  app.set("trust proxy", 1);
+  // Behind Cloudflare/Render we need to trust the proxy so secure cookies stick
+  app.set("trust proxy", true);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
@@ -179,22 +251,20 @@ export async function setupGoogleAuth(app: Express) {
 
       const redirectTo = (req.query.redirectTo as string) || "/";
       const nativeCallback = req.query.nativeCallback as string | undefined;
-      
-      req.session.redirectTo = redirectTo;
-      if (nativeCallback) {
-        req.session.nativeCallback = decodeURIComponent(nativeCallback);
-        console.log(`[GoogleAuth] Native callback saved: ${req.session.nativeCallback}`);
-      }
 
       // Generate state, nonce, and PKCE values
       const state = generateRandomString();
       const nonce = generateRandomString();
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = generateCodeChallenge(codeVerifier);
-      
-      req.session.oauth_state = state;
-      req.session.oauth_nonce = nonce;
-      req.session.oauth_code_verifier = codeVerifier;
+
+      const stateToken = signOAuthState({
+        nonce,
+        codeVerifier,
+        redirectTo,
+        nativeCallback: nativeCallback ? decodeURIComponent(nativeCallback) : undefined,
+        stateId: state,
+      });
 
       // Build callback URL based on correct host
       const callbackUrl = `https://${oauthHost}/api/auth/google/callback`;
@@ -206,7 +276,7 @@ export async function setupGoogleAuth(app: Express) {
       const authUrl = client.buildAuthorizationUrl(config, {
         redirect_uri: callbackUrl,
         scope: "openid email profile",
-        state,
+        state: stateToken,
         nonce,
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
@@ -214,15 +284,8 @@ export async function setupGoogleAuth(app: Express) {
       });
 
       console.log(`[GoogleAuth] Redirecting to Google...`);
-      
-      // Save session before redirect
-      req.session.save((err) => {
-        if (err) {
-          console.error("[GoogleAuth] Session save error:", err);
-          return res.redirect("/auth?error=session_error");
-        }
-        res.redirect(authUrl.href);
-      });
+
+      res.redirect(authUrl.href);
     } catch (error) {
       console.error("[GoogleAuth] Login error:", error);
       res.redirect("/auth?error=google_auth_failed");
@@ -256,7 +319,8 @@ export async function setupGoogleAuth(app: Express) {
 
       if (oauthError) {
         console.error("[GoogleAuth] OAuth error:", oauthError, error_description);
-        const nativeCallback = req.session.nativeCallback;
+        const stateData = verifyOAuthState(req.query.state as string | undefined);
+        const nativeCallback = stateData?.nativeCallback;
         if (nativeCallback) {
           return res.redirect(`${nativeCallback}?error=auth_failed`);
         }
@@ -271,15 +335,21 @@ export async function setupGoogleAuth(app: Express) {
       // Build callback URL using correct host
       const callbackUrl = `https://${oauthHost}/api/auth/google/callback`;
       
+      const stateData = verifyOAuthState(req.query.state as string | undefined);
+      if (!stateData) {
+        console.error("[GoogleAuth] Invalid or expired OAuth state");
+        return res.redirect("/auth?error=invalid_state");
+      }
+
       const config = await getGoogleConfig();
 
       // Exchange code for tokens using PKCE
       const currentUrl = new URL(req.url, `https://${oauthHost}`);
       
       const tokenSet = await client.authorizationCodeGrant(config, currentUrl, {
-        expectedState: req.session.oauth_state,
-        expectedNonce: req.session.oauth_nonce,
-        pkceCodeVerifier: req.session.oauth_code_verifier,
+        expectedState: req.query.state as string,
+        expectedNonce: stateData.nonce,
+        pkceCodeVerifier: stateData.codeVerifier,
       });
 
       console.log("[GoogleAuth] Tokens received successfully");
@@ -291,16 +361,8 @@ export async function setupGoogleAuth(app: Express) {
       // Upsert user in database
       const userData = await upsertGoogleUser(claims);
 
-      // Get saved session data before cleanup
-      const nativeCallback = req.session.nativeCallback;
-      const redirectTo = req.session.redirectTo || "/";
-      
-      // Clean up OAuth session data
-      delete req.session.oauth_state;
-      delete req.session.oauth_nonce;
-      delete req.session.oauth_code_verifier;
-      delete req.session.nativeCallback;
-      delete req.session.redirectTo;
+      const nativeCallback = stateData.nativeCallback;
+      const redirectTo = stateData.redirectTo || "/";
 
       // =============================================
       // 🔥 NEW: Generate JWT Token (Stateless Auth)
