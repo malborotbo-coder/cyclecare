@@ -825,7 +825,7 @@ export default function AdminDashboard() {
                             <p className="text-sm text-muted-foreground">{user.email || (lang === 'ar' ? 'غير محدد' : 'Not provided')}</p>
                           </div>
                           <div className="flex gap-2">
-                            {user.isAdmin && (
+                            {user.isAdmin === true && (
                               <Badge variant="default" data-testid={`badge-admin-${user.id}`}>
                                 {txt.admin}
                               </Badge>
