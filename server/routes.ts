@@ -22,6 +22,46 @@ const upload = multer({
   storage: multer.memoryStorage(),
 });
 
+type AuthContext = {
+  userId: string;
+  isAdmin: boolean;
+  email?: string;
+  phoneNumber?: string;
+};
+
+function getAuthContext(req: any): AuthContext | null {
+  const jwtUser = (req as any).jwtUser;
+  if (jwtUser) {
+    return {
+      userId: jwtUser.sub,
+      isAdmin: jwtUser.isAdmin === true,
+      email: jwtUser.email || undefined,
+      phoneNumber: undefined,
+    };
+  }
+
+  if (req.firebaseUser) {
+    return {
+      userId: req.firebaseUser.uid,
+      isAdmin: req.firebaseUser.isAdmin === true,
+      email: req.firebaseUser.email || undefined,
+      phoneNumber: req.firebaseUser.phone_number,
+    };
+  }
+
+  if (req.user?.claims?.sub) {
+    // Legacy passport session (Google/Replit)
+    return {
+      userId: `google_${req.user.claims.sub}`,
+      isAdmin: false,
+      email: req.user.claims.email,
+      phoneNumber: undefined,
+    };
+  }
+
+  return null;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Firebase Auth + Twilio OTP for phone authentication
   // IMPORTANT: Must be registered BEFORE Google Auth so Firebase middleware runs on all /api routes
@@ -170,22 +210,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth route - Get current user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      // Support both Google Auth (req.user) and Firebase/Phone Auth (req.firebaseUser)
-      let userId: string;
-      let isAdmin = false;
-      let phoneNumber: string | undefined;
-      
-      if (req.firebaseUser) {
-        // Firebase or Phone auth
-        userId = req.firebaseUser.uid;
-        isAdmin = req.firebaseUser.isAdmin === true;
-        phoneNumber = req.firebaseUser.phone_number;
-      } else if (req.user?.claims?.sub) {
-        // Google auth - user ID format is google_${sub}
-        userId = `google_${req.user.claims.sub}`;
-      } else {
+      const auth = getAuthContext(req);
+      if (!auth) {
         return res.status(401).json({ message: "Unauthorized" });
       }
+      const { userId, isAdmin, phoneNumber } = auth;
 
       // Try to get user from database
       const user = await storage.getUser(userId);
@@ -215,18 +244,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User Profile routes
   app.get("/api/user/profile", isAuthenticated, async (req: any, res) => {
     try {
-      let userId: string;
-      let phoneNumber: string | undefined;
-      
-      if (req.firebaseUser) {
-        userId = req.firebaseUser.uid;
-        phoneNumber = req.firebaseUser.phone_number;
-      } else if (req.user?.claims?.sub) {
-        // Google auth - user ID format is google_${sub}
-        userId = `google_${req.user.claims.sub}`;
-      } else {
+      const auth = getAuthContext(req);
+      if (!auth) {
         return res.status(401).json({ message: "Unauthorized" });
       }
+      const { userId, phoneNumber } = auth;
 
       const user = await storage.getUser(userId);
       
@@ -253,19 +275,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/user/profile", isAuthenticated, async (req: any, res) => {
     try {
-      let userId: string;
-      let phoneNumber: string | undefined;
-      let isAdmin = false;
-      
-      if (req.firebaseUser) {
-        userId = req.firebaseUser.uid;
-        phoneNumber = req.firebaseUser.phone_number;
-        isAdmin = req.firebaseUser.isAdmin === true;
-      } else if (req.user?.claims?.sub) {
-        userId = req.user.claims.sub;
-      } else {
+      const auth = getAuthContext(req);
+      if (!auth) {
         return res.status(401).json({ message: "Unauthorized" });
       }
+      const { userId, phoneNumber, isAdmin } = auth;
 
       const { firstName, lastName, email } = req.body;
 
@@ -309,7 +323,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bike routes
   app.get("/api/bikes", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const bikes = await storage.getUserBikes(userId);
       res.json(bikes);
     } catch (error) {
@@ -320,7 +336,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/bikes/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const bike = await storage.getBike(req.params.id);
       if (!bike) {
         return res.status(404).json({ message: "Bike not found" });
@@ -338,7 +356,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/bikes", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const bikeData = insertBikeSchema.omit({ userId: true }).parse(req.body);
       const bike = await storage.createBike({ ...bikeData, userId });
       res.status(201).json(bike);
@@ -355,7 +375,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/bikes/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const existingBike = await storage.getBike(req.params.id);
       if (!existingBike) {
         return res.status(404).json({ message: "Bike not found" });
@@ -374,7 +396,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/bikes/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const bike = await storage.getBike(req.params.id);
       if (!bike) {
         return res.status(404).json({ message: "Bike not found" });
@@ -398,7 +422,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const userId = req.user?.claims?.sub || req.firebaseUser?.uid;
+        const auth = getAuthContext(req);
+        const userId = auth?.userId;
         console.log("[Bike Photo] Upload request - userId:", userId, "bikeId:", req.params.id);
         console.log("[Bike Photo] Auth info - user:", !!req.user, "firebaseUser:", !!req.firebaseUser);
         
@@ -482,7 +507,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get bike photos
   app.get("/api/bikes/:id/photos", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.firebaseUser?.uid;
+      const auth = getAuthContext(req);
+      const userId = auth?.userId;
       if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
@@ -511,7 +537,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const bike = await storage.getBike(req.params.id);
         if (!bike) {
           return res.status(404).json({ message: "Bike not found" });
@@ -533,7 +561,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/maintenance", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const recordData = insertMaintenanceRecordSchema.parse(req.body);
 
       // Verify bike ownership
@@ -600,7 +630,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/technicians/me", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const technician = await storage.getTechnician(userId);
       res.json(technician);
     } catch (error) {
@@ -615,7 +647,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const { technicianData, documents } = req.body;
 
         // Validate technician data
@@ -779,7 +813,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/technicians", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const technicianData = insertTechnicianSchema
         .omit({ userId: true })
         .parse(req.body);
@@ -810,7 +846,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/technicians/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const existingTechnician = await storage.getTechnicianById(req.params.id);
       if (!existingTechnician) {
         return res.status(404).json({ message: "Technician not found" });
@@ -846,7 +884,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const technicianId = req.params.id;
 
         const existingTechnician =
@@ -888,7 +928,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const technicianId = req.params.id;
 
         const existingTechnician =
@@ -918,7 +960,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Service request routes
   app.get("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const requests = await storage.getUserServiceRequests(userId);
       res.json(requests);
     } catch (error) {
@@ -932,7 +976,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const technician = await storage.getTechnician(userId);
 
         if (!technician) {
@@ -952,7 +998,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const requestData = insertServiceRequestSchema
         .omit({ userId: true })
         .parse(req.body);
@@ -978,7 +1026,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const userId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const { userId } = auth;
         const existingRequest = await storage.getServiceRequest(req.params.id);
         if (!existingRequest) {
           return res.status(404).json({ message: "Service request not found" });
@@ -1379,7 +1429,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req: any, res) => {
       try {
-        const assignerId = req.user.claims.sub;
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const assignerId = auth.userId;
         const { userId, roleId } = req.body;
 
         if (!userId || !roleId) {
@@ -1447,7 +1499,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/invoices", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const invoices = await storage.getUserInvoices(userId);
       res.json(invoices);
     } catch (error) {
@@ -1458,7 +1512,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/invoices/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const invoice = await storage.getInvoice(req.params.id);
       if (!invoice) {
         return res.status(404).json({ message: "Invoice not found" });
@@ -1542,7 +1598,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Orders API routes
   app.post("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const orderData = insertOrderSchema.parse({
         ...req.body,
         userId,
@@ -1561,7 +1619,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const orders = await storage.getUserOrders(userId);
       res.json(orders);
     } catch (error) {
@@ -1572,7 +1632,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/orders/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const order = await storage.getOrder(req.params.id);
       
       if (!order) {
@@ -1595,7 +1657,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/orders/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const order = await storage.getOrder(req.params.id);
 
       if (!order) {
@@ -1619,7 +1683,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/orders/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const { userId } = auth;
       const order = await storage.getOrder(req.params.id);
 
       if (!order) {
@@ -1675,9 +1741,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         const codeData = insertDiscountCodeSchema.parse(req.body);
+        const auth = getAuthContext(req);
+        const createdBy = auth?.userId;
         const code = await storage.createDiscountCode({
           ...codeData,
-          createdBy: req.user.claims.sub,
+          createdBy,
         });
         res.status(201).json(code);
       } catch (error) {
