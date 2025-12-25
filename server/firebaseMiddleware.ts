@@ -13,6 +13,9 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_T
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
   : null;
 
+const APP_JWT_ISSUER = "cyclecare-app";
+const APP_JWT_AUDIENCE = "cyclecare-users";
+
 let auth: admin.auth.Auth | null = null;
 let initialized = false;
 
@@ -98,6 +101,20 @@ export async function setupFirebaseAuth(app: Express) {
         (req as any).jwtUser = jwtPayload;
         req.userId = jwtPayload.sub;
         return next();
+      }
+
+      // If token looks like our app JWT but failed verification, skip Firebase
+      const parts = token.split(".");
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+          if (payload.iss === APP_JWT_ISSUER && payload.aud === APP_JWT_AUDIENCE) {
+            console.warn("[Auth] Skipping Firebase check for app JWT with invalid signature/expiry");
+            return next();
+          }
+        } catch (e) {
+          // ignore decode errors and continue
+        }
       }
 
       // Check if it's a phone session token (fallback auth) - check database first
