@@ -62,6 +62,7 @@ declare global {
     interface Request {
       firebaseUser?: any;
       userId?: string;
+      jwtUser?: any;
     }
   }
 }
@@ -91,6 +92,14 @@ export async function setupFirebaseAuth(app: Express) {
     }
 
     try {
+      // 0) First, try native JWT (Google OAuth) - no Firebase verification
+      const jwtPayload = verifyJWT(token);
+      if (jwtPayload) {
+        (req as any).jwtUser = jwtPayload;
+        req.userId = jwtPayload.sub;
+        return next();
+      }
+
       // Check if it's a phone session token (fallback auth) - check database first
       if (token.startsWith('session_')) {
         const dbSession = await storage.getPhoneSession(token);
