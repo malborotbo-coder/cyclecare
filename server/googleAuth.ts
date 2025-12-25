@@ -1,200 +1,98 @@
-import * as client from "openid-client";
-import passport from "passport";
-import session from "express-session";
-import type { Express, RequestHandler } from "express";
-import memoize from "memoizee";
-import connectPg from "connect-pg-simple";
+import type { Express } from "express";
+import axios from "axios";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { signJWT, verifyJWT } from "./jwt";
 
-// ---------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------
-interface OAuthStatePayload {
-  nonce: string;
-  codeVerifier: string;
-  redirectTo: string;
-  nativeCallback?: string;
-  stateId: string;
-  exp: number;
-}
+// --------------------------------------------------
+// START GOOGLE LOGIN
+// --------------------------------------------------
+export function setupGoogleAuth(app: Express) {
+  const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+  const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+  const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 
-// ---------------------------------------------------------------------
-// OAuth helpers
-// ---------------------------------------------------------------------
-const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-
-function getStateSecret(): string {
-  if (!process.env.SESSION_SECRET) {
-    throw new Error("[GoogleAuth] SESSION_SECRET is missing");
-  }
-  return process.env.SESSION_SECRET;
-}
-
-function signOAuthState(payload: Omit<OAuthStatePayload, "exp">): string {
-  const body: OAuthStatePayload = {
-    ...payload,
-    exp: Date.now() + OAUTH_STATE_TTL_MS,
-  };
-  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
-  const sig = crypto
-    .createHmac("sha256", getStateSecret())
-    .update(encoded)
-    .digest("base64url");
-  return `${encoded}.${sig}`;
-}
-
-function verifyOAuthState(state?: string): OAuthStatePayload | null {
-  if (!state) return null;
-  const [encoded, sig] = state.split(".");
-  if (!encoded || !sig) return null;
-
-  const expected = crypto
-    .createHmac("sha256", getStateSecret())
-    .update(encoded)
-    .digest("base64url");
-
-  if (expected !== sig) return null;
-
-  const payload = JSON.parse(
-    Buffer.from(encoded, "base64url").toString("utf8"),
-  ) as OAuthStatePayload;
-
-  if (payload.exp < Date.now()) return null;
-  return payload;
-}
-
-// ---------------------------------------------------------------------
-// Google OIDC config (cached)
-// ---------------------------------------------------------------------
-const getGoogleConfig = memoize(
-  async () => {
-    return await client.discovery(
-      new URL("https://accounts.google.com"),
-      process.env.GOOGLE_CLIENT_ID!,
-      process.env.GOOGLE_CLIENT_SECRET!,
-    );
-  },
-  { maxAge: 60 * 60 * 1000 },
-);
-
-// ---------------------------------------------------------------------
-// Session
-// ---------------------------------------------------------------------
-export function getSession() {
-  const pgStore = connectPg(session);
-  const store = new pgStore({
-    conString: process.env.DATABASE_URL,
-    tableName: "sessions",
-  });
-
-  return session({
-    secret: process.env.SESSION_SECRET!,
-    store,
-    proxy: true,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      domain: ".cyclecaretec.com",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    },
-  });
-}
-
-// ---------------------------------------------------------------------
-// Main setup
-// ---------------------------------------------------------------------
-export async function setupGoogleAuth(app: Express) {
-  app.set("trust proxy", true);
-  app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
-
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
+  const CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!; 
   const OAUTH_DOMAIN = "cyclecaretec.com";
 
-  // -------------------------------------------------------------------
-  // START GOOGLE LOGIN
-  // -------------------------------------------------------------------
-  app.get("/api/auth/google", async (req, res) => {
-    try {
-      const redirectTo = (req.query.redirectTo as string) || "/";
-      const nativeCallback = req.query.nativeCallback as string | undefined;
-
-      const nonce = crypto.randomBytes(16).toString("hex");
-      const codeVerifier = crypto.randomBytes(32).toString("base64url");
-      const codeChallenge = crypto
-        .createHash("sha256")
-        .update(codeVerifier)
-        .digest("base64url");
-
-      const state = signOAuthState({
-        nonce,
-        codeVerifier,
+  // ----------------------------------------------
+  // STEP 1: Redirect user to Google
+  // ----------------------------------------------
+  app.get("/api/auth/google", (req, res) => {
+    const redirectTo = (req.query.redirectTo as string) || "/";
+    const state = Buffer.from(
+      JSON.stringify({
         redirectTo,
-        nativeCallback,
-        stateId: crypto.randomBytes(8).toString("hex"),
-      });
+        ts: Date.now(),
+      }),
+    ).toString("base64url");
 
-      const callbackUrl = `https://${OAUTH_DOMAIN}/api/auth/google/callback`;
-
-      const config = await getGoogleConfig();
-
-      const authUrl = client.buildAuthorizationUrl(config, {
-        redirect_uri: callbackUrl,
+    const url =
+      `${GOOGLE_AUTH_URL}?` +
+      new URLSearchParams({
+        client_id: CLIENT_ID,
+        redirect_uri: CALLBACK_URL,
+        response_type: "code",
         scope: "openid email profile",
         state,
-        nonce,
-        code_challenge: codeChallenge,
-        code_challenge_method: "S256",
         prompt: "select_account",
-      });
+      }).toString();
 
-      return res.redirect(authUrl.href);
-    } catch (e) {
-      console.error("[GoogleAuth] Login error", e);
-      return res.redirect("/auth?error=google_auth_failed");
-    }
+    res.redirect(url);
   });
 
-  // -------------------------------------------------------------------
-  // GOOGLE CALLBACK  ✅ (FIXED)
-  // -------------------------------------------------------------------
+  // ----------------------------------------------
+  // STEP 2: Google Callback
+  // ----------------------------------------------
   app.get("/api/auth/google/callback", async (req, res) => {
     try {
-      const stateData = verifyOAuthState(req.query.state as string);
-      if (!stateData) {
-        return res.redirect("/auth?error=invalid_state");
+      const { code, state } = req.query as { code?: string; state?: string };
+
+      if (!code || !state) {
+        return res.redirect("/auth?error=missing_code");
       }
 
-      if (!req.query.code) {
-        return res.redirect("/auth?error=no_code");
-      }
+      const parsedState = JSON.parse(
+        Buffer.from(state, "base64url").toString("utf8"),
+      );
 
-      const callbackUrl = `https://${OAUTH_DOMAIN}/api/auth/google/callback`;
+      // ------------------------------------------
+      // Exchange code for token
+      // ------------------------------------------
+      const tokenRes = await axios.post(
+        GOOGLE_TOKEN_URL,
+        new URLSearchParams({
+          code,
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          redirect_uri: CALLBACK_URL,
+          grant_type: "authorization_code",
+        }),
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        },
+      );
 
-      // 🔥 FIX: build URL from callbackUrl (NOT req.url)
-      const currentUrl = new URL(callbackUrl);
-      currentUrl.search = new URLSearchParams(req.query as any).toString();
+      const { access_token } = tokenRes.data;
 
-      const config = await getGoogleConfig();
-
-      const tokenSet = await client.authorizationCodeGrant(config, currentUrl, {
-        expectedState: req.query.state as string,
-        expectedNonce: stateData.nonce,
-        pkceCodeVerifier: stateData.codeVerifier,
+      // ------------------------------------------
+      // Get user info
+      // ------------------------------------------
+      const userRes = await axios.get(GOOGLE_USERINFO_URL, {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
       });
 
-      const claims = tokenSet.claims();
+      const claims = userRes.data;
 
       const isAdmin =
         (process.env.ADMIN_EMAILS || "")
           .split(",")
           .map((e) => e.trim().toLowerCase())
-          .includes(claims.email?.toLowerCase());
+          .includes((claims.email || "").toLowerCase());
 
       const user = {
         id: `google_${claims.sub}`,
@@ -216,28 +114,27 @@ export async function setupGoogleAuth(app: Express) {
         isAdmin,
       });
 
-      const redirectTo = stateData.redirectTo || "/";
       return res.redirect(
         `/auth/callback?token=${encodeURIComponent(jwt)}&redirectTo=${encodeURIComponent(
-          redirectTo,
+          parsedState.redirectTo || "/",
         )}`,
       );
-    } catch (e) {
-      console.error("[GoogleAuth] Callback error", e);
+    } catch (err) {
+      console.error("[GoogleAuth] Callback error", err);
       return res.redirect("/auth?error=callback_failed");
     }
   });
 }
 
-// ---------------------------------------------------------------------
-// Session check
-// ---------------------------------------------------------------------
-export const isAuthenticated: RequestHandler = (req, res, next) => {
+// --------------------------------------------------
+// Auth middleware (JWT only)
+// --------------------------------------------------
+export const isAuthenticated = (req: any, res: any, next: any) => {
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) {
     const payload = verifyJWT(auth.slice(7));
     if (payload) {
-      (req as any).jwtUser = payload;
+      req.jwtUser = payload;
       return next();
     }
   }
