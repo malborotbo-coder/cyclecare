@@ -58,16 +58,16 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       const phoneUserId = localStorage.getItem("phone_user_id");
       const phoneNumber = localStorage.getItem("phone_number");
       
-      // Build headers with Authorization - prefer Firebase token
-      const headers: HeadersInit = {};
-      if (firebaseToken) {
-        headers["Authorization"] = `Bearer ${firebaseToken}`;
-        console.log("[Auth] Using Firebase token for session check");
-      } else if (authToken) {
-        headers["Authorization"] = `Bearer ${authToken}`;
+      // Build headers with Authorization - prefer app JWT, then Firebase, then phone
+      const headers = new Headers();
+      if (authToken) {
+        headers.set("Authorization", `Bearer ${authToken}`);
         console.log("[Auth] Using JWT token for session check");
+      } else if (firebaseToken) {
+        headers.set("Authorization", `Bearer ${firebaseToken}`);
+        console.log("[Auth] Using Firebase token for session check");
       } else if (phoneSession) {
-        headers["Authorization"] = `Bearer ${phoneSession}`;
+        headers.set("Authorization", `Bearer ${phoneSession}`);
         console.log("[Auth] Using phone session for session check");
       } else {
         console.log("[Auth] No token found for session check");
@@ -75,13 +75,20 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       
       const response = await fetch("/api/auth/session", { headers });
       
-      if (response.ok) {
-        const data = await response.json();
-        const userData = data.user || data;
-        if (userData && userData.id) {
-          console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
-          setUser(userData);
-          return;
+      if (!response.ok) {
+        console.warn("[Auth] Session check returned non-200:", response.status);
+      } else {
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await response.json();
+          const userData = data.user || data;
+          if (userData && userData.id) {
+            console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
+            setUser(userData);
+            return;
+          }
+        } else {
+          console.warn("[Auth] Session response was not JSON, skipping parse");
         }
       }
       
