@@ -183,6 +183,7 @@ export async function setupFirebaseAuth(app: Express) {
     next();
   });
 
+  // Backup: existing OTP endpoint preserved; Twilio flow annotated below.
   // Send OTP endpoint with Twilio
   app.post("/api/auth/send-otp", async (req: Request, res: Response) => {
     try {
@@ -192,6 +193,7 @@ export async function setupFirebaseAuth(app: Express) {
         return res.status(400).json({ error: "Phone number required" });
       }
 
+      // === TWILIO OTP START ===
       // Admin phone bypass - use fixed code for admin
       const adminPhone = process.env.ADMIN_PHONE_NUMBER;
       // Normalize phone to E.164 format for comparison
@@ -274,6 +276,7 @@ export async function setupFirebaseAuth(app: Express) {
         sessionId,
         message: "OTP sent to your phone",
       });
+      // === TWILIO OTP END ===
     } catch (error: any) {
       console.error("[OTP] Error:", error);
       res.status(500).json({ error: error.message });
@@ -310,9 +313,10 @@ export async function setupFirebaseAuth(app: Express) {
         return res.status(400).json({ error: "OTP expired" });
       }
 
-      // Mark as verified
+      // Mark as verified and consume OTP
       session.verified = true;
       const phoneNumber = session.phoneNumber;
+      delete (global as any).otpSessions[sessionId]; // invalidate OTP after use
 
       console.log(`[OTP] Verified for ${phoneNumber}`);
 
