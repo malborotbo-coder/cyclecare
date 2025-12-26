@@ -28,6 +28,8 @@ import {
   authenticateWithBiometric,
   type BiometricStatus 
 } from "@/lib/biometricAuth";
+import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
+import type { ConfirmationResult } from "firebase/auth";
 
 export default function FirebaseAuthPage() {
   const { lang, toggleLanguage } = useLanguage();
@@ -43,6 +45,7 @@ export default function FirebaseAuthPage() {
   const [phoneStep, setPhoneStep] = useState<"input" | "verify">("input");
   const [error, setError] = useState("");
   const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null); // Backup: keeps legacy API fallback untouched
   
   const isNative = Capacitor.isNativePlatform();
 
@@ -302,6 +305,16 @@ export default function FirebaseAuthPage() {
       setError("");
       setIsLoading(true);
       const fullPhone = `+966${phone}`;
+
+      // First try Firebase Web SDK (new path). Legacy API flow kept as fallback.
+      try {
+        const result = await sendPhoneOtp(fullPhone);
+        setConfirmationResult(result);
+        setPhoneStep("verify");
+        return;
+      } catch (firebaseError) {
+        console.warn("[PhoneAuth] Firebase OTP send failed, falling back to API:", firebaseError);
+      }
       
       const response = await fetch("/api/auth/send-otp", {
         method: "POST",
@@ -335,6 +348,20 @@ export default function FirebaseAuthPage() {
     try {
       setError("");
       setIsLoading(true);
+
+      // Prefer Firebase confirmation if available
+      if (confirmationResult) {
+        const credential = await confirmPhoneOtp(confirmationResult, otp);
+        const idToken = await credential.user.getIdToken();
+        localStorage.setItem("firebase_token", idToken);
+        localStorage.setItem("auth_token", idToken);
+        localStorage.setItem("phone_session", idToken);
+        localStorage.setItem("phone_user_id", credential.user.uid);
+        localStorage.setItem("phone_number", credential.user.phoneNumber || "");
+        window.dispatchEvent(new CustomEvent("auth-token-updated"));
+        window.location.href = "/";
+        return;
+      }
 
       const sessionId = (window as any).__phoneSessionId;
       if (!sessionId) {
@@ -376,6 +403,7 @@ export default function FirebaseAuthPage() {
     setPhoneStep("input");
     setPhone("");
     setOtp("");
+    setConfirmationResult(null);
     setError("");
   };
 
@@ -401,6 +429,9 @@ export default function FirebaseAuthPage() {
       className="min-h-screen overflow-hidden flex flex-col relative"
       style={{ paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px' }}
     >
+      {/* Backup: original layout محفوظ - إضافة reCAPTCHA مخفي للـ Phone Auth */}
+      <div id="recaptcha-container" style={{ display: "none" }} />
+
       {/* Background Image with Dark Overlay */}
       <div 
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
