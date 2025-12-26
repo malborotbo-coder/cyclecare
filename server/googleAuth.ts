@@ -124,6 +124,52 @@ export function setupGoogleAuth(app: Express) {
       return res.redirect("/auth?error=callback_failed");
     }
   });
+
+  // --------------------------------------------------
+  // STEP 3: Session check (JWT first, no redirects)
+  // --------------------------------------------------
+  app.get("/api/auth/session", (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      const payload = verifyJWT(token);
+      if (payload) {
+        return res.status(200).json({
+          authenticated: true,
+          user: {
+            id: payload.sub,
+            email: payload.email || null,
+            firstName: payload.firstName || null,
+            lastName: payload.lastName || null,
+            profileImageUrl: payload.profileImageUrl || null,
+            isAdmin: payload.isAdmin === true,
+            source: "google_auth" as const,
+          },
+        });
+      }
+    }
+
+    // Phone/Firebase user injected by firebaseMiddleware (OTP)
+    const firebaseUser = (req as any).firebaseUser;
+    if (firebaseUser) {
+      return res.status(200).json({
+        authenticated: true,
+        user: {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || null,
+          firstName: null,
+          lastName: null,
+          phone: firebaseUser.phone_number || null,
+          isAdmin: firebaseUser.isAdmin === true,
+          source: "firebase_auth" as const,
+        },
+      });
+    }
+
+    return res.status(200).json({ authenticated: false, user: null });
+  });
 }
 
 // --------------------------------------------------
