@@ -46,6 +46,7 @@ export default function FirebaseAuthPage() {
   const [error, setError] = useState("");
   const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null); // Backup: keeps legacy API fallback untouched
+  const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
   
   const isNative = Capacitor.isNativePlatform();
 
@@ -306,14 +307,16 @@ export default function FirebaseAuthPage() {
       setIsLoading(true);
       const fullPhone = `+966${phone}`;
 
-      // First try Firebase Web SDK (new path). Legacy API flow kept as fallback.
-      try {
-        const result = await sendPhoneOtp(fullPhone);
-        setConfirmationResult(result);
-        setPhoneStep("verify");
-        return;
-      } catch (firebaseError) {
-        console.warn("[PhoneAuth] Firebase OTP send failed, falling back to API:", firebaseError);
+      // Twilio-only path (Firebase Phone Auth disabled on web)
+      if (!USE_TWILIO_ONLY) {
+        try {
+          const result = await sendPhoneOtp(fullPhone);
+          setConfirmationResult(result);
+          setPhoneStep("verify");
+          return;
+        } catch (firebaseError) {
+          console.warn("[PhoneAuth] Firebase OTP send failed, falling back to API:", firebaseError);
+        }
       }
       
       const response = await fetch("/api/auth/send-otp", {
@@ -349,8 +352,8 @@ export default function FirebaseAuthPage() {
       setError("");
       setIsLoading(true);
 
-      // Prefer Firebase confirmation if available
-      if (confirmationResult) {
+      // Prefer Firebase confirmation if available AND enabled (currently disabled on web)
+      if (!USE_TWILIO_ONLY && confirmationResult) {
         const credential = await confirmPhoneOtp(confirmationResult, otp);
         const idToken = await credential.user.getIdToken();
         localStorage.setItem("firebase_token", idToken);
@@ -382,12 +385,14 @@ export default function FirebaseAuthPage() {
       const data = await response.json();
 
       if (data.customToken) {
-        if (data.useSimpleAuth) {
-          localStorage.setItem("phone_session", data.customToken);
-          localStorage.setItem("phone_user_id", data.userId);
-          localStorage.setItem("phone_number", data.phoneNumber);
-          window.location.href = "/";
-        }
+        // Use returned token for all API calls
+        localStorage.setItem("auth_token", data.customToken);
+        localStorage.setItem("firebase_token", ""); // keep key but clear Firebase phone usage
+        localStorage.setItem("phone_session", data.customToken);
+        localStorage.setItem("phone_user_id", data.userId);
+        localStorage.setItem("phone_number", data.phoneNumber);
+        window.dispatchEvent(new CustomEvent("auth-token-updated"));
+        window.location.href = "/";
       } else {
         throw new Error("No auth token received");
       }
