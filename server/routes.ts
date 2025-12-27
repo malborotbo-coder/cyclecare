@@ -620,6 +620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const { userId } = auth;
         const { technicianData, documents } = req.body;
+        const safeDocuments: any[] = Array.isArray(documents) ? documents : [];
 
         // Validate technician data
         const validatedTechnicianData = validateSchema(
@@ -629,12 +630,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         // Validate documents array
-        if (!Array.isArray(documents)) {
-          return res
-            .status(400)
-            .json({ message: "Documents must be an array" });
-        }
-
         // Validate each document
         const documentSchema = z.object({
           documentType: z.enum([
@@ -645,7 +640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileUrl: z.string().min(1),
         });
 
-        for (const doc of documents) {
+        for (const doc of safeDocuments) {
           try {
             validateSchema(documentSchema, doc, req);
 
@@ -728,8 +723,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Upload documents - if any fails, rollback all changes
         const uploadedDocuments: string[] = [];
         try {
-          if (documents.length > 0) {
-            for (const doc of documents) {
+          if (safeDocuments.length > 0) {
+            for (const doc of safeDocuments) {
               const createdDoc = await storage.addTechnicianDocument({
                 technicianId: technician.id,
                 documentType: doc.documentType,
@@ -1069,9 +1064,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
 
         // Upload image to Supabase if provided (use admin client)
-        const storageClient = getUploadClient();
         const file = req.file as Express.Multer.File;
         if (file) {
+          const storageClient = getUploadClient();
           // Sanitize filename - remove spaces and special characters
           const timestamp = Date.now();
           const fileExtension = file.originalname.split('.').pop() || 'jpg';
@@ -1121,7 +1116,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Upload to Supabase (use admin client)
-        const storageClient = getUploadClient();
         // Sanitize filename - remove spaces and special characters
         const timestamp = Date.now();
         const fileExtension = file.originalname.split('.').pop() || 'jpg';
