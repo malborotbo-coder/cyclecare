@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
+import { validateSchema, handleRouteError } from "./errors";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
@@ -126,7 +127,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           location: z.string().optional(),
         });
 
-        const data = publicTechnicianSchema.parse(formData);
+        const data = validateSchema(publicTechnicianSchema, formData, req);
 
         // First create the technician record
         const technician = await storage.createPublicTechnicianApplication(data);
@@ -197,6 +198,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           technicianId: technician.id,
         });
       } catch (error: any) {
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("Upload error:", error);
         return res
           .status(500)
@@ -359,15 +362,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
-      const bikeData = insertBikeSchema.omit({ userId: true }).parse(req.body);
+      const bikeData = validateSchema(insertBikeSchema.omit({ userId: true }), req.body, req);
       const bike = await storage.createBike({ ...bikeData, userId });
       res.status(201).json(bike);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Invalid bike data", errors: error.errors });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating bike:", error);
       res.status(500).json({ message: "Failed to create bike" });
     }
@@ -564,7 +564,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
-      const recordData = insertMaintenanceRecordSchema.parse(req.body);
+      const recordData = validateSchema(insertMaintenanceRecordSchema, req.body, req);
 
       // Verify bike ownership
       const bike = await storage.getBike(recordData.bikeId);
@@ -606,12 +606,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const record = await storage.createMaintenanceRecord(recordData);
       res.status(201).json(record);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({
-          message: "Invalid maintenance record data",
-          errors: error.errors,
-        });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating maintenance record:", error);
       res.status(500).json({ message: "Failed to create maintenance record" });
     }
@@ -653,9 +649,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { technicianData, documents } = req.body;
 
         // Validate technician data
-        const validatedTechnicianData = insertTechnicianSchema
-          .omit({ userId: true })
-          .parse(technicianData);
+        const validatedTechnicianData = validateSchema(
+          insertTechnicianSchema.omit({ userId: true }),
+          technicianData,
+          req,
+        );
 
         // Validate documents array
         if (!Array.isArray(documents)) {
@@ -676,7 +674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         for (const doc of documents) {
           try {
-            documentSchema.parse(doc);
+            validateSchema(documentSchema, doc, req);
 
             // Validate base64 data URL format
             if (!doc.fileUrl.startsWith("data:")) {
@@ -800,11 +798,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.status(201).json(sanitized);
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return res
-            .status(400)
-            .json({ message: "Invalid data", errors: error.errors });
-        }
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("Error registering technician:", error);
         res.status(500).json({ message: "Failed to register technician" });
       }
@@ -816,9 +811,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
-      const technicianData = insertTechnicianSchema
-        .omit({ userId: true })
-        .parse(req.body);
+      const technicianData = validateSchema(
+        insertTechnicianSchema.omit({ userId: true }),
+        req.body,
+        req,
+      );
       const technician = await storage.createTechnician({
         ...technicianData,
         userId,
@@ -834,11 +831,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json(sanitized);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Invalid technician data", errors: error.errors });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating technician:", error);
       res.status(500).json({ message: "Failed to create technician" });
     }
@@ -1001,21 +995,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
-      const requestData = insertServiceRequestSchema
-        .omit({ userId: true })
-        .parse(req.body);
+      const requestData = validateSchema(
+        insertServiceRequestSchema.omit({ userId: true }),
+        req.body,
+        req,
+      );
       const request = await storage.createServiceRequest({
         ...requestData,
         userId,
       });
       res.status(201).json(request);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({
-          message: "Invalid service request data",
-          errors: error.errors,
-        });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating service request:", error);
       res.status(500).json({ message: "Failed to create service request" });
     }
@@ -1072,15 +1064,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/parts", isAuthenticated, async (req: any, res) => {
     try {
-      const partData = insertPartSchema.parse(req.body);
+      const partData = validateSchema(insertPartSchema, req.body, req);
       const part = await storage.createPart(partData);
       res.status(201).json(part);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Invalid part data", errors: error.errors });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating part:", error);
       res.status(500).json({ message: "Failed to create part" });
     }
@@ -1134,15 +1123,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
-        const validatedData = insertPartSchema.parse(partData);
+        const validatedData = validateSchema(insertPartSchema, partData, req);
         const part = await storage.createPart(validatedData);
         
         console.log("[Admin Parts] Part created:", part.id);
         res.status(201).json(part);
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return res.status(400).json({ message: "Invalid part data", errors: error.errors });
-        }
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("[Admin Parts] Error creating part:", error);
         res.status(500).json({ message: "Failed to create part" });
       }
@@ -1537,7 +1525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req: any, res) => {
       try {
-        const invoiceData = insertInvoiceSchema.parse(req.body);
+        const invoiceData = validateSchema(insertInvoiceSchema, req.body, req);
 
         // Enforce 15% VAT rate (mandated by Saudi Arabia)
         const subtotal = Number(invoiceData.subtotal);
@@ -1554,11 +1542,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         res.status(201).json(invoice);
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return res
-            .status(400)
-            .json({ message: "Invalid invoice data", errors: error.errors });
-        }
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("Error creating invoice:", error);
         res.status(500).json({ message: "Failed to create invoice" });
       }
@@ -1601,17 +1586,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
-      const orderData = insertOrderSchema.parse({
+      const orderData = validateSchema(insertOrderSchema, {
         ...req.body,
         userId,
-      });
+      }, req);
 
       const order = await storage.createOrder(orderData);
       res.status(201).json(order);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid order data", errors: error.errors });
-      }
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
       console.error("Error creating order:", error);
       res.status(500).json({ message: "Failed to create order" });
     }
@@ -1740,7 +1724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req: any, res) => {
       try {
-        const codeData = insertDiscountCodeSchema.parse(req.body);
+        const codeData = validateSchema(insertDiscountCodeSchema, req.body, req);
         const auth = getAuthContext(req);
         const createdBy = auth?.userId;
         const code = await storage.createDiscountCode({
@@ -1749,12 +1733,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         res.status(201).json(code);
       } catch (error) {
-        if (error instanceof z.ZodError) {
-          return res.status(400).json({
-            message: "Invalid discount code data",
-            errors: error.errors,
-          });
-        }
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("Error creating discount code:", error);
         res.status(500).json({ message: "Failed to create discount code" });
       }
