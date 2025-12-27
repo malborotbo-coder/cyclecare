@@ -83,10 +83,10 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         <Button 
           variant="ghost" 
           size="icon" 
-          className="text-white hover:bg-white/20 h-11 w-11"
+          className="text-white hover:bg-white/20 h-12 w-12"
           data-testid="button-menu-toggle"
         >
-          <Menu className="h-6 w-6" />
+          <Menu className="h-7 w-7" />
         </Button>
       </SheetTrigger>
       <SheetContent 
