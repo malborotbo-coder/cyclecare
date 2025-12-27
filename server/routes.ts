@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
-import { supabase, supabaseAdmin } from "./supabaseClient";
+import { supabase, supabaseAdmin, getUploadClient, BUCKET_NAME } from "./supabaseClient";
 
 const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // حجم 5MB
@@ -92,25 +92,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ): Promise<string | undefined> => {
           if (!file) return undefined;
           
-          const storageClient = supabaseAdmin || supabase;
+          const storageClient = getUploadClient();
           const timestamp = Date.now();
           const fileName = `${folder}/${timestamp}-${file.originalname}`;
           
           const { data, error } = await storageClient.storage
-            .from("technician-docs")
+            .from(BUCKET_NAME)
             .upload(fileName, file.buffer, {
               contentType: file.mimetype,
               upsert: false,
             });
           
           if (error) {
-            console.error("Supabase upload error:", error);
+            console.error("[Supabase] Upload error:", JSON.stringify(error, null, 2));
             throw new Error(`Error uploading to Supabase: ${error.message}`);
           }
           
           // Get public URL
           const { data: urlData } = storageClient.storage
-            .from("technician-docs")
+            .from(BUCKET_NAME)
             .getPublicUrl(fileName);
           
           return urlData.publicUrl;
@@ -452,8 +452,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[Bike Photo] File received:", file.originalname, file.size, "bytes");
 
         // Upload to Supabase Storage (use admin client for private bucket)
-        const storageClient = supabaseAdmin || supabase;
-        console.log("[Bike Photo] Using admin client:", !!supabaseAdmin);
+        const storageClient = getUploadClient();
+        console.log("[Bike Photo] Using admin client for uploads");
         
         // Sanitize filename - remove spaces and special characters
         const timestamp = Date.now();
@@ -463,7 +463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[Bike Photo] Sanitized filename:", fileName);
 
         const { data, error } = await storageClient.storage
-          .from("technician-docs")
+          .from(BUCKET_NAME)
           .upload(fileName, file.buffer, {
             contentType: file.mimetype,
             upsert: false,
@@ -471,16 +471,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (error) {
           console.error("[Bike Photo] Supabase upload error:", JSON.stringify(error, null, 2));
-          return res.status(500).json({ 
-            message: "Failed to upload photo", 
-            error: error.message || String(error),
-            details: error
-          });
+          throw error;
         }
 
         // Get public URL
         const { data: urlData } = storageClient.storage
-          .from("technician-docs")
+          .from(BUCKET_NAME)
           .getPublicUrl(fileName);
 
         // Update bike with new image URL
@@ -495,6 +491,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bike: updatedBike 
         });
       } catch (error: any) {
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("[Bike Photo] Error:", error);
         res.status(500).json({ 
           message: "Failed to upload bike photo",
@@ -1096,7 +1094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
 
         // Upload image to Supabase if provided (use admin client)
-        const storageClient = supabaseAdmin || supabase;
+        const storageClient = getUploadClient();
         const file = req.file as Express.Multer.File;
         if (file) {
           // Sanitize filename - remove spaces and special characters
@@ -1106,17 +1104,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const fileName = `part-images/${sanitizedName}`;
 
           const { data, error } = await storageClient.storage
-            .from("technician-docs")
+            .from(BUCKET_NAME)
             .upload(fileName, file.buffer, {
               contentType: file.mimetype,
               upsert: false,
             });
 
           if (error) {
-            console.error("[Admin Parts] Supabase upload error:", error);
+            console.error("[Admin Parts] Supabase upload error:", JSON.stringify(error, null, 2));
+            throw error;
           } else {
             const { data: urlData } = storageClient.storage
-              .from("technician-docs")
+              .from(BUCKET_NAME)
               .getPublicUrl(fileName);
             partData.imageUrl = urlData.publicUrl;
             console.log("[Admin Parts] Image uploaded:", urlData.publicUrl);
@@ -1159,7 +1158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Upload to Supabase (use admin client)
-        const storageClient = supabaseAdmin || supabase;
+        const storageClient = getUploadClient();
         // Sanitize filename - remove spaces and special characters
         const timestamp = Date.now();
         const fileExtension = file.originalname.split('.').pop() || 'jpg';
@@ -1167,20 +1166,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const fileName = `part-images/${partId}/${sanitizedName}`;
 
         const { data, error } = await storageClient.storage
-          .from("technician-docs")
+          .from(BUCKET_NAME)
           .upload(fileName, file.buffer, {
             contentType: file.mimetype,
             upsert: false,
           });
 
         if (error) {
-          console.error("[Admin Parts] Supabase upload error:", error);
-          return res.status(500).json({ message: "Failed to upload image" });
+          console.error("[Admin Parts] Supabase upload error:", JSON.stringify(error, null, 2));
+          throw error;
         }
 
         // Get public URL
         const { data: urlData } = storageClient.storage
-          .from("technician-docs")
+          .from(BUCKET_NAME)
           .getPublicUrl(fileName);
 
         // Update part with new image URL
@@ -1195,6 +1194,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           part: updatedPart 
         });
       } catch (error) {
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
         console.error("[Admin Parts] Error uploading image:", error);
         res.status(500).json({ message: "Failed to upload part image" });
       }

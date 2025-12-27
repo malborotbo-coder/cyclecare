@@ -39,7 +39,7 @@ export const supabase = createClient(
   supabaseOptions
 );
 
-const BUCKET_NAME = "technician-docs";
+export const BUCKET_NAME = "technician-docs";
 
 async function ensureBucketExists() {
   if (!supabaseAdmin) {
@@ -87,4 +87,13 @@ async function ensureBucketExists() {
 if (supabaseAdmin) {
   console.log("[Supabase] Server initialized (Realtime disabled)");
   ensureBucketExists();
+}
+
+export function getUploadClient() {
+  if (!supabaseAdmin) {
+    const err = new Error("[Supabase] Service role key missing - uploads are not permitted");
+    console.error(err.message);
+    throw err;
+  }
+  return supabaseAdmin;
 }
