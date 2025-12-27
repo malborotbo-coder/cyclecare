@@ -38,7 +38,8 @@ export class ApiError extends Error {
     lang: Language;
   }) {
     const fallback = getDefaultMessage(params.code, params.lang);
-    super(params.message || fallback);
+    const baseMessage = params.message || fallback;
+    super(`${baseMessage} (${params.code})`);
     this.code = params.code;
     this.status = params.status;
     this.errors = params.errors;
