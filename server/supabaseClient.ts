@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { AppError } from "./errors";
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
@@ -73,8 +74,13 @@ export async function uploadBufferToStorage(params: {
       message: error.message,
       name: error.name,
       statusCode: (error as any)?.statusCode,
+      error,
     });
-    throw error;
+    throw new AppError({
+      code: "STORAGE_UPLOAD_FAILED",
+      status: (error as any)?.statusCode || 500,
+      message: error.message,
+    });
   }
 
   console.log("[Supabase] Upload success", { path, returnedPath: data?.path });

@@ -1,7 +1,12 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { ZodError, type ZodSchema } from "zod";
 
-export type ErrorCode = "VALIDATION_ERROR" | "UNAUTHORIZED" | "NOT_FOUND" | "SERVER_ERROR";
+export type ErrorCode =
+  | "VALIDATION_ERROR"
+  | "UNAUTHORIZED"
+  | "NOT_FOUND"
+  | "SERVER_ERROR"
+  | "STORAGE_UPLOAD_FAILED";
 export type Language = "ar" | "en";
 
 type FieldError = { field: string; message: string };
@@ -12,12 +17,14 @@ const errorMessages: Record<Language, Record<ErrorCode, string>> = {
     UNAUTHORIZED: "You are not authorized to perform this action.",
     NOT_FOUND: "The requested resource was not found.",
     SERVER_ERROR: "Something went wrong. Please try again.",
+    STORAGE_UPLOAD_FAILED: "Failed to upload file. Please try again.",
   },
   ar: {
     VALIDATION_ERROR: "الرجاء التحقق من الحقول المحددة.",
     UNAUTHORIZED: "غير مصرح لك بتنفيذ هذا الإجراء.",
     NOT_FOUND: "المورد المطلوب غير موجود.",
     SERVER_ERROR: "حدث خطأ، يرجى المحاولة مرة أخرى.",
+    STORAGE_UPLOAD_FAILED: "فشل رفع الملف، يرجى المحاولة مرة أخرى.",
   },
 };
 
