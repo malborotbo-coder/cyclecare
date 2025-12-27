@@ -31,7 +31,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
         paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',
       }}
     >
-      <div className="container mx-auto px-4 py-3.5 flex items-center justify-between gap-3">
+      <div className="container mx-auto px-4 py-6 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <SideMenu onLogout={onLogout} />
           <div onClick={handleLogoClick} className="cursor-pointer">
