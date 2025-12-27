@@ -83,7 +83,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         <Button 
           variant="ghost" 
           size="icon" 
-          className="text-white hover:bg-white/20"
+          className="text-white hover:bg-white/20 h-11 w-11"
           data-testid="button-menu-toggle"
         >
           <Menu className="h-6 w-6" />
@@ -113,7 +113,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
             <Button
               key={item.id}
               variant={isActive(item.path) ? "default" : "ghost"}
-              className={`justify-start gap-3 h-12 text-base ${
+              className={`justify-start gap-3 min-h-[52px] py-3 text-lg ${
                 isActive(item.path) ? "bg-primary text-white" : ""
               }`}
               onClick={() => handleNavigate(item.path)}
@@ -127,7 +127,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
           {user?.isAdmin === true && (
             <Button
               variant={isActive("/admin") ? "default" : "ghost"}
-              className={`justify-start gap-3 h-12 text-base ${
+              className={`justify-start gap-3 min-h-[52px] py-3 text-lg ${
                 isActive("/admin") ? "bg-primary text-white" : ""
               }`}
               onClick={() => handleNavigate("/admin")}
@@ -144,7 +144,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         <div className="flex flex-col gap-1">
           <Button
             variant="ghost"
-            className="justify-start gap-3 h-12 text-base"
+            className="justify-start gap-3 min-h-[52px] py-3 text-lg"
             onClick={() => handleNavigate("/profile")}
             data-testid="menu-profile"
           >
@@ -154,7 +154,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
           <Button
             variant="ghost"
-            className="justify-start gap-3 h-12 text-base text-destructive hover:text-destructive hover:bg-destructive/10"
+            className="justify-start gap-3 min-h-[52px] py-3 text-lg text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={handleLogout}
             data-testid="menu-logout"
           >
