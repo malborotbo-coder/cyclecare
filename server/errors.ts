@@ -96,8 +96,8 @@ export function normalizeErrorBody(
       }))
     : undefined;
   const message =
-    (typeof body?.message === "string" && body.message) ||
     errorMessages[lang][code] ||
+    (typeof body?.message === "string" && body.message) ||
     errorMessages[lang].SERVER_ERROR;
   return { code, message, ...(errors ? { errors } : {}) };
 }
