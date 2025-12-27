@@ -1,7 +1,8 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupGoogleAuth } from "./googleAuth";
+import { errorHandler, getRequestLang, normalizeErrorBody } from "./errors";
 
 // Wrap entire initialization in try-catch for Autoscale deployments
 async function startServer() {
@@ -21,6 +22,20 @@ async function startServer() {
     );
 
     app.use(express.urlencoded({ extended: false }));
+
+    // Language + error response normalization (keeps responses consistent)
+    app.use((req, res, next) => {
+      (req as any).lang = getRequestLang(req);
+      const originalJson = res.json.bind(res);
+      res.json = (body: any) => {
+        if (res.statusCode >= 400) {
+          const lang = (req as any).lang || getRequestLang(req);
+          return originalJson(normalizeErrorBody(res.statusCode, body, lang));
+        }
+        return originalJson(body);
+      };
+      next();
+    });
 
     // لوق API
     app.use((req, res, next) => {
@@ -75,11 +90,7 @@ async function startServer() {
     log("API routes registered");
 
     // Error handler
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || 500;
-      console.error("[Server] Error:", err.message);
-      res.status(status).json({ message: err.message || "Server error" });
-    });
+    app.use(errorHandler);
 
     // ===========================
     // 🔥 FRONTEND STATIC آخر شيء
