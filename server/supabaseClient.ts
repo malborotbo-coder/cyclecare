@@ -41,6 +41,48 @@ export const supabase = createClient(
 
 export const BUCKET_NAME = "technician-docs";
 
+export async function uploadBufferToStorage(params: {
+  file: Express.Multer.File;
+  path: string; // path inside the bucket
+}) {
+  const { file, path } = params;
+  const client = supabaseAdmin;
+
+  if (!client) {
+    const err = new Error("[Supabase] Service role key missing - uploads are not permitted");
+    console.error(err.message);
+    throw err;
+  }
+
+  console.log("[Supabase] Upload start", {
+    path,
+    size: file.size,
+    contentType: file.mimetype,
+  });
+
+  const { data, error } = await client.storage
+    .from(BUCKET_NAME)
+    .upload(path, file.buffer, {
+      contentType: file.mimetype,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error("[Supabase] Upload error", {
+      path,
+      message: error.message,
+      name: error.name,
+      statusCode: (error as any)?.statusCode,
+    });
+    throw error;
+  }
+
+  console.log("[Supabase] Upload success", { path, returnedPath: data?.path });
+
+  const { data: urlData } = client.storage.from(BUCKET_NAME).getPublicUrl(path);
+  return urlData.publicUrl;
+}
+
 async function ensureBucketExists() {
   if (!supabaseAdmin) {
     console.warn("[Supabase] No admin client - cannot create bucket");
