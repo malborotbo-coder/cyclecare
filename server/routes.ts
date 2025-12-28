@@ -386,13 +386,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
+      const userUuid = await ensureUserUuid(auth);
+      console.log("[USER][RESOLVED]", { externalId: auth.userId, uuid: userUuid });
       const bike = await storage.getBike(req.params.id);
       if (!bike) {
         return res.status(404).json({ message: "Bike not found" });
       }
       // Verify ownership
-      if (bike.userId !== userId) {
+      if (bike.userId !== userUuid) {
         return res.status(403).json({ message: "Forbidden" });
       }
       res.json(bike);
