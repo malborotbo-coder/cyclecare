@@ -1200,26 +1200,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/parts", async (req, res) => {
     try {
       const { category } = req.query;
-      const parts = category
-        ? await storage.getPartsByCategory(category as string)
-        : await storage.getAllParts();
-      res.json(parts);
+      const filter = category ? `?category=eq.${encodeURIComponent(category as string)}` : "";
+      const { resp, data } = await pgFetch(`/parts${filter}`);
+      if (!resp.ok) {
+        console.log("[PARTS][GET][FAILED]", { status: resp.status, body: data });
+        return res.status(500).json({ message: "Failed to fetch parts" });
+      }
+      res.json(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching parts:", error);
       res.status(500).json({ message: "Failed to fetch parts" });
-    }
-  });
-
-  app.post("/api/parts", isAuthenticated, async (req: any, res) => {
-    try {
-      const partData = validateSchema(insertPartSchema, req.body, req);
-      const part = await storage.createPart(partData);
-      res.status(201).json(part);
-    } catch (error) {
-      const handled = handleRouteError(error, req, res);
-      if (handled) return handled;
-      console.error("Error creating part:", error);
-      res.status(500).json({ message: "Failed to create part" });
     }
   });
 
@@ -1231,7 +1221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("image"),
     async (req: any, res) => {
       try {
-        console.log("[Admin Parts] Creating new part with image");
+        console.log("[ADMIN][PARTS][CREATE] start");
         
         // Parse part data from form
         const partData = {
@@ -1243,32 +1233,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           imageUrl: null as string | null,
         };
 
-        // Upload image to Supabase if provided (use admin client)
+        // Upload image to Supabase if provided (REST)
         const file = req.file as Express.Multer.File;
         if (file) {
-          const storageClient = getUploadClient();
           // Sanitize filename - remove spaces and special characters
           const timestamp = Date.now();
           const fileExtension = file.originalname.split('.').pop() || 'jpg';
           const sanitizedName = `part_${timestamp}.${fileExtension}`;
           const fileName = `part-images/${sanitizedName}`;
 
-          partData.imageUrl = await uploadBufferToStorage({
+          partData.imageUrl = await uploadToStorageRest({
             file,
             path: fileName,
           });
-          console.log("[Admin Parts] Image uploaded:", partData.imageUrl);
+          console.log("[ADMIN][PARTS][CREATE][UPLOAD] ok", { url: partData.imageUrl });
         }
 
         const validatedData = validateSchema(insertPartSchema, partData, req);
-        const part = await storage.createPart(validatedData);
-        
-        console.log("[Admin Parts] Part created:", part.id);
-        res.status(201).json(part);
+        const payload = {
+          name: validatedData.name,
+          name_en: validatedData.nameEn,
+          category: validatedData.category,
+          price: validatedData.price,
+          in_stock: validatedData.inStock,
+          image_url: validatedData.imageUrl,
+        };
+
+        const { resp, data } = await pgFetch("/parts", {
+          method: "POST",
+          body: [payload],
+          headers: { Prefer: "return=representation" },
+        });
+
+        if (!resp.ok) {
+          console.log("[ADMIN][PARTS][CREATE][FAILED]", { status: resp.status, body: data });
+          throw new AppError({
+            code: "SERVER_ERROR",
+            status: resp.status || 500,
+            message: "Failed to create part",
+          });
+        }
+
+        const created = Array.isArray(data) ? data[0] : data;
+        console.log("[ADMIN][PARTS][CREATE][OK]", { id: created?.id });
+        res.status(201).json(created);
       } catch (error) {
         const handled = handleRouteError(error, req, res);
         if (handled) return handled;
-        console.error("[Admin Parts] Error creating part:", error);
+        console.error("[ADMIN][PARTS][CREATE] Error:", error);
         res.status(500).json({ message: "Failed to create part" });
       }
     }
@@ -1289,39 +1301,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "No image uploaded" });
         }
 
-        // Check if part exists
-        const existingPart = await storage.getPart(partId);
-        if (!existingPart) {
+        const { resp: partResp, data: partData } = await pgFetch(`/parts?id=eq.${encodeURIComponent(partId)}&select=id`);
+        const existingPart = Array.isArray(partData) ? partData[0] : partData?.[0];
+        if (!partResp.ok || !existingPart) {
           return res.status(404).json({ message: "Part not found" });
         }
 
-        // Upload to Supabase (use admin client)
-        // Sanitize filename - remove spaces and special characters
+        // Upload to Supabase (REST)
         const timestamp = Date.now();
         const fileExtension = file.originalname.split('.').pop() || 'jpg';
         const sanitizedName = `part_${timestamp}.${fileExtension}`;
         const fileName = `part-images/${partId}/${sanitizedName}`;
 
-        const publicUrl = await uploadBufferToStorage({
+        const imageUrl = await uploadToStorageRest({
           file,
           path: fileName,
         });
 
-        // Update part with new image URL
-        const updatedPart = await storage.updatePart(partId, {
-          imageUrl: publicUrl,
-        });
+        const { resp: updateResp, data: updateData } = await pgFetch(
+          `/parts?id=eq.${encodeURIComponent(partId)}`,
+          { method: "PATCH", body: { image_url: imageUrl }, headers: { Prefer: "return=representation" } },
+        );
+        if (!updateResp.ok) {
+          console.log("[ADMIN][PARTS][IMAGE][FAILED]", { status: updateResp.status, body: updateData });
+          return res.status(500).json({ message: "Failed to upload image" });
+        }
 
-        console.log(`[Admin Parts] Image uploaded for part ${partId}: ${publicUrl}`);
+        const updatedPart = Array.isArray(updateData) ? updateData[0] : updateData?.[0];
+
+        console.log(`[ADMIN][PARTS] Image uploaded for part ${partId}: ${imageUrl}`);
         res.json({ 
           success: true, 
-          imageUrl: publicUrl,
+          imageUrl,
           part: updatedPart 
         });
       } catch (error) {
         const handled = handleRouteError(error, req, res);
         if (handled) return handled;
-        console.error("[Admin Parts] Error uploading image:", error);
+        console.error("[ADMIN][PARTS][IMAGE] Error:", error);
         res.status(500).json({ message: "Failed to upload part image" });
       }
     }
@@ -1335,16 +1352,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         const partId = req.params.id;
-        const existingPart = await storage.getPart(partId);
-        
-        if (!existingPart) {
+        const { resp: partResp, data: partData } = await pgFetch(`/parts?id=eq.${encodeURIComponent(partId)}&select=id`);
+        const existingPart = Array.isArray(partData) ? partData[0] : partData?.[0];
+        if (!partResp.ok || !existingPart) {
           return res.status(404).json({ message: "Part not found" });
         }
 
-        const updatedPart = await storage.updatePart(partId, req.body);
+        const patchBody: any = {};
+        if (req.body.name !== undefined) patchBody.name = req.body.name;
+        if (req.body.nameEn !== undefined) patchBody.name_en = req.body.nameEn;
+        if (req.body.category !== undefined) patchBody.category = req.body.category;
+        if (req.body.price !== undefined) patchBody.price = req.body.price;
+        if (req.body.inStock !== undefined) patchBody.in_stock = req.body.inStock;
+
+        const { resp: updateResp, data: updateData } = await pgFetch(
+          `/parts?id=eq.${encodeURIComponent(partId)}`,
+          { method: "PATCH", body: patchBody, headers: { Prefer: "return=representation" } },
+        );
+        if (!updateResp.ok) {
+          console.log("[ADMIN][PARTS][PATCH][FAILED]", { status: updateResp.status, body: updateData });
+          return res.status(500).json({ message: "Failed to update part" });
+        }
+        const updatedPart = Array.isArray(updateData) ? updateData[0] : updateData?.[0];
         res.json(updatedPart);
       } catch (error) {
-        console.error("[Admin Parts] Error updating part:", error);
+        console.error("[ADMIN][PARTS][PATCH] Error:", error);
         res.status(500).json({ message: "Failed to update part" });
       }
     }
@@ -1358,16 +1390,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         const partId = req.params.id;
-        const existingPart = await storage.getPart(partId);
-        
-        if (!existingPart) {
-          return res.status(404).json({ message: "Part not found" });
+        const { resp: delResp, data: delData } = await pgFetch(
+          `/parts?id=eq.${encodeURIComponent(partId)}`,
+          { method: "DELETE" },
+        );
+        if (!delResp.ok) {
+          console.log("[ADMIN][PARTS][DELETE][FAILED]", { status: delResp.status, body: delData });
+          return res.status(500).json({ message: "Failed to delete part" });
         }
-
-        await storage.deletePart(partId);
         res.status(204).send();
       } catch (error) {
-        console.error("[Admin Parts] Error deleting part:", error);
+        console.error("[ADMIN][PARTS][DELETE] Error:", error);
         res.status(500).json({ message: "Failed to delete part" });
       }
     }

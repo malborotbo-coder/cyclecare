@@ -1,13 +1,14 @@
 const supabaseUrl = process.env.SUPABASE_URL!;
 const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const BUCKET_NAME = "technician-docs";
+const DEFAULT_BUCKET = "technician-docs";
 
 export async function uploadToStorageRest(params: {
   file: Express.Multer.File;
   path: string;
+  bucket?: string;
 }) {
-  const { file, path } = params;
-  const url = `${supabaseUrl}/storage/v1/object/${BUCKET_NAME}/${path}`;
+  const { file, path, bucket = DEFAULT_BUCKET } = params;
+  const url = `${supabaseUrl}/storage/v1/object/${bucket}/${path}`;
 
   const resp = await fetch(url, {
     method: "POST",
@@ -26,7 +27,7 @@ export async function uploadToStorageRest(params: {
     throw new Error("STORAGE_UPLOAD_FAILED");
   }
 
-  const publicUrl = `${supabaseUrl}/storage/v1/object/public/${BUCKET_NAME}/${path}`;
+  const publicUrl = `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
   console.log("[STORAGE][UPLOAD][OK]", { status: resp.status, path: publicUrl });
   return publicUrl;
 }

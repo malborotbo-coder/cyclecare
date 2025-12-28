@@ -243,6 +243,21 @@ export default function BikeProfile() {
 
       setUploadProgress(100);
       const data = await response.json();
+      const cacheBustedUrl = data?.imageUrl
+        ? `${data.imageUrl}${data.imageUrl.includes("?") ? "&" : "?"}t=${Date.now()}`
+        : null;
+
+      if (cacheBustedUrl) {
+        queryClient.setQueryData<BikeType[] | undefined>(["/api/bikes"], (old) => {
+          if (!old) return old;
+          return old.map((b) =>
+            b.id === bikeId
+              ? { ...b, image_url: cacheBustedUrl, imageUrl: cacheBustedUrl }
+              : b
+          );
+        });
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/bikes"] });
       toast({
         title: t[language].photoUploaded,
@@ -590,7 +605,7 @@ export default function BikeProfile() {
             <div className="relative">
               <div 
                 className="h-48 bg-cover bg-center rounded-t-md"
-                style={{ backgroundImage: `url(${firstBike.imageUrl || bikeImage})` }}
+                style={{ backgroundImage: `url(${firstBike.imageUrl || firstBike.image_url || bikeImage})` }}
               />
               
               {isUploadingPhoto && uploadProgress > 0 && (
