@@ -18,6 +18,7 @@ import { z } from "zod";
 import multer from "multer";
 import { supabase, supabaseAdmin, getUploadClient, BUCKET_NAME, uploadBufferToStorage } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
+import { uploadToStorageRest } from "./storageRest";
 
 const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // حجم 5MB
@@ -496,17 +497,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
-      const existingBike = await storage.getBike(req.params.id);
-      if (!existingBike) {
-        return res.status(404).json({ message: "Bike not found" });
+      const userUuid = await ensureUserUuid(auth);
+      console.log("[BIKES][PATCH][USER]", { uuid: userUuid, externalId: auth.userId });
+
+      const { resp: existingResp, data: existingData } = await pgFetch(
+        `/bikes?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}&select=*`,
+      );
+      const existingBike = Array.isArray(existingData) ? existingData[0] : existingData?.[0];
+      if (!existingResp.ok || !existingBike) {
+        return res.status(404).json({ code: "BIKE_NOT_FOUND", message: "Bike not found" });
       }
-      // Verify ownership
-      if (existingBike.userId !== userId) {
-        return res.status(403).json({ message: "Forbidden" });
+
+      const updateBody: any = {};
+      if (req.body.brand !== undefined) updateBody.brand = req.body.brand;
+      if (req.body.model !== undefined) updateBody.model = req.body.model;
+      if (req.body.year !== undefined) updateBody.year = req.body.year;
+      if (req.body.totalDistance !== undefined) updateBody.total_distance = req.body.totalDistance;
+      if (req.body.imageUrl !== undefined) updateBody.image_url = req.body.imageUrl;
+
+      const { resp: updateResp, data: updateData } = await pgFetch(
+        `/bikes?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}`,
+        {
+          method: "PATCH",
+          body: updateBody,
+          // @ts-ignore
+          headers: { Prefer: "return=representation" },
+        } as any,
+      );
+
+      if (!updateResp.ok) {
+        console.log("[BIKES][PATCH][FAILED]", { status: updateResp.status, body: updateData });
+        throw new AppError({
+          code: "SERVER_ERROR",
+          status: updateResp.status || 500,
+          message: "Failed to update bike",
+        });
       }
-      const bike = await storage.updateBike(req.params.id, req.body);
-      res.json(bike);
+
+      const updated = Array.isArray(updateData) ? updateData[0] : updateData?.[0] || { ...existingBike, ...updateBody };
+      console.log("[BIKES][PATCH][RESULT]", { id: updated?.id });
+      res.json(updated);
     } catch (error) {
       console.error("Error updating bike:", error);
       res.status(500).json({ message: "Failed to update bike" });
@@ -542,25 +572,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         const auth = getAuthContext(req);
-        const userId = auth?.userId;
-        console.log("[Bike Photo] Upload request - userId:", userId, "bikeId:", req.params.id);
+        const userUuid = auth ? await ensureUserUuid(auth) : null;
+        console.log("[Bike Photo] Upload request - userUuid:", userUuid, "bikeId:", req.params.id);
         console.log("[Bike Photo] Auth info - user:", !!req.user, "firebaseUser:", !!req.firebaseUser);
         
-        if (!userId) {
-          console.log("[Bike Photo] No userId - returning 401");
+        if (!userUuid) {
+          console.log("[Bike Photo] No userUuid - returning 401");
           return res.status(401).json({ message: "Unauthorized" });
         }
 
-        const bike = await storage.getBike(req.params.id);
-        if (!bike) {
-          console.log("[Bike Photo] Bike not found:", req.params.id);
+        const { resp: bikeResp, data: bikeData } = await pgFetch(
+          `/bikes?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}&select=*`,
+        );
+        const bike = Array.isArray(bikeData) ? bikeData[0] : bikeData?.[0];
+        if (!bikeResp.ok || !bike) {
+          console.log("[Bike Photo] Bike not found or not owned", { status: bikeResp.status });
           return res.status(404).json({ message: "Bike not found" });
-        }
-        console.log("[Bike Photo] Bike found - bike.userId:", bike.userId, "request userId:", userId);
-        
-        if (bike.userId !== userId) {
-          console.log("[Bike Photo] Ownership mismatch - bike.userId:", bike.userId, "userId:", userId);
-          return res.status(403).json({ message: "Forbidden" });
         }
 
         const file = req.file as Express.Multer.File;
@@ -570,33 +597,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         console.log("[Bike Photo] File received:", file.originalname, file.size, "bytes");
 
-        // Upload to Supabase Storage (use admin client for private bucket)
-        console.log("[Bike Photo] Using admin client for uploads");
-        const storageClient = getUploadClient();
-        // Sanitize filename - remove spaces and special characters
         const timestamp = Date.now();
         const fileExtension = file.originalname.split('.').pop() || 'jpg';
         const sanitizedName = `bike_${timestamp}.${fileExtension}`;
         const fileName = `bike-photos/${bike.id}/${sanitizedName}`;
         console.log("[Bike Photo] Sanitized filename:", fileName);
 
-        const imageUrl = await uploadBufferToStorage({
-          file,
-          path: fileName,
-        });
+        let imageUrl: string;
+        try {
+          imageUrl = await uploadToStorageRest({ file, path: fileName });
+        } catch (e: any) {
+          return res.status(500).json({ code: "STORAGE_UPLOAD_FAILED", message: "Failed to upload bike photo" });
+        }
 
-        // Get public URL (already returned)
-        const urlData = { publicUrl: imageUrl };
+        const { resp: updateResp, data: updateData } = await pgFetch(
+          `/bikes?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}`,
+          {
+            method: "PATCH",
+            body: { image_url: imageUrl },
+            // @ts-ignore
+            headers: { Prefer: "return=representation" },
+          } as any,
+        );
 
-        // Update bike with new image URL
-        const updatedBike = await storage.updateBike(bike.id, {
-          imageUrl: urlData.publicUrl,
-        });
+        if (!updateResp.ok) {
+          console.log("[Bike Photo] Update failed", { status: updateResp.status, body: updateData });
+          return res.status(500).json({ message: "Failed to update bike photo" });
+        }
 
-        console.log(`[Bike Photo] Uploaded for bike ${bike.id}: ${urlData.publicUrl}`);
+        const updatedBike = Array.isArray(updateData) ? updateData[0] : updateData?.[0];
+
+        console.log(`[Bike Photo] Uploaded for bike ${bike.id}: ${imageUrl}`);
         res.json({ 
           success: true, 
-          imageUrl: urlData.publicUrl,
+          imageUrl,
           bike: updatedBike 
         });
       } catch (error: any) {
@@ -646,16 +680,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
-        const bike = await storage.getBike(req.params.id);
-        if (!bike) {
+        const userUuid = await ensureUserUuid(auth);
+
+        // Verify bike ownership
+        const { resp: bikeResp, data: bikeData } = await pgFetch(
+          `/bikes?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}&select=id`,
+        );
+        const bike = Array.isArray(bikeData) ? bikeData[0] : bikeData?.[0];
+        if (!bikeResp.ok || !bike) {
           return res.status(404).json({ message: "Bike not found" });
         }
-        // Verify ownership
-        if (bike.userId !== userId) {
-          return res.status(403).json({ message: "Forbidden" });
+
+        const { resp: recordsResp, data: recordsData } = await pgFetch(
+          `/maintenance_records?bike_id=eq.${encodeURIComponent(req.params.id)}&select=*`,
+        );
+
+        if (!recordsResp.ok) {
+          console.log("[MAINTENANCE][GET][FAILED]", { status: recordsResp.status, body: recordsData });
+          // If table missing or schema error, return empty array
+          return res.json([]);
         }
-        const records = await storage.getBikeMaintenanceRecords(req.params.id);
+
+        const records = Array.isArray(recordsData) ? recordsData : [];
         res.json(records);
       } catch (error) {
         console.error("Error fetching maintenance records:", error);
