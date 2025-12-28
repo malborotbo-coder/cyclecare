@@ -22,7 +22,9 @@ const supabaseOptions = {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
+    detectSessionInUrl: false,
   },
+  // Force REST-only usage on the server – no websockets/realtime
   realtime: {
     enabled: false,
   },
