@@ -582,10 +582,23 @@ export default function AdminDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to upload image");
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.message || "Failed to upload image");
       }
 
       const data = await response.json();
+      const imageUrl = data?.imageUrl || data?.image_url;
+      const cacheBusted = imageUrl ? `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}t=${Date.now()}` : null;
+
+      if (cacheBusted) {
+        queryClient.setQueryData<any[]>(["/api/parts"], (old) => {
+          if (!old) return old;
+          return old.map((p) =>
+            p.id === partId ? { ...p, image_url: cacheBusted, imageUrl: cacheBusted } : p
+          );
+        });
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/parts"] });
       toast({ 
         title: lang === 'ar' ? "تم رفع الصورة بنجاح" : "Image uploaded successfully" 
@@ -1490,16 +1503,18 @@ export default function AdminDashboard() {
                     ) : !parts || (parts as any[]).length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                     ) : (
-                      (parts as any[])?.map((part: any) => (
+                      (parts as any[])?.map((part: any) => {
+                        const img = part.imageUrl || part.image_url;
+                        return (
                         <div 
                           key={part.id} 
                           className="border p-4 rounded-lg flex items-center gap-4 hover-elevate"
                           data-testid={`part-item-${part.id}`}
                         >
                           <div className="relative w-20 h-20 flex-shrink-0">
-                            {part.imageUrl ? (
+                            {img ? (
                               <img 
-                                src={part.imageUrl} 
+                                src={img} 
                                 alt={part.name}
                                 className="w-full h-full object-cover rounded-md"
                               />

@@ -1317,7 +1317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           nameEn: req.body.nameEn,
           category: req.body.category,
           price: req.body.price,
-          inStock: req.body.inStock === "true" || req.body.inStock === true,
+          inStock: req.body.inStock === "true" || req.body.inStock === true || req.body.inStock === "True",
           imageUrl: null as string | null,
         };
 
@@ -1451,7 +1451,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (req.body.nameEn !== undefined) patchBody.name_en = req.body.nameEn;
         if (req.body.category !== undefined) patchBody.category = req.body.category;
         if (req.body.price !== undefined) patchBody.price = req.body.price;
-        if (req.body.inStock !== undefined) patchBody.in_stock = req.body.inStock;
+        if (req.body.inStock !== undefined) {
+          const v = req.body.inStock;
+          patchBody.in_stock = v === true || v === "true" || v === "True";
+        }
+        if (req.body.isActive !== undefined) {
+          const v = req.body.isActive;
+          patchBody.is_active = v === true || v === "true" || v === "True";
+        }
 
         const { resp: updateResp, data: updateData } = await pgFetch(
           `/parts?id=eq.${encodeURIComponent(partId)}`,
