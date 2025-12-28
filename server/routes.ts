@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
-import { validateSchema, handleRouteError } from "./errors";
+import { validateSchema, handleRouteError, AppError, errorHandler } from "./errors";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
@@ -343,18 +343,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/bikes", isAuthenticated, async (req: any, res) => {
+    console.log("[BIKES][STEP 1] Route entry", { path: req.path, method: req.method, contentType: req.headers["content-type"] });
     try {
       const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      if (!auth) {
+        console.log("[BIKES][STEP 2] Unauthorized");
+        return res.status(401).json({ message: "Unauthorized" });
+      }
       const { userId } = auth;
+
+      console.log("[BIKES][STEP 3] Raw body", { bodyKeys: Object.keys(req.body || {}) });
       const bikeData = validateSchema(insertBikeSchema.omit({ userId: true }), req.body, req);
+      console.log("[BIKES][STEP 4] Validated data", { bikeId: bikeData.bikeId, brand: bikeData.brand, model: bikeData.model });
+
+      // No file upload in this route; log presence just in case
+      console.log("[BIKES][STEP 5] Files check", { hasFile: !!req.file, fileKeys: req.file ? Object.keys(req.file) : [], hasFiles: !!req.files });
+
+      console.log("[BIKES][STEP 6] Before DB insert");
       const bike = await storage.createBike({ ...bikeData, userId });
+      console.log("[BIKES][STEP 7] Insert success", { id: bike.id, userId });
       res.status(201).json(bike);
     } catch (error) {
+      console.error("[BIKES][ERROR] create bike failed", { error: error?.message });
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;
-      console.error("Error creating bike:", error);
-      res.status(500).json({ message: "Failed to create bike" });
+      const appErr = new AppError({
+        code: "SERVER_ERROR",
+        status: 500,
+        message: "Failed to create bike",
+      });
+      return errorHandler(appErr, req, res, () => {});
     }
   });
 
