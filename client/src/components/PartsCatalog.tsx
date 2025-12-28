@@ -38,9 +38,9 @@ function PartCard({ part, onAddToCart }: PartCardProps) {
     >
       <CardContent className="p-4">
         <div className="aspect-square bg-muted rounded-md mb-3 flex items-center justify-center overflow-hidden">
-          {part.imageUrl ? (
+          {part.imageUrl || (part as any).image_url ? (
             <img
-              src={part.imageUrl}
+              src={(part as any).imageUrl || (part as any).image_url}
               alt={part.name}
               className="w-full h-full object-cover"
             />
