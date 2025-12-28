@@ -352,6 +352,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { userId } = auth;
 
+      // TEMP: Direct Supabase REST reachability test (remove after diagnosis)
+      try {
+        const restUrl = `${process.env.SUPABASE_URL}/rest/v1/bikes?select=id&limit=1`;
+        const restHeaders: any = {
+          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          Accept: "application/json",
+        };
+        const resp = await fetch(restUrl, { headers: restHeaders });
+        const text = await resp.text();
+        const preview = text.slice(0, 100);
+        if (resp.ok) {
+          console.log("[SUPABASE][REST] OK", { status: resp.status, bodyPreview: preview });
+        } else {
+          console.log("[SUPABASE][REST] FAILED", { status: resp.status, bodyPreview: preview });
+        }
+      } catch (restErr: any) {
+        console.log("[SUPABASE][REST] FAILED", { error: restErr?.message || String(restErr) });
+      }
+
       console.log("[BIKES][STEP 3] Raw body", { bodyKeys: Object.keys(req.body || {}) });
       const bikeData = validateSchema(insertBikeSchema.omit({ userId: true }), req.body, req);
       console.log("[BIKES][STEP 4] Validated data", { bikeId: bikeData.bikeId, brand: bikeData.brand, model: bikeData.model });
