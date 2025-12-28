@@ -462,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       const created = Array.isArray(data) ? data[0] : data;
-      console.log("[BIKES][STEP 7] Insert success", { id: created?.id, userId });
+      console.log("[BIKES][STEP 7] Insert success", { id: created?.id, userId: userUuid });
       res.status(201).json(created);
     } catch (error) {
       console.error("[BIKES][ERROR] create bike failed", { error: error?.message });

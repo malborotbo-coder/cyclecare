@@ -770,84 +770,10 @@ export default function BikeProfile() {
                 <h3 className="font-semibold mb-1">{t[language].addAnotherBike}</h3>
                 <p className="text-sm text-muted-foreground">{t[language].manageMultipleBikes}</p>
               </div>
-              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-add-another-bike">
-                    <Plus className="w-4 h-4 ml-2" />
-                    {t[language].add}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>{t[language].addBike}</DialogTitle>
-                  </DialogHeader>
-                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                      <FormField
-                        control={form.control}
-                        name="brand"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t[language].brand}</FormLabel>
-                            <FormControl>
-                              <Input data-testid="input-brand" placeholder="Trek" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="model"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t[language].model}</FormLabel>
-                            <FormControl>
-                              <Input data-testid="input-model" placeholder="FX 2" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="year"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{t[language].year}</FormLabel>
-                            <FormControl>
-                              <Input 
-                                data-testid="input-year" 
-                                type="number" 
-                                {...field} 
-                                onChange={(e) => field.onChange(parseInt(e.target.value))}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <div className="flex gap-2 justify-end">
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          onClick={() => setIsDialogOpen(false)}
-                          data-testid="button-cancel"
-                        >
-                          {t[language].cancel}
-                        </Button>
-                        <Button 
-                          type="submit" 
-                          disabled={createBikeMutation.isPending}
-                          data-testid="button-submit-bike"
-                        >
-                          {createBikeMutation.isPending ? t[language].loading : t[language].submit}
-                        </Button>
-                      </div>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
+              <Button data-testid="button-add-another-bike" onClick={() => setIsDialogOpen(true)}>
+                <Plus className="w-4 h-4 ml-2" />
+                {t[language].add}
+              </Button>
             </div>
           </CardContent>
         </Card>
