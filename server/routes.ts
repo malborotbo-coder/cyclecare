@@ -64,6 +64,64 @@ function getAuthContext(req: any): AuthContext | null {
   return null;
 }
 
+async function ensureUserUuid(auth: AuthContext): Promise<string> {
+  const uuidRegex = /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{12}$/;
+  if (uuidRegex.test(auth.userId)) {
+    return auth.userId;
+  }
+
+  const providerId = auth.userId;
+
+  // Lookup existing user by auth_provider_id
+  const { resp: lookupResp, data: lookupData } = await pgFetch(
+    `/users?auth_provider_id=eq.${encodeURIComponent(providerId)}&select=id&limit=1`,
+  );
+  if (lookupResp.ok) {
+    const existing = Array.isArray(lookupData) ? lookupData[0] : lookupData?.[0];
+    if (existing?.id) {
+      return existing.id;
+    }
+  } else {
+    console.log("[USER][LOOKUP] Failed", { status: lookupResp.status, body: lookupData });
+  }
+
+  // Create new user record
+  const { resp: createResp, data: createData } = await pgFetch("/users", {
+    method: "POST",
+    body: [
+      {
+        auth_provider: "google",
+        auth_provider_id: providerId,
+        email: auth.email || null,
+        first_name: null,
+        last_name: null,
+        profile_image_url: null,
+        is_admin: auth.isAdmin === true,
+        is_technician: false,
+      },
+    ],
+  });
+
+  if (!createResp.ok) {
+    console.log("[USER][CREATE] Failed", { status: createResp.status, body: createData });
+    throw new AppError({
+      code: "SERVER_ERROR",
+      status: createResp.status || 500,
+      message: "Failed to resolve user",
+    });
+  }
+
+  const created = Array.isArray(createData) ? createData[0] : createData;
+  if (!created?.id) {
+    throw new AppError({
+      code: "SERVER_ERROR",
+      status: 500,
+      message: "Failed to resolve user",
+    });
+  }
+  return created.id;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Firebase Auth + Twilio OTP for phone authentication
   // IMPORTANT: Must be registered BEFORE Google Auth so Firebase middleware runs on all /api routes
@@ -351,7 +409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[BIKES][STEP 2] Unauthorized");
         return res.status(401).json({ message: "Unauthorized" });
       }
-      const { userId } = auth;
+      const userUuid = await ensureUserUuid(auth);
 
       // TEMP: Direct Supabase REST reachability test (remove after diagnosis)
       try {
@@ -384,7 +442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { resp, data } = await pgFetch("/bikes", {
         method: "POST",
         body: [{
-          user_id: userId,
+          user_id: userUuid,
           bike_id: bikeData.bikeId,
           brand: bikeData.brand,
           model: bikeData.model,
