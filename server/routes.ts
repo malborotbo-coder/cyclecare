@@ -372,8 +372,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
-      const bikes = await storage.getUserBikes(userId);
+      const userUuid = await ensureUserUuid(auth);
+      console.log("[USER][RESOLVED]", { externalId: auth.userId, uuid: userUuid });
+      const bikes = await storage.getUserBikes(userUuid);
       res.json(bikes);
     } catch (error) {
       console.error("Error fetching bikes:", error);
