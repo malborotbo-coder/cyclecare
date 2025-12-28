@@ -373,8 +373,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
-      console.log("[USER][RESOLVED]", { externalId: auth.userId, uuid: userUuid });
-      const bikes = await storage.getUserBikes(userUuid);
+      console.log("[BIKES][GET][USER]", { uuid: userUuid, externalId: auth.userId });
+
+      const { resp, data } = await pgFetch(
+        `/bikes?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+
+      if (!resp.ok) {
+        console.log("[BIKES][GET][FAILED]", { status: resp.status, body: data });
+        throw new AppError({
+          code: "SERVER_ERROR",
+          status: resp.status || 500,
+          message: "Failed to fetch bikes",
+        });
+      }
+
+      const bikes = Array.isArray(data) ? data : [];
+      console.log("[BIKES][GET][RESULT]", { count: bikes.length });
       res.json(bikes);
     } catch (error) {
       console.error("Error fetching bikes:", error);

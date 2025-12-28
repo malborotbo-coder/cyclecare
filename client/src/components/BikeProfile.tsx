@@ -265,16 +265,17 @@ export default function BikeProfile() {
   });
 
   const bikeFormSchema = insertBikeSchema.omit({ userId: true });
+  const bikeFormDefaults = useRef({
+    brand: "",
+    model: "",
+    year: new Date().getFullYear(),
+    bikeId: `BIKE-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+    totalDistance: 0,
+  });
   
   const form = useForm<z.infer<typeof bikeFormSchema>>({
     resolver: zodResolver(bikeFormSchema),
-    defaultValues: {
-      brand: "",
-      model: "",
-      year: new Date().getFullYear(),
-      bikeId: `BIKE-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      totalDistance: 0,
-    },
+    defaultValues: bikeFormDefaults.current,
   });
 
   const createBikeMutation = useMutation({
@@ -284,7 +285,7 @@ export default function BikeProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bikes"] });
       setIsDialogOpen(false);
-      form.reset();
+      form.reset(bikeFormDefaults.current);
       toast({
         title: t[language].bikeAddedSuccess,
       });
