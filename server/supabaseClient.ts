@@ -135,7 +135,7 @@ async function ensureBucketExists() {
 }
 
 if (supabaseAdmin) {
-  console.log("[Supabase] Server initialized (Realtime disabled)");
+  console.log("[Supabase] SERVER_SUPABASE_CLIENT_READY (Realtime disabled, REST-only)");
   ensureBucketExists();
 }
 

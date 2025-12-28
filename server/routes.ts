@@ -17,6 +17,7 @@ import {
 import { z } from "zod";
 import multer from "multer";
 import { supabase, supabaseAdmin, getUploadClient, BUCKET_NAME, uploadBufferToStorage } from "./supabaseClient";
+import { pgFetch } from "./postgrest";
 
 const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // حجم 5MB
@@ -379,10 +380,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // No file upload in this route; log presence just in case
       console.log("[BIKES][STEP 5] Files check", { hasFile: !!req.file, fileKeys: req.file ? Object.keys(req.file) : [], hasFiles: !!req.files });
 
-      console.log("[BIKES][STEP 6] Before DB insert");
-      const bike = await storage.createBike({ ...bikeData, userId });
-      console.log("[BIKES][STEP 7] Insert success", { id: bike.id, userId });
-      res.status(201).json(bike);
+      console.log("[BIKES][STEP 6] Before DB insert (PostgREST)");
+      const { resp, data } = await pgFetch("/bikes", {
+        method: "POST",
+        body: [{ ...bikeData, user_id: userId }],
+      });
+      if (!resp.ok) {
+        console.log("[BIKES][STEP 7] Insert failed", { status: resp.status, body: data });
+        throw new AppError({
+          code: "SERVER_ERROR",
+          status: resp.status || 500,
+          message: "Failed to create bike",
+        });
+      }
+      const created = Array.isArray(data) ? data[0] : data;
+      console.log("[BIKES][STEP 7] Insert success", { id: created?.id, userId });
+      res.status(201).json(created);
     } catch (error) {
       console.error("[BIKES][ERROR] create bike failed", { error: error?.message });
       const handled = handleRouteError(error, req, res);
