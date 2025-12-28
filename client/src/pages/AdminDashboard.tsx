@@ -1506,159 +1506,160 @@ export default function AdminDashboard() {
                       (parts as any[])?.map((part: any) => {
                         const img = part.imageUrl || part.image_url;
                         return (
-                        <div 
-                          key={part.id} 
-                          className="border p-4 rounded-lg flex items-center gap-4 hover-elevate"
-                          data-testid={`part-item-${part.id}`}
-                        >
-                          <div className="relative w-20 h-20 flex-shrink-0">
-                            {img ? (
-                              <img 
-                                src={img} 
-                                alt={part.name}
-                                className="w-full h-full object-cover rounded-md"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-muted rounded-md flex items-center justify-center">
-                                <Package className="w-8 h-8 text-muted-foreground" />
-                              </div>
-                            )}
-                            <input
-                              type="file"
-                              className="hidden"
-                              accept="image/*"
-                              id={`part-image-${part.id}`}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleUploadPartImage(part.id, file);
-                              }}
-                            />
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="icon"
-                              className="absolute -bottom-2 -right-2 w-7 h-7"
-                              onClick={() => document.getElementById(`part-image-${part.id}`)?.click()}
-                              disabled={uploadingPartImage === part.id}
-                              data-testid={`button-upload-image-${part.id}`}
-                            >
-                              {uploadingPartImage === part.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <Upload className="w-3 h-3" />
-                              )}
-                            </Button>
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold truncate">{part.name}</p>
-                            {editingPartId === part.id ? (
-                              <Select 
-                                value={editingCategory} 
-                                onValueChange={setEditingCategory}
-                              >
-                                <SelectTrigger className="mt-1 h-8 text-sm w-40" data-testid={`select-edit-category-${part.id}`}>
-                                  <SelectValue placeholder={lang === 'ar' ? 'التصنيف' : 'Category'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="spare_parts">
-                                    {lang === 'ar' ? 'قطع غيار' : 'Spare Parts'}
-                                  </SelectItem>
-                                  <SelectItem value="accessories">
-                                    {lang === 'ar' ? 'اكسسوارات' : 'Accessories'}
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                {part.category === 'spare_parts' 
-                                  ? (lang === 'ar' ? 'قطع غيار' : 'Spare Parts')
-                                  : part.category === 'accessories'
-                                  ? (lang === 'ar' ? 'اكسسوارات' : 'Accessories')
-                                  : part.category}
-                              </p>
-                            )}
-                            <Button
-                              variant={part.inStock ? "default" : "secondary"}
-                              size="sm"
-                              className="mt-1"
-                              onClick={() => togglePartStockMutation.mutate({ partId: part.id, inStock: !part.inStock })}
-                              disabled={togglePartStockMutation.isPending}
-                              data-testid={`button-toggle-stock-${part.id}`}
-                            >
-                              {part.inStock 
-                                ? (lang === 'ar' ? 'متوفر ✓' : 'In Stock ✓') 
-                                : (lang === 'ar' ? 'غير متوفر ✗' : 'Out of Stock ✗')}
-                            </Button>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            {editingPartId === part.id ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  value={editingPrice}
-                                  onChange={(e) => setEditingPrice(e.target.value)}
-                                  placeholder={lang === 'ar' ? 'السعر' : 'Price'}
-                                  className="w-24 h-8 text-sm"
-                                  data-testid={`input-edit-price-${part.id}`}
+                          <div 
+                            key={part.id} 
+                            className="border p-4 rounded-lg flex items-center gap-4 hover-elevate"
+                            data-testid={`part-item-${part.id}`}
+                          >
+                            <div className="relative w-20 h-20 flex-shrink-0">
+                              {img ? (
+                                <img 
+                                  src={img} 
+                                  alt={part.name}
+                                  className="w-full h-full object-cover rounded-md"
                                 />
-                                <span className="text-sm text-muted-foreground">SAR</span>
-                                <Button
-                                  variant="default"
-                                  size="icon"
-                                  onClick={handleSaveEdit}
-                                  disabled={editPartMutation.isPending}
-                                  data-testid={`button-save-edit-${part.id}`}
-                                >
-                                  {editPartMutation.isPending ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                  ) : (
-                                    <Check className="w-4 h-4" />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={handleCancelEdit}
-                                  data-testid={`button-cancel-edit-${part.id}`}
-                                >
-                                  <X className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <>
-                                <span className="font-bold text-primary">{part.price} SAR</span>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => handleStartEdit(part)}
-                                  data-testid={`button-edit-part-${part.id}`}
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              onClick={() => {
-                                if (confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذه القطعة؟' : 'Are you sure you want to delete this part?')) {
-                                  deletePartMutation.mutate(part.id);
-                                }
-                              }}
-                              disabled={deletePartMutation.isPending}
-                              data-testid={`button-delete-part-${part.id}`}
-                            >
-                              {deletePartMutation.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
-                                <Trash2 className="w-4 h-4" />
+                                <div className="w-full h-full bg-muted rounded-md flex items-center justify-center">
+                                  <Package className="w-8 h-8 text-muted-foreground" />
+                                </div>
                               )}
-                            </Button>
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept="image/*"
+                                id={`part-image-${part.id}`}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleUploadPartImage(part.id, file);
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="icon"
+                                className="absolute -bottom-2 -right-2 w-7 h-7"
+                                onClick={() => document.getElementById(`part-image-${part.id}`)?.click()}
+                                disabled={uploadingPartImage === part.id}
+                                data-testid={`button-upload-image-${part.id}`}
+                              >
+                                {uploadingPartImage === part.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Upload className="w-3 h-3" />
+                                )}
+                              </Button>
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold truncate">{part.name}</p>
+                              {editingPartId === part.id ? (
+                                <Select 
+                                  value={editingCategory} 
+                                  onValueChange={setEditingCategory}
+                                >
+                                  <SelectTrigger className="mt-1 h-8 text-sm w-40" data-testid={`select-edit-category-${part.id}`}>
+                                    <SelectValue placeholder={lang === 'ar' ? 'التصنيف' : 'Category'} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="spare_parts">
+                                      {lang === 'ar' ? 'قطع غيار' : 'Spare Parts'}
+                                    </SelectItem>
+                                    <SelectItem value="accessories">
+                                      {lang === 'ar' ? 'اكسسوارات' : 'Accessories'}
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  {part.category === 'spare_parts' 
+                                    ? (lang === 'ar' ? 'قطع غيار' : 'Spare Parts')
+                                    : part.category === 'accessories'
+                                    ? (lang === 'ar' ? 'اكسسوارات' : 'Accessories')
+                                    : part.category}
+                                </p>
+                              )}
+                              <Button
+                                variant={part.inStock ? "default" : "secondary"}
+                                size="sm"
+                                className="mt-1"
+                                onClick={() => togglePartStockMutation.mutate({ partId: part.id, inStock: !part.inStock })}
+                                disabled={togglePartStockMutation.isPending}
+                                data-testid={`button-toggle-stock-${part.id}`}
+                              >
+                                {part.inStock 
+                                  ? (lang === 'ar' ? 'متوفر ✓' : 'In Stock ✓') 
+                                  : (lang === 'ar' ? 'غير متوفر ✗' : 'Out of Stock ✗')}
+                              </Button>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                              {editingPartId === part.id ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    value={editingPrice}
+                                    onChange={(e) => setEditingPrice(e.target.value)}
+                                    placeholder={lang === 'ar' ? 'السعر' : 'Price'}
+                                    className="w-24 h-8 text-sm"
+                                    data-testid={`input-edit-price-${part.id}`}
+                                  />
+                                  <span className="text-sm text-muted-foreground">SAR</span>
+                                  <Button
+                                    variant="default"
+                                    size="icon"
+                                    onClick={handleSaveEdit}
+                                    disabled={editPartMutation.isPending}
+                                    data-testid={`button-save-edit-${part.id}`}
+                                  >
+                                    {editPartMutation.isPending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Check className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={handleCancelEdit}
+                                    data-testid={`button-cancel-edit-${part.id}`}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <span className="font-bold text-primary">{part.price} SAR</span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => handleStartEdit(part)}
+                                    data-testid={`button-edit-part-${part.id}`}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm(lang === 'ar' ? 'هل أنت متأكد من حذف هذه القطعة؟' : 'Are you sure you want to delete this part?')) {
+                                    deletePartMutation.mutate(part.id);
+                                  }
+                                }}
+                                disabled={deletePartMutation.isPending}
+                                data-testid={`button-delete-part-${part.id}`}
+                              >
+                                {deletePartMutation.isPending ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </ScrollArea>
