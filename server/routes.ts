@@ -383,7 +383,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[BIKES][STEP 6] Before DB insert (PostgREST)");
       const { resp, data } = await pgFetch("/bikes", {
         method: "POST",
-        body: [{ ...bikeData, user_id: userId }],
+        body: [{
+          user_id: userId,
+          bike_id: bikeData.bikeId,
+          brand: bikeData.brand,
+          model: bikeData.model,
+          year: bikeData.year,
+          total_distance: bikeData.totalDistance ?? bikeData.total_distance ?? 0,
+          image_url: bikeData.imageUrl ?? bikeData.image_url ?? null,
+        }],
       });
       if (!resp.ok) {
         console.log("[BIKES][STEP 7] Insert failed", { status: resp.status, body: data });
