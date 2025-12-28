@@ -91,3 +91,6 @@ cycle-care/
 ---
 
 Built with **Capacitor 7.4.4** ✨
+
+## 🗄️ Supabase schema maintenance
+- After applying schema changes locally, run the SQL in `supabase/migrations/0001_core_fix.sql` inside the Supabase SQL editor to align columns and refresh the PostgREST cache.

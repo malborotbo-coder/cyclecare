@@ -1542,9 +1542,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/admin/technicians/pending",
     isAuthenticated,
     isAdmin,
-    async (req, res) => {
+    async (_req, res) => {
       try {
-        const { resp, data } = await pgFetch("/technicians?status=eq.pending");
+        const { resp, data } = await pgFetch("/technicians?status=eq.pending&order=created_at.desc");
         if (!resp.ok) {
           console.log("[ADMIN][TECH][PENDING][FAILED]", { status: resp.status, body: data });
           return res.json([]);
@@ -1676,13 +1676,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Roles Management API
-  app.get("/api/admin/roles", isAuthenticated, isAdmin, async (req, res) => {
+  app.get("/api/admin/roles", isAuthenticated, isAdmin, async (_req, res) => {
     try {
-      const roles = await storage.getAllRoles();
-      res.json(roles);
+      const { resp, data } = await pgFetch("/roles?order=created_at.desc");
+      if (!resp.ok) {
+        console.log("[ADMIN][ROLES][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error("Error fetching roles:", error);
-      res.status(500).json({ message: "Failed to fetch roles" });
+      console.error("[ADMIN][ROLES][LIST] Error:", error);
+      res.json([]);
     }
   });
 
@@ -1690,13 +1694,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/admin/user-roles",
     isAuthenticated,
     isAdmin,
-    async (req, res) => {
+    async (_req, res) => {
       try {
-        const userRoles = await storage.getAllUserRoles();
-        res.json(userRoles);
+        const { resp, data } = await pgFetch("/user_roles");
+        if (!resp.ok) {
+          console.log("[ADMIN][USER_ROLES][LIST][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        res.json(Array.isArray(data) ? data : []);
       } catch (error) {
-        console.error("Error fetching user roles:", error);
-        res.status(500).json({ message: "Failed to fetch user roles" });
+        console.error("[ADMIN][USER_ROLES][LIST] Error:", error);
+        res.json([]);
       }
     },
   );
@@ -1709,7 +1717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const assignerId = auth.userId;
+        const assignerId = await ensureUserUuid(auth);
         const { userId, roleId } = req.body;
 
         if (!userId || !roleId) {
@@ -1718,17 +1726,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .json({ message: "userId and roleId are required" });
         }
 
-        const userRole = await storage.assignUserRole(
-          userId,
-          roleId,
-          assignerId,
-        );
-        res.status(201).json(userRole);
-      } catch (error: any) {
-        console.error("Error assigning user role:", error);
-        if (error.message === "User already has this role assigned") {
-          return res.status(409).json({ message: error.message });
+        const payload = [{
+          user_id: userId,
+          role_id: roleId,
+          assigned_by: assignerId,
+        }];
+
+        const { resp, data } = await pgFetch("/user_roles", {
+          method: "POST",
+          body: payload,
+          headers: { Prefer: "return=representation" },
+        });
+
+        if (resp.status === 409) {
+          return res.status(409).json({ message: "User already has this role assigned" });
         }
+
+        if (!resp.ok) {
+          console.log("[ADMIN][USER_ROLES][CREATE][FAILED]", { status: resp.status, body: data });
+          throw new AppError({
+            code: "USER_ROLE_CREATE_FAILED",
+            status: resp.status || 500,
+            message: "Failed to assign user role",
+          });
+        }
+
+        const created = Array.isArray(data) ? data[0] : data;
+        res.status(201).json(created);
+      } catch (error: any) {
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
+        console.error("[ADMIN][USER_ROLES][CREATE] Error:", error);
         res.status(500).json({ message: "Failed to assign user role" });
       }
     },
@@ -1740,10 +1768,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        await storage.removeUserRole(req.params.id);
+        const { resp, data } = await pgFetch(
+          `/user_roles?id=eq.${encodeURIComponent(req.params.id)}`,
+          { method: "DELETE" },
+        );
+        if (!resp.ok) {
+          console.log("[ADMIN][USER_ROLES][DELETE][FAILED]", { status: resp.status, body: data });
+          return res.status(500).json({ message: "Failed to remove user role" });
+        }
         res.status(204).send();
       } catch (error) {
-        console.error("Error removing user role:", error);
+        console.error("[ADMIN][USER_ROLES][DELETE] Error:", error);
         res.status(500).json({ message: "Failed to remove user role" });
       }
     },
