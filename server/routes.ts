@@ -777,6 +777,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Technician apply (PostgREST + Storage REST)
+  app.post(
+    "/api/technicians/apply",
+    isAuthenticated,
+    upload.array("documents"),
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        console.log("[TECH][APPLY][USER]", { uuid: userUuid, externalId: auth.userId });
+
+        const techPayload = {
+          user_id: userUuid,
+          phone_number: req.body.phoneNumber || null,
+          years_of_experience: req.body.yearsOfExperience ? Number(req.body.yearsOfExperience) : null,
+          location: req.body.locationText || req.body.location || null,
+          latitude: req.body.latitude ? Number(req.body.latitude) : null,
+          longitude: req.body.longitude ? Number(req.body.longitude) : null,
+          status: "pending",
+          is_active: false,
+          is_available: true,
+        };
+
+        const { resp: createResp, data: createData } = await pgFetch("/technicians", {
+          method: "POST",
+          body: [techPayload],
+          headers: { Prefer: "return=representation" },
+        });
+        if (!createResp.ok) {
+          console.log("[TECH][APPLY][FAILED]", { status: createResp.status, body: createData });
+          throw new AppError({
+            code: "TECH_APPLY_FAILED",
+            status: createResp.status || 500,
+            message: "Failed to submit technician application",
+          });
+        }
+        const technician = Array.isArray(createData) ? createData[0] : createData;
+
+        const files: Express.Multer.File[] = req.files || [];
+        const docInserts: any[] = [];
+        for (const file of files) {
+          const timestamp = Date.now();
+          const fileExtension = file.originalname.split(".").pop() || "dat";
+          const fileName = `technicians/${technician.id}/${timestamp}-${file.originalname.replace(/\s+/g, "_")}`;
+          const fileUrl = await uploadToStorageRest({ file, path: fileName });
+          docInserts.push({
+            technician_id: technician.id,
+            document_type: (req.body.documentType as string) || "other",
+            file_name: file.originalname,
+            file_url: fileUrl,
+            file_size: file.size,
+            mime_type: file.mimetype,
+          });
+        }
+
+        if (docInserts.length > 0) {
+          await pgFetch("/technician_documents", {
+            method: "POST",
+            body: docInserts,
+            headers: { Prefer: "return=representation" },
+          });
+        }
+
+        res.status(201).json({ technicianId: technician.id, status: "pending" });
+      } catch (error) {
+        const handled = handleRouteError(error, req, res);
+        if (handled) return handled;
+        console.error("[TECH][APPLY] Error:", error);
+        res.status(500).json({ message: "Failed to submit application" });
+      }
+    },
+  );
+
   app.get("/api/technicians/me", isAuthenticated, async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
@@ -1213,6 +1287,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/parts", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const { resp, data } = await pgFetch("/parts?order=created_at.desc");
+      if (!resp.ok) {
+        console.log("[ADMIN][PARTS][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("[ADMIN][PARTS][LIST] Error:", error);
+      res.json([]);
+    }
+  });
+
   // Admin Parts Management with Image Upload
   app.post(
     "/api/admin/parts",
@@ -1419,8 +1507,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/bikes", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      const bikes = await storage.getAllBikes();
-      res.json(bikes);
+      const { resp, data } = await pgFetch("/bikes?order=created_at.desc");
+      if (!resp.ok) {
+        console.log("[ADMIN][BIKES][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching all bikes:", error);
       res.status(500).json({ message: "Failed to fetch bikes" });
@@ -1433,8 +1525,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        const technicians = await storage.getAllTechniciansForAdmin();
-        res.json(technicians);
+        const { resp, data } = await pgFetch("/technicians?order=created_at.desc");
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][LIST][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        res.json(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error("Error fetching all technicians:", error);
         res.status(500).json({ message: "Failed to fetch technicians" });
@@ -1448,8 +1544,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        const pendingTechnicians = await storage.getPendingTechnicians();
-        res.json(pendingTechnicians);
+        const { resp, data } = await pgFetch("/technicians?status=eq.pending");
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][PENDING][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        res.json(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error("Error fetching pending technicians:", error);
         res
@@ -1465,9 +1565,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        const technician = await storage.approveTechnician(req.params.id);
-        if (!technician) {
+        const techId = req.params.id;
+        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
+          method: "PATCH",
+          body: { status: "approved", is_active: true },
+          headers: { Prefer: "return=representation" },
+        });
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][APPROVE][FAILED]", { status: resp.status, body: data });
           return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(data) ? data[0] : data;
+        // Flag user as technician
+        if (technician?.user_id) {
+          await pgFetch(`/users?id=eq.${encodeURIComponent(technician.user_id)}`, {
+            method: "PATCH",
+            body: { is_technician: true },
+          });
         }
         res.json(technician);
       } catch (error) {
@@ -1483,7 +1597,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        await storage.rejectTechnician(req.params.id);
+        const techId = req.params.id;
+        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
+          method: "PATCH",
+          body: { status: "rejected", is_active: false },
+          headers: { Prefer: "return=representation" },
+        });
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][REJECT][FAILED]", { status: resp.status, body: data });
+          return res.status(404).json({ message: "Technician not found" });
+        }
         res.json({ message: "Technician rejected successfully" });
       } catch (error) {
         console.error("Error rejecting technician:", error);
@@ -1498,8 +1621,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        const documents = await storage.getTechnicianDocuments(req.params.id);
-        res.json(documents);
+        const { resp, data } = await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(req.params.id)}`);
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][DOCS][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        res.json(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error("Error fetching technician documents:", error);
         res.status(500).json({ message: "Failed to fetch documents" });
@@ -1513,8 +1640,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
-        const requests = await storage.getAllServiceRequests();
-        res.json(requests);
+        const { resp, data } = await pgFetch("/service_requests?order=created_at.desc");
+        if (!resp.ok) {
+          console.log("[ADMIN][SERVICE_REQUESTS][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        res.json(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error("Error fetching all service requests:", error);
         res.status(500).json({ message: "Failed to fetch service requests" });
