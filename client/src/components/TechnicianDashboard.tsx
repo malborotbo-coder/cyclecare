@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -163,7 +162,7 @@ export default function TechnicianDashboard() {
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
-      return apiRequest('PATCH', '/api/technicians/availability', { is_available: next });
+      return apiRequest('PATCH', '/api/technicians/me/availability', { is_available: next });
     },
     onSuccess: (updated: any) => {
       setIsOnline(!!updated?.is_available);
@@ -292,7 +291,6 @@ export default function TechnicianDashboard() {
               <Label htmlFor="online-switch" className="text-sm">
                 {isOnline ? t.online : t.offline}
               </Label>
-              <Badge variant={isOnline ? "default" : "secondary"}>{isOnline ? t.online : t.offline}</Badge>
             </div>
             <Switch 
               id="online-switch"

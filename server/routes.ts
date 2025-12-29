@@ -1320,18 +1320,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const { userId } = auth;
         const technician = await storage.getTechnician(userId);
-
         if (!technician) {
-          return res.status(404).json({ message: "Technician not found" });
+          return res.json([]);
         }
-
-        const requests = await storage.getTechnicianServiceRequests(
-          technician.id,
-        );
-        res.json(requests);
+        const requests = await storage.getTechnicianServiceRequests(technician.id);
+        res.json(Array.isArray(requests) ? requests : []);
       } catch (error) {
         console.error("Error fetching technician service requests:", error);
-        res.status(500).json({ message: "Failed to fetch service requests" });
+        res.json([]);
       }
     },
   );
