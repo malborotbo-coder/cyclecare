@@ -159,6 +159,7 @@ export default function TechnicianDashboard() {
     queryKey: ['/api/service-requests/technician'],
     enabled: status === 'approved' && isActive === true,
   });
+  const safeRequests = Array.isArray(requests) ? requests : [];
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
@@ -167,6 +168,13 @@ export default function TechnicianDashboard() {
     onSuccess: (updated: any) => {
       setIsOnline(!!updated?.is_available);
       queryClient.invalidateQueries({ queryKey: ['/api/technicians/me'] });
+    },
+    onError: () => {
+      toast({
+        title: lang === 'ar' ? 'فشل التحديث' : 'Update failed',
+        description: lang === 'ar' ? 'تعذر تحديث التوفر' : 'Could not update availability',
+        variant: "destructive",
+      });
     },
   });
 
@@ -271,9 +279,9 @@ export default function TechnicianDashboard() {
     );
   }
 
-  const pendingRequests = requests.filter(r => r.status === 'pending');
-  const inProgressRequests = requests.filter(r => r.status === 'accepted' || r.status === 'in_progress');
-  const completedRequests = requests.filter(r => r.status === 'completed');
+  const pendingRequests = safeRequests.filter(r => r.status === 'pending');
+  const inProgressRequests = safeRequests.filter(r => r.status === 'accepted' || r.status === 'in_progress');
+  const completedRequests = safeRequests.filter(r => r.status === 'completed');
 
   return (
     <div className="min-h-screen bg-background">
@@ -283,24 +291,34 @@ export default function TechnicianDashboard() {
             <Wrench className="w-6 h-6" />
             <h1 className="text-xl font-bold">{t.title}</h1>
           </div>
+        </div>
+      </header>
+
+      <div className="bg-muted/60 border-b px-4 py-3 sticky top-[64px] z-[90]">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Label htmlFor="online-switch" className="text-sm">
               {isOnline ? t.online : t.offline}
             </Label>
-            <Switch 
-              id="online-switch"
-              checked={isOnline}
-              onCheckedChange={(checked) => {
-                setIsOnline(checked);
-                availabilityMutation.mutate(checked);
-              }}
-              data-testid="switch-online-status"
-            />
+            <Badge variant={isOnline ? "default" : "secondary"}>{isOnline ? t.online : t.offline}</Badge>
           </div>
+          <Switch 
+            id="online-switch"
+            checked={isOnline}
+            disabled={availabilityMutation.isPending}
+            onCheckedChange={(checked) => {
+              const previous = isOnline;
+              availabilityMutation.mutate(checked, {
+                onSuccess: (data: any) => setIsOnline(!!data?.is_available),
+                onError: () => setIsOnline(previous),
+              });
+            }}
+            data-testid="switch-online-status"
+          />
         </div>
-      </header>
+      </div>
 
-      <main className="p-4">
+      <main className="p-4 pt-6">
         <Tabs defaultValue="new" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="new" data-testid="tab-new-requests">
