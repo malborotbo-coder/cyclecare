@@ -285,97 +285,88 @@ export default function TechnicianDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-[100] bg-primary/90 backdrop-blur-md text-primary-foreground p-4 border-b border-white/10 shadow-lg">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Wrench className="w-6 h-6" />
-            <h1 className="text-xl font-bold">{t.title}</h1>
+      <main className="p-4">
+        <div className="max-w-5xl mx-auto space-y-4">
+          <div className="flex items-center justify-between gap-3 bg-muted/60 border rounded-md px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="online-switch" className="text-sm">
+                {isOnline ? t.online : t.offline}
+              </Label>
+              <Badge variant={isOnline ? "default" : "secondary"}>{isOnline ? t.online : t.offline}</Badge>
+            </div>
+            <Switch 
+              id="online-switch"
+              checked={isOnline}
+              disabled={availabilityMutation.isPending}
+              onCheckedChange={(checked) => {
+                const previous = isOnline;
+                availabilityMutation.mutate(checked, {
+                  onSuccess: (data: any) => setIsOnline(!!data?.is_available),
+                  onError: () => setIsOnline(previous),
+                });
+              }}
+              data-testid="switch-online-status"
+            />
           </div>
-        </div>
-      </header>
 
-      <div className="bg-muted/60 border-b px-4 py-3 sticky top-[64px] z-[90]">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="online-switch" className="text-sm">
-              {isOnline ? t.online : t.offline}
-            </Label>
-            <Badge variant={isOnline ? "default" : "secondary"}>{isOnline ? t.online : t.offline}</Badge>
-          </div>
-          <Switch 
-            id="online-switch"
-            checked={isOnline}
-            disabled={availabilityMutation.isPending}
-            onCheckedChange={(checked) => {
-              const previous = isOnline;
-              availabilityMutation.mutate(checked, {
-                onSuccess: (data: any) => setIsOnline(!!data?.is_available),
-                onError: () => setIsOnline(previous),
-              });
-            }}
-            data-testid="switch-online-status"
-          />
-        </div>
-      </div>
+          <Tabs defaultValue="new" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="new" data-testid="tab-new-requests">
+                {t.newRequests} ({pendingRequests.length})
+              </TabsTrigger>
+              <TabsTrigger value="progress" data-testid="tab-in-progress">
+                {t.inProgress} ({inProgressRequests.length})
+              </TabsTrigger>
+              <TabsTrigger value="done" data-testid="tab-completed">
+                {t.completed} ({completedRequests.length})
+              </TabsTrigger>
+            </TabsList>
 
-      <main className="p-4 pt-6">
-        <Tabs defaultValue="new" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="new" data-testid="tab-new-requests">
-              {t.newRequests} ({pendingRequests.length})
-            </TabsTrigger>
-            <TabsTrigger value="progress" data-testid="tab-in-progress">
-              {t.inProgress} ({inProgressRequests.length})
-            </TabsTrigger>
-            <TabsTrigger value="done" data-testid="tab-completed">
-              {t.completed} ({completedRequests.length})
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="new" className="space-y-4 mt-4">
-            {pendingRequests.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
-            ) : (
-              pendingRequests.map(request => (
-                <ServiceRequestCard 
-                  key={request.id} 
-                  {...request} 
-                  onAccept={handleAccept}
-                  onDecline={handleDecline}
-                  lang={lang as 'ar' | 'en'}
-                />
-              ))
-            )}
-          </TabsContent>
-          
-          <TabsContent value="progress" className="space-y-4 mt-4">
-            {inProgressRequests.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
-            ) : (
-              inProgressRequests.map(request => (
-                <ServiceRequestCard 
-                  key={request.id} 
-                  {...request}
-                  lang={lang as 'ar' | 'en'}
-                />
-              ))
-            )}
-          </TabsContent>
-          
-          <TabsContent value="done" className="space-y-4 mt-4">
-            {completedRequests.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
-            ) : (
-              completedRequests.map(request => (
-                <ServiceRequestCard 
-                  key={request.id} 
-                  {...request}
-                  lang={lang as 'ar' | 'en'}
-                />
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="new" className="space-y-4 mt-4">
+              {pendingRequests.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
+              ) : (
+                pendingRequests.map(request => (
+                  <ServiceRequestCard 
+                    key={request.id} 
+                    {...request} 
+                    onAccept={handleAccept}
+                    onDecline={handleDecline}
+                    lang={lang as 'ar' | 'en'}
+                  />
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="progress" className="space-y-4 mt-4">
+              {inProgressRequests.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
+              ) : (
+                inProgressRequests.map(request => (
+                  <ServiceRequestCard 
+                    key={request.id} 
+                    {...request}
+                    lang={lang as 'ar' | 'en'}
+                  />
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="done" className="space-y-4 mt-4">
+              {completedRequests.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">{t.noRequests}</p>
+              ) : (
+                completedRequests.map(request => (
+                  <ServiceRequestCard 
+                    key={request.id} 
+                    {...request}
+                    lang={lang as 'ar' | 'en'}
+                  />
+                ))
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
       </main>
     </div>
   );
