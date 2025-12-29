@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -151,11 +151,30 @@ export default function TechnicianDashboard() {
   const { data: technician, isLoading: techLoading } = useQuery<Technician>({
     queryKey: ['/api/technicians/me'],
   });
+  const status = (technician as any)?.status;
+  const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
+  const currentAvailability = (technician as any)?.is_available ?? (technician as any)?.isAvailable;
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<ServiceRequest[]>({
     queryKey: ['/api/service-requests/technician'],
-    enabled: !!technician?.isApproved,
+    enabled: status === 'approved' && isActive === true,
   });
+
+  const availabilityMutation = useMutation({
+    mutationFn: async (next: boolean) => {
+      return apiRequest('PATCH', '/api/technicians/me/availability', { is_available: next });
+    },
+    onSuccess: (updated: any) => {
+      setIsOnline(!!updated?.is_available);
+      queryClient.invalidateQueries({ queryKey: ['/api/technicians/me'] });
+    },
+  });
+
+  useEffect(() => {
+    if (technician && !availabilityMutation.isPending) {
+      setIsOnline(!!currentAvailability);
+    }
+  }, [technician, availabilityMutation.isPending, currentAvailability]);
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -204,7 +223,7 @@ export default function TechnicianDashboard() {
     );
   }
 
-  if (!technician.isApproved) {
+  if (status === 'pending') {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md text-center">
@@ -214,6 +233,38 @@ export default function TechnicianDashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground">{t.waitingApproval}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (status === 'rejected') {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <XCircle className="w-16 h-16 mx-auto text-destructive mb-4" />
+            <CardTitle>{lang === 'ar' ? 'تم رفض الطلب' : 'Application Rejected'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">{lang === 'ar' ? 'يرجى التواصل مع الدعم لمزيد من التفاصيل' : 'Please contact support for details.'}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (status === 'approved' && isActive === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <XCircle className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
+            <CardTitle>{lang === 'ar' ? 'الحساب موقوف مؤقتاً' : 'Account Suspended'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">{lang === 'ar' ? 'يرجى التواصل مع الإدارة لإعادة التفعيل' : 'Please contact admin to reactivate your account.'}</p>
           </CardContent>
         </Card>
       </div>
@@ -239,7 +290,10 @@ export default function TechnicianDashboard() {
             <Switch 
               id="online-switch"
               checked={isOnline}
-              onCheckedChange={setIsOnline}
+              onCheckedChange={(checked) => {
+                setIsOnline(checked);
+                availabilityMutation.mutate(checked);
+              }}
               data-testid="switch-online-status"
             />
           </div>

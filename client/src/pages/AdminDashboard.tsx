@@ -73,6 +73,11 @@ export default function AdminDashboard() {
     fileName: doc.fileName ?? doc.file_name,
   });
 
+  const normalizedTechnicians = (technicians || []).map(normalizeTechnician);
+  const pendingList = normalizedTechnicians.filter((t) => t.status === "pending");
+  const activeList = normalizedTechnicians.filter((t) => t.status === "approved" && (t.is_active ?? true));
+  const inactiveList = normalizedTechnicians.filter((t) => t.status === "rejected" || t.is_active === false);
+
   const fetchTechnicianDocuments = async (technicianId: string) => {
     setLoadingDocsMap(prev => ({ ...prev, [technicianId]: true }));
     try {
@@ -166,7 +171,7 @@ export default function AdminDashboard() {
       roleAssigned: "تم إضافة الصلاحية بنجاح",
       roleRemoved: "تم إزالة الصلاحية بنجاح",
       assignedRoles: "الصلاحيات المعينة",
-      pendingTechnicians: "طلبات الفنيين",
+      pendingTechnicians: "إدارة الفنيين",
       approve: "موافقة",
       reject: "رفض",
       approveSuccess: "تم الموافقة على الفني بنجاح",
@@ -227,7 +232,7 @@ export default function AdminDashboard() {
       roleAssigned: "Role assigned successfully",
       roleRemoved: "Role removed successfully",
       assignedRoles: "Assigned Roles",
-      pendingTechnicians: "Pending Technicians",
+      pendingTechnicians: "Technicians Management",
       approve: "Approve",
       reject: "Reject",
       approveSuccess: "Technician approved successfully",
@@ -304,7 +309,7 @@ export default function AdminDashboard() {
     roleAssigned: "تم إضافة الصلاحية بنجاح",
     roleRemoved: "تم إزالة الصلاحية بنجاح",
     assignedRoles: "الصلاحيات المعينة",
-    pendingTechnicians: "طلبات الفنيين",
+    pendingTechnicians: "إدارة الفنيين",
     approve: "موافقة",
     reject: "رفض",
     approveSuccess: "تم الموافقة على الفني بنجاح",
@@ -366,9 +371,8 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/user-roles"],
   });
 
-  const { data: pendingTechnicians, isLoading: pendingLoading } = useQuery<TechnicianWithUser[]>({
-    queryKey: ["/api/admin/technicians/pending"],
-  });
+  const pendingTechnicians: TechnicianWithUser[] | undefined = undefined;
+  const pendingLoading = false;
 
   const { data: invoices, isLoading: invoicesLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/admin/invoices"],
@@ -435,6 +439,26 @@ export default function AdminDashboard() {
         description: errorMessage,
         variant: "destructive",
       });
+    },
+  });
+
+  const suspendTechnicianMutation = useMutation({
+    mutationFn: async (technicianId: string) => {
+      return await apiRequest(`/api/admin/technicians/${technicianId}/suspend`, "POST");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      toast({ title: lang === 'ar' ? 'تم إيقاف الفني' : 'Technician suspended' });
+    },
+  });
+
+  const reactivateTechnicianMutation = useMutation({
+    mutationFn: async (technicianId: string) => {
+      return await apiRequest(`/api/admin/technicians/${technicianId}/reactivate`, "POST");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      toast({ title: lang === 'ar' ? 'تم تفعيل الفني' : 'Technician reactivated' });
     },
   });
 
@@ -797,10 +821,6 @@ export default function AdminDashboard() {
               </TabsTrigger>
               <TabsTrigger value="technicians" className="w-full justify-start" data-testid="tab-technicians">
                 <Wrench className="w-4 h-4 mr-2" />
-                {txt.technicians}
-              </TabsTrigger>
-              <TabsTrigger value="pending" className="w-full justify-start" data-testid="tab-pending">
-                <ClipboardList className="w-4 h-4 mr-2" />
                 {txt.pendingTechnicians}
               </TabsTrigger>
               <TabsTrigger value="bikes" className="w-full justify-start" data-testid="tab-bikes">
@@ -923,73 +943,151 @@ export default function AdminDashboard() {
           <TabsContent value="technicians" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>{txt.technicians}</CardTitle>
+                <CardTitle>{txt.pendingTechnicians}</CardTitle>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-[500px]">
-                  {techniciansLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : !technicians || technicians.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {technicians.map((tech) => {
-                        const normalized = normalizeTechnician(tech);
-                        const status = (tech as any).status;
-                        const isApproved = status === "approved" || normalized.isApproved;
-                        const isAvailable = normalized.isAvailable ?? (tech as any).is_available;
-                        return (
-                          <Card
-                            key={tech.id}
-                            className="p-4 hover-elevate"
-                            data-testid={`tech-item-${tech.id}`}
-                          >
-                            <div className="flex flex-col gap-3">
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="font-semibold mb-2">{lang === 'ar' ? 'بانتظار الموافقة' : 'Pending Approval'}</h4>
+                    <ScrollArea className="h-[240px]">
+                      {techniciansLoading ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
+                      ) : pendingList.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {pendingList.map((tech) => {
+                            const normalized = tech;
+                            return (
+                              <Card key={tech.id} className="p-4 hover-elevate" data-testid={`pending-tech-${tech.id}`}>
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <p className="font-semibold text-foreground text-lg">{normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}</p>
+                                    <p className="text-sm text-muted-foreground">{normalized.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}</p>
+                                    <p className="text-sm text-muted-foreground">{normalized.location || '-'}</p>
+                                  </div>
+                                  <Badge variant="secondary">{txt.pending}</Badge>
+                                </div>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  <Button size="sm" onClick={() => approveTechnicianMutation.mutate(tech.id)} disabled={approveTechnicianMutation.isPending}>
+                                    {txt.approve}
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => rejectTechnicianMutation.mutate(tech.id)} disabled={rejectTechnicianMutation.isPending}>
+                                    {txt.reject}
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => handleViewDocuments(tech.id)}>
+                                    <Eye className="w-4 h-4 mr-1" />
+                                    {expandedTechnicianIds.has(tech.id) ? (lang === 'ar' ? 'إخفاء المستندات' : 'Hide Documents') : txt.documents}
+                                  </Button>
+                                </div>
+                                {expandedTechnicianIds.has(tech.id) && (
+                                  <div className="mt-3">
+                                    {loadingDocsMap[tech.id] ? (
+                                      <div className="text-muted-foreground text-sm">{txt.loading}</div>
+                                    ) : !technicianDocsMap[tech.id] || technicianDocsMap[tech.id].length === 0 ? (
+                                      <div className="text-muted-foreground text-sm">{txt.noDocuments}</div>
+                                    ) : (
+                                      <div className="space-y-2 mt-2">
+                                        {technicianDocsMap[tech.id].map((doc) => {
+                                          const normalizedDoc = normalizeDoc(doc);
+                                          const docUrl = normalizedDoc.documentUrl;
+                                          const docName = normalizedDoc.fileName || '';
+                                          return (
+                                            <div key={doc.id} className="flex items-center justify-between p-2 border rounded">
+                                              <div className="flex items-center gap-2">
+                                                <Image className="w-4 h-4 text-muted-foreground" />
+                                                <div>
+                                                  <p className="text-sm font-medium">{getDocumentTypeLabel(normalizedDoc.documentType || '')}</p>
+                                                  <p className="text-xs text-muted-foreground">{docName}</p>
+                                                </div>
+                                              </div>
+                                              <div className="flex gap-2">
+                                                <Button size="icon" variant="ghost" onClick={() => docUrl && window.open(docUrl, '_blank')}>
+                                                  <Eye className="w-4 h-4" />
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">{lang === 'ar' ? 'فنيون نشطون' : 'Active Technicians'}</h4>
+                    <ScrollArea className="h-[240px]">
+                      {techniciansLoading ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
+                      ) : activeList.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {activeList.map((tech) => (
+                            <Card key={tech.id} className="p-4">
                               <div className="flex items-start justify-between">
-                                <div className="space-y-1">
-                                  <p className="font-semibold text-foreground text-lg">
-                                    {normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
-                                  </p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {normalized.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}
-                                  </p>
+                                <div>
+                                  <p className="font-semibold">{tech.userName || '-'}</p>
+                                  <p className="text-sm text-muted-foreground">{tech.userEmail || '-'}</p>
+                                  <p className="text-sm text-muted-foreground">{tech.location || '-'}</p>
                                 </div>
                                 <div className="flex gap-2">
-                                  {isApproved ? (
-                                    <Badge variant="default">{txt.approved}</Badge>
-                                  ) : (
-                                    <Badge variant="secondary">{txt.pending}</Badge>
-                                  )}
-                                  {isAvailable && (
-                                    <Badge variant="outline">{txt.available}</Badge>
-                                  )}
+                                  <Badge variant="default">{txt.approved}</Badge>
+                                  {tech.isAvailable && <Badge variant="outline">{txt.available}</Badge>}
                                 </div>
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                                <div>
-                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</span>
-                                  <span className="font-medium mr-1">{normalized.phone || '-'}</span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الخبرة:' : 'Experience:'}</span>
-                                  <span className="font-medium mr-1">{normalized.years || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">{txt.rating}:</span>
-                                  <span className="font-medium mr-1">{normalized.rating || '0.00'} ({normalized.reviewCount || 0})</span>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الموقع:' : 'Location:'}</span>
-                                  <span className="font-medium mr-1">{normalized.location || '-'}</span>
-                                </div>
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                <Button size="sm" variant="outline" onClick={() => suspendTechnicianMutation.mutate(tech.id)} disabled={suspendTechnicianMutation.isPending}>
+                                  {lang === 'ar' ? 'إيقاف مؤقت' : 'Suspend'}
+                                </Button>
                               </div>
-                            </div>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  )}
-                </ScrollArea>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold mb-2">{lang === 'ar' ? 'موقوفون / مرفوضون' : 'Inactive / Rejected'}</h4>
+                    <ScrollArea className="h-[240px]">
+                      {techniciansLoading ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
+                      ) : inactiveList.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {inactiveList.map((tech) => (
+                            <Card key={tech.id} className="p-4 border-dashed">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <p className="font-semibold">{tech.userName || '-'}</p>
+                                  <p className="text-sm text-muted-foreground">{tech.userEmail || '-'}</p>
+                                  <p className="text-sm text-muted-foreground">{tech.location || '-'}</p>
+                                </div>
+                                <Badge variant="secondary">{tech.status === 'rejected' ? txt.reject : txt.pending}</Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                {tech.status === 'approved' && (
+                                  <Button size="sm" onClick={() => reactivateTechnicianMutation.mutate(tech.id)} disabled={reactivateTechnicianMutation.isPending}>
+                                    {lang === 'ar' ? 'تفعيل' : 'Reactivate'}
+                                  </Button>
+                                )}
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1034,162 +1132,6 @@ export default function AdminDashboard() {
                           </Badge>
                         </div>
                       ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="pending" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>{txt.pendingTechnicians}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[600px]">
-                  {pendingLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : !pendingTechnicians || pendingTechnicians.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {pendingTechnicians.map((tech) => {
-                        const normalized = normalizeTechnician(tech);
-                        return (
-                          <Card key={tech.id} className="p-4" data-testid={`pending-tech-${tech.id}`}>
-                            <div className="space-y-4">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <h4 className="font-semibold text-lg">
-                                    {normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
-                                  </h4>
-                                  <p className="text-sm text-muted-foreground">{normalized.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}</p>
-                                </div>
-                                <Badge variant="outline">{txt.pending}</Badge>
-                              </div>
-                              
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                <div>
-                                  <span className="font-medium">{txt.phoneNumber}: </span>
-                                  <span className="text-muted-foreground">{normalized.phone || 'N/A'}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">{txt.experience}: </span>
-                                  <span className="text-muted-foreground">{normalized.years || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">{txt.nationalId}: </span>
-                                  <span className="text-muted-foreground">{tech.nationalId || 'N/A'}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">{txt.iban}: </span>
-                                  <span className="text-muted-foreground">{tech.iban || 'N/A'}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">{txt.commercialRegister}: </span>
-                                  <span className="text-muted-foreground">{tech.commercialRegister || 'N/A'}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">{lang === 'ar' ? 'الموقع:' : 'Location:'} </span>
-                                  <span className="text-muted-foreground">{normalized.location || 'N/A'}</span>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-wrap gap-3">
-                                <Button
-                                  onClick={() => approveTechnicianMutation.mutate(tech.id)}
-                                  disabled={approveTechnicianMutation.isPending}
-                                  size="sm"
-                                  variant="default"
-                                  data-testid={`button-approve-${tech.id}`}
-                                >
-                                  {txt.approve}
-                                </Button>
-                                <Button
-                                  onClick={() => rejectTechnicianMutation.mutate(tech.id)}
-                                  disabled={rejectTechnicianMutation.isPending}
-                                  size="sm"
-                                  variant="destructive"
-                                  data-testid={`button-reject-${tech.id}`}
-                                >
-                                  {txt.reject}
-                                </Button>
-                                <Button
-                                  onClick={() => handleViewDocuments(tech.id)}
-                                  size="sm"
-                                  variant="outline"
-                                  data-testid={`button-view-docs-${tech.id}`}
-                                >
-                                  <Eye className="w-4 h-4 mr-1" />
-                                  {expandedTechnicianIds.has(tech.id) ? (lang === 'ar' ? 'إخفاء المستندات' : 'Hide Documents') : txt.documents}
-                                </Button>
-                              </div>
-
-                              {expandedTechnicianIds.has(tech.id) && (
-                                <div className="mt-4 p-4 bg-muted rounded-lg">
-                                  <h5 className="font-medium mb-3 flex items-center gap-2">
-                                    <FileCheck className="w-4 h-4" />
-                                    {txt.documents}
-                                  </h5>
-                                  {loadingDocsMap[tech.id] ? (
-                                    <div className="text-center py-4 text-muted-foreground">{txt.loading}</div>
-                                  ) : !technicianDocsMap[tech.id] || technicianDocsMap[tech.id].length === 0 ? (
-                                    <div className="text-center py-4 text-muted-foreground">{txt.noDocuments}</div>
-                                  ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                      {technicianDocsMap[tech.id].map((doc) => {
-                                        const normalizedDoc = normalizeDoc(doc);
-                                        const docUrl = normalizedDoc.documentUrl;
-                                        const docName = normalizedDoc.fileName || '';
-                                        return (
-                                          <div 
-                                            key={doc.id} 
-                                            className="flex items-center justify-between p-3 bg-background border rounded-lg"
-                                            data-testid={`doc-item-${doc.id}`}
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <Image className="w-4 h-4 text-muted-foreground" />
-                                              <div>
-                                                <p className="text-sm font-medium">{getDocumentTypeLabel(normalizedDoc.documentType || '')}</p>
-                                                <p className="text-xs text-muted-foreground">{docName}</p>
-                                              </div>
-                                            </div>
-                                            <div className="flex gap-2">
-                                              <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                onClick={() => docUrl && window.open(docUrl, '_blank')}
-                                                data-testid={`button-view-doc-${doc.id}`}
-                                              >
-                                                <Eye className="w-4 h-4" />
-                                              </Button>
-                                              <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                onClick={() => {
-                                                  if (!docUrl) return;
-                                                  const link = document.createElement('a');
-                                                  link.href = docUrl;
-                                                  link.download = docName || 'document';
-                                                  link.click();
-                                                }}
-                                                data-testid={`button-download-doc-${doc.id}`}
-                                              >
-                                                <Download className="w-4 h-4" />
-                                              </Button>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </Card>
-                        );
-                      })}
                     </div>
                   )}
                 </ScrollArea>

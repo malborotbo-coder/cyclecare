@@ -891,14 +891,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
-      const technician = await storage.getTechnician(userId);
-      res.json(technician);
+      const userUuid = await ensureUserUuid(auth);
+      const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
+      if (!resp.ok) {
+        console.log("[TECH][ME][FAILED]", { status: resp.status, body: data });
+        return res.json(null);
+      }
+      const technician = Array.isArray(data) ? data[0] : data?.[0] || null;
+      res.json(technician || null);
     } catch (error) {
       console.error("Error fetching technician:", error);
       res.status(500).json({ message: "Failed to fetch technician" });
     }
   });
+
+  app.patch(
+    "/api/technicians/me/availability",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        const desired = req.body.is_available;
+        if (typeof desired !== "boolean") {
+          return res.status(400).json({ fieldErrors: { is_available: "Required boolean" } });
+        }
+        const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`, { headers: { Accept: "application/json" } });
+        if (!resp.ok) {
+          console.log("[TECH][AVAIL][FETCH][FAILED]", { status: resp.status, body: data });
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(data) ? data[0] : data?.[0];
+        if (!technician) return res.status(404).json({ message: "Technician not found" });
+        if (technician.status !== "approved" || technician.is_active === false) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const { resp: updResp, data: updData } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
+          method: "PATCH",
+          body: { is_available: desired },
+          headers: { Prefer: "return=representation" },
+        });
+        if (!updResp.ok) {
+          console.log("[TECH][AVAIL][UPDATE][FAILED]", { status: updResp.status, body: updData });
+          return res.status(500).json({ message: "Failed to update availability" });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        res.json(updated);
+      } catch (error) {
+        console.error("[TECH][AVAIL] Error:", error);
+        res.status(500).json({ message: "Failed to update availability" });
+      }
+    },
+  );
 
   // Transactional technician registration with documents
   app.post(
@@ -1658,6 +1703,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  app.post(
+    "/api/admin/technicians/:id/suspend",
+    isAuthenticated,
+    isAdmin,
+    async (req, res) => {
+      try {
+        const techId = req.params.id;
+        console.log("[ADMIN][TECH][SUSPEND]", { techId });
+        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
+          method: "PATCH",
+          body: { is_active: false },
+          headers: { Prefer: "return=representation" },
+        });
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][SUSPEND][FAILED]", { status: resp.status, body: data });
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        res.json(Array.isArray(data) ? data[0] : data);
+      } catch (error) {
+        console.error("[ADMIN][TECH][SUSPEND] Error:", error);
+        res.status(500).json({ message: "Failed to suspend technician" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/technicians/:id/reactivate",
+    isAuthenticated,
+    isAdmin,
+    async (req, res) => {
+      try {
+        const techId = req.params.id;
+        console.log("[ADMIN][TECH][REACTIVATE]", { techId });
+        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
+          method: "PATCH",
+          body: { is_active: true },
+          headers: { Prefer: "return=representation" },
+        });
+        if (!resp.ok) {
+          console.log("[ADMIN][TECH][REACTIVATE][FAILED]", { status: resp.status, body: data });
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        res.json(Array.isArray(data) ? data[0] : data);
+      } catch (error) {
+        console.error("[ADMIN][TECH][REACTIVATE] Error:", error);
+        res.status(500).json({ message: "Failed to reactivate technician" });
+      }
+    },
+  );
+
   app.get(
     "/api/admin/technicians/:id/documents",
     isAuthenticated,
@@ -1693,9 +1788,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!technician) {
           return res.status(404).json({ message: "Technician not found" });
         }
-        const { resp: docsResp, data: docsData } = await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(techId)}`);
-        const documents = docsResp.ok && Array.isArray(docsData) ? docsData : [];
-        res.json({ technician, documents });
+        const safeDocs = await (async () => {
+          const { resp: docsResp, data: docsData } = await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(techId)}`);
+          return docsResp.ok && Array.isArray(docsData) ? docsData : [];
+        })();
+
+        const performance = await (async () => {
+          try {
+            const { resp: srResp, data: srData } = await pgFetch(`/service_requests?technician_id=eq.${encodeURIComponent(techId)}&select=status,rating`);
+            if (!srResp.ok || !Array.isArray(srData)) return { total_completed_requests: 0, average_rating: 0, total_reviews: 0 };
+            const completed = srData.filter((r: any) => r.status === "completed");
+            const ratings = completed.map((r: any) => Number(r.rating)).filter((n: number) => !Number.isNaN(n));
+            const avg = ratings.length ? ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length : 0;
+            return { total_completed_requests: completed.length, average_rating: Number(avg.toFixed(2)), total_reviews: ratings.length };
+          } catch {
+            return { total_completed_requests: 0, average_rating: 0, total_reviews: 0 };
+          }
+        })();
+
+        const financial = await (async () => {
+          try {
+            const { resp: invResp, data: invData } = await pgFetch(`/invoices?technician_id=eq.${encodeURIComponent(techId)}&select=total,issued_date`);
+            if (!invResp.ok || !Array.isArray(invData)) return { total_invoices: 0, total_earnings: 0, last_invoice_date: null };
+            const totalEarnings = invData.reduce((sum: number, inv: any) => sum + (Number(inv.total) || 0), 0);
+            const lastDate = invData
+              .map((inv: any) => inv.issued_date ? new Date(inv.issued_date) : null)
+              .filter(Boolean)
+              .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0] || null;
+            return { total_invoices: invData.length, total_earnings: totalEarnings, last_invoice_date: lastDate };
+          } catch {
+            return { total_invoices: 0, total_earnings: 0, last_invoice_date: null };
+          }
+        })();
+
+        res.json({ technician, documents: safeDocs, performance, financial });
       } catch (error) {
         console.error("[ADMIN][TECH][DETAIL] Error:", error);
         res.status(500).json({ message: "Failed to fetch technician" });
