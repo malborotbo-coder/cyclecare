@@ -55,7 +55,7 @@ export default function AdminDashboard() {
     const user = tech?.user;
     const phone = tech.phoneNumber ?? tech.phone_number ?? "";
     const years = tech.yearsOfExperience ?? tech.years_of_experience ?? 0;
-    const location = tech.location ?? tech.location_text ?? "";
+    const location = tech.national_address ?? tech.nationalAddress ?? "";
     const rating = tech.rating ?? tech.rating ?? "0.00";
     const reviewCount = tech.reviewCount ?? tech.review_count ?? 0;
     const nameFromUser = user ? [user.first_name, user.last_name].filter(Boolean).join(" ") : null;

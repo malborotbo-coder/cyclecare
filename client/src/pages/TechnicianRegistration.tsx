@@ -35,9 +35,7 @@ export default function TechnicianRegistration() {
     email: "",
     phoneNumber: "",
     experienceYears: "",
-    locationText: "",
-    latitude: "",
-    longitude: "",
+    nationalAddress: "",
     nationalId: "",
     commercialRegister: "",
     iban: "",
@@ -67,9 +65,7 @@ export default function TechnicianRegistration() {
       const formDataToSend = new FormData();
       formDataToSend.append("phone_number", formData.phoneNumber);
       formDataToSend.append("years_of_experience", formData.experienceYears || "0");
-      formDataToSend.append("location_text", formData.locationText);
-      formDataToSend.append("latitude", formData.latitude);
-      formDataToSend.append("longitude", formData.longitude);
+      formDataToSend.append("national_address", formData.nationalAddress);
       documents.forEach((file) => formDataToSend.append("documents", file));
 
       const response = await fetch("/api/technicians/apply", {
@@ -132,9 +128,12 @@ export default function TechnicianRegistration() {
 
     if (!formData.phoneNumber.trim()) newErrors.phone_number = t("requiredField");
     if (!formData.experienceYears.trim()) newErrors.years_of_experience = t("requiredField");
-    if (!formData.locationText.trim()) newErrors.location_text = t("requiredField");
-    if (!formData.latitude.trim()) newErrors.latitude = t("requiredField");
-    if (!formData.longitude.trim()) newErrors.longitude = t("requiredField");
+    if (!formData.nationalAddress.trim()) newErrors.national_address = t("requiredField");
+    if (formData.nationalAddress.trim().length > 8) newErrors.national_address = lang === "ar" ? "الحد الأقصى 8 أحرف" : "Max 8 characters";
+    const addressPattern = /^[\u0600-\u06FF0-9]{0,8}$/;
+    if (formData.nationalAddress && !addressPattern.test(formData.nationalAddress)) {
+      newErrors.national_address = lang === "ar" ? "أدخل أحرف عربية أو أرقام فقط" : "Use Arabic letters or numbers only";
+    }
     if (docs.length === 0)
       newErrors.documents =
         lang === "ar" ? "يرجى إرفاق مستند واحد على الأقل" : "Please attach at least one document";
@@ -331,45 +330,22 @@ export default function TechnicianRegistration() {
                   />
                 </div>
 
-                {/* Location */}
+                {/* National Address */}
                 <div className="space-y-2">
-                  <Label htmlFor="location">{t("locationArea")}</Label>
+                  <Label htmlFor="nationalAddress">{lang === "ar" ? "العنوان الوطني" : "National Address"} *</Label>
                   <Input
-                    id="location"
-                    value={formData.locationText}
-                    onChange={(e) => handleInputChange("locationText", e.target.value)}
-                    placeholder={t("locationPlaceholder")}
-                    className={inputErrorClass("location_text")}
-                    data-testid="input-location"
+                    id="nationalAddress"
+                    value={formData.nationalAddress}
+                    maxLength={8}
+                    onChange={(e) => {
+                      const sanitized = e.target.value.replace(/[^\u0600-\u06FF0-9]/g, "").slice(0, 8);
+                      handleInputChange("nationalAddress", sanitized);
+                    }}
+                    placeholder={lang === "ar" ? "اكتب العنوان الوطني" : "Enter national address"}
+                    className={inputErrorClass("national_address")}
+                    data-testid="input-national-address"
                   />
-                  {errors.location_text && <p className="text-destructive text-sm">{errors.location_text}</p>}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="latitude">{lang === "ar" ? "خط العرض" : "Latitude"} *</Label>
-                    <Input
-                      id="latitude"
-                      value={formData.latitude}
-                      onChange={(e) => handleInputChange("latitude", e.target.value)}
-                      placeholder="24.7136"
-                      className={inputErrorClass("latitude")}
-                      data-testid="input-latitude"
-                    />
-                    {errors.latitude && <p className="text-destructive text-sm">{errors.latitude}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="longitude">{lang === "ar" ? "خط الطول" : "Longitude"} *</Label>
-                    <Input
-                      id="longitude"
-                      value={formData.longitude}
-                      onChange={(e) => handleInputChange("longitude", e.target.value)}
-                      placeholder="46.6753"
-                      className={inputErrorClass("longitude")}
-                      data-testid="input-longitude"
-                    />
-                    {errors.longitude && <p className="text-destructive text-sm">{errors.longitude}</p>}
-                  </div>
+                  {errors.national_address && <p className="text-destructive text-sm">{errors.national_address}</p>}
                 </div>
               </CardContent>
             </Card>

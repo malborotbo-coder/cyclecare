@@ -804,18 +804,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!req.body.years_of_experience && !req.body.yearsOfExperience) {
           errors.years_of_experience = "Required";
         }
-        if (!req.body.location_text && !req.body.locationText) {
-          errors.location_text = "Required";
-        }
-        const latVal = req.body.latitude ?? req.body.lat;
-        const lngVal = req.body.longitude ?? req.body.lng;
-        const latNum = latVal !== undefined ? Number(latVal) : NaN;
-        const lngNum = lngVal !== undefined ? Number(lngVal) : NaN;
-        if (Number.isNaN(latNum)) {
-          errors.latitude = "Required";
-        }
-        if (Number.isNaN(lngNum)) {
-          errors.longitude = "Required";
+        if (!req.body.national_address && !req.body.nationalAddress) {
+          errors.national_address = "Required";
         }
         if (!files || files.length === 0) {
           errors.documents = "At least one document is required";
@@ -840,9 +830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           user_id: userUuid,
           phone_number: req.body.phone_number || req.body.phoneNumber,
           years_of_experience: Number(req.body.years_of_experience || req.body.yearsOfExperience),
-          location_text: req.body.location_text || req.body.locationText,
-          latitude: latNum,
-          longitude: lngNum,
+          national_address: req.body.national_address || req.body.nationalAddress,
           status: "pending",
           is_active: false,
           is_available: false,
