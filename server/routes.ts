@@ -945,48 +945,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  // Update technician availability (explicit endpoint)
-  app.patch(
-    "/api/technicians/availability",
-    isAuthenticated,
-    async (req: any, res) => {
-      try {
-        const auth = getAuthContext(req);
-        if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const desired = req.body.is_available;
-        if (typeof desired !== "boolean") {
-          return res.status(400).json({ fieldErrors: { is_available: "Required boolean" } });
-        }
-        const userUuid = await ensureUserUuid(auth);
-        const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
-        if (!resp.ok) {
-          console.log("[TECH][AVAILABILITY][FETCH][FAILED]", { status: resp.status, body: data });
-          return res.status(404).json({ message: "Technician not found" });
-        }
-        const technician = Array.isArray(data) ? data[0] : data?.[0];
-        if (!technician) {
-          return res.status(404).json({ message: "Technician not found" });
-        }
-        if (technician.status !== "approved" || technician.is_active !== true) {
-          return res.status(403).json({ message: "Technician not active" });
-        }
-        const { resp: updResp, data: updData } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
-          method: "PATCH",
-          body: { is_available: desired },
-          headers: { Prefer: "return=representation" },
-        });
-        if (!updResp.ok) {
-          console.log("[TECH][AVAILABILITY][UPDATE][FAILED]", { status: updResp.status, body: updData });
-          return res.status(500).json({ message: "Failed to update availability" });
-        }
-        const updated = Array.isArray(updData) ? updData[0] : updData;
-        res.json(updated);
-      } catch (error) {
-        console.error("[TECH][AVAILABILITY][ERROR]", error);
-        res.status(500).json({ message: "Failed to update availability" });
-      }
-    },
-  );
 
   // Transactional technician registration with documents
   app.post(
