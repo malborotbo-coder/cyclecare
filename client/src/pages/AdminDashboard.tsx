@@ -24,10 +24,10 @@ import type { Language } from "@/lib/i18n";
 interface TechnicianDocument {
   id: string;
   technicianId: string;
-  documentType: string;
-  documentUrl: string;
-  fileName: string;
-  uploadedAt: Date;
+  documentType?: string;
+  documentUrl?: string;
+  fileName?: string;
+  uploadedAt?: Date;
 }
 
 interface TechnicianWithUser extends Technician {
@@ -51,6 +51,28 @@ export default function AdminDashboard() {
   const [editingPrice, setEditingPrice] = useState<string>("");
   const [editingCategory, setEditingCategory] = useState<string>("");
 
+  const normalizeTechnician = (tech: any) => {
+    const user = tech?.user;
+    const phone = tech.phoneNumber ?? tech.phone_number ?? "";
+    const years = tech.yearsOfExperience ?? tech.years_of_experience ?? 0;
+    const location = tech.location ?? tech.location_text ?? "";
+    const rating = tech.rating ?? tech.rating ?? "0.00";
+    const reviewCount = tech.reviewCount ?? tech.review_count ?? 0;
+    const nameFromUser = user ? [user.first_name, user.last_name].filter(Boolean).join(" ") : null;
+    const userName = tech.userName ?? nameFromUser;
+    const userEmail = tech.userEmail ?? user?.email;
+    const isAvailable = tech.isAvailable ?? tech.is_available;
+    const isApproved = tech.isApproved ?? tech.is_approved;
+    return { ...tech, user, phone, years, location, rating, reviewCount, userName, userEmail, isAvailable, isApproved };
+  };
+
+  const normalizeDoc = (doc: any) => ({
+    ...doc,
+    documentType: doc.documentType ?? doc.document_type,
+    documentUrl: doc.documentUrl ?? doc.file_url,
+    fileName: doc.fileName ?? doc.file_name,
+  });
+
   const fetchTechnicianDocuments = async (technicianId: string) => {
     setLoadingDocsMap(prev => ({ ...prev, [technicianId]: true }));
     try {
@@ -59,7 +81,8 @@ export default function AdminDashboard() {
       });
       if (response.ok) {
         const docs = await response.json();
-        setTechnicianDocsMap(prev => ({ ...prev, [technicianId]: docs }));
+        const normalized = Array.isArray(docs) ? docs.map(normalizeDoc) : [];
+        setTechnicianDocsMap(prev => ({ ...prev, [technicianId]: normalized }));
       } else {
         const errorData = await response.json().catch(() => ({}));
         toast({
@@ -910,54 +933,60 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {technicians.map((tech) => (
-                        <Card
-                          key={tech.id}
-                          className="p-4 hover-elevate"
-                          data-testid={`tech-item-${tech.id}`}
-                        >
-                          <div className="flex flex-col gap-3">
-                            <div className="flex items-start justify-between">
-                              <div className="space-y-1">
-                                <p className="font-semibold text-foreground text-lg">
-                                  {tech.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                  {tech.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}
-                                </p>
+                      {technicians.map((tech) => {
+                        const normalized = normalizeTechnician(tech);
+                        const status = (tech as any).status;
+                        const isApproved = status === "approved" || normalized.isApproved;
+                        const isAvailable = normalized.isAvailable ?? (tech as any).is_available;
+                        return (
+                          <Card
+                            key={tech.id}
+                            className="p-4 hover-elevate"
+                            data-testid={`tech-item-${tech.id}`}
+                          >
+                            <div className="flex flex-col gap-3">
+                              <div className="flex items-start justify-between">
+                                <div className="space-y-1">
+                                  <p className="font-semibold text-foreground text-lg">
+                                    {normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {normalized.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  {isApproved ? (
+                                    <Badge variant="default">{txt.approved}</Badge>
+                                  ) : (
+                                    <Badge variant="secondary">{txt.pending}</Badge>
+                                  )}
+                                  {isAvailable && (
+                                    <Badge variant="outline">{txt.available}</Badge>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex gap-2">
-                                {tech.isApproved ? (
-                                  <Badge variant="default">{txt.approved}</Badge>
-                                ) : (
-                                  <Badge variant="secondary">{txt.pending}</Badge>
-                                )}
-                                {tech.isAvailable && (
-                                  <Badge variant="outline">{txt.available}</Badge>
-                                )}
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</span>
+                                  <span className="font-medium mr-1">{normalized.phone || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الخبرة:' : 'Experience:'}</span>
+                                  <span className="font-medium mr-1">{normalized.years || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{txt.rating}:</span>
+                                  <span className="font-medium mr-1">{normalized.rating || '0.00'} ({normalized.reviewCount || 0})</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">{lang === 'ar' ? 'الموقع:' : 'Location:'}</span>
+                                  <span className="font-medium mr-1">{normalized.location || '-'}</span>
+                                </div>
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                              <div>
-                                <span className="text-muted-foreground">{lang === 'ar' ? 'الهاتف:' : 'Phone:'}</span>
-                                <span className="font-medium mr-1">{tech.phoneNumber || '-'}</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">{lang === 'ar' ? 'الخبرة:' : 'Experience:'}</span>
-                                <span className="font-medium mr-1">{tech.yearsOfExperience || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">{txt.rating}:</span>
-                                <span className="font-medium mr-1">{tech.rating || '0.00'} ({tech.reviewCount || 0})</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">{lang === 'ar' ? 'الموقع:' : 'Location:'}</span>
-                                <span className="font-medium mr-1">{tech.location || '-'}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
+                          </Card>
+                        );
+                      })}
                     </div>
                   )}
                 </ScrollArea>
@@ -1026,15 +1055,16 @@ export default function AdminDashboard() {
                   ) : (
                     <div className="space-y-4">
                       {pendingTechnicians.map((tech) => {
+                        const normalized = normalizeTechnician(tech);
                         return (
                           <Card key={tech.id} className="p-4" data-testid={`pending-tech-${tech.id}`}>
                             <div className="space-y-4">
                               <div className="flex justify-between items-start">
                                 <div>
                                   <h4 className="font-semibold text-lg">
-                                    {tech.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
+                                    {normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}
                                   </h4>
-                                  <p className="text-sm text-muted-foreground">{tech.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}</p>
+                                  <p className="text-sm text-muted-foreground">{normalized.userEmail || (lang === 'ar' ? 'بريد غير محدد' : 'Email not set')}</p>
                                 </div>
                                 <Badge variant="outline">{txt.pending}</Badge>
                               </div>
@@ -1042,11 +1072,11 @@ export default function AdminDashboard() {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                                 <div>
                                   <span className="font-medium">{txt.phoneNumber}: </span>
-                                  <span className="text-muted-foreground">{tech.phoneNumber || 'N/A'}</span>
+                                  <span className="text-muted-foreground">{normalized.phone || 'N/A'}</span>
                                 </div>
                                 <div>
                                   <span className="font-medium">{txt.experience}: </span>
-                                  <span className="text-muted-foreground">{tech.yearsOfExperience || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
+                                  <span className="text-muted-foreground">{normalized.years || 0} {lang === 'ar' ? 'سنوات' : 'years'}</span>
                                 </div>
                                 <div>
                                   <span className="font-medium">{txt.nationalId}: </span>
@@ -1062,7 +1092,7 @@ export default function AdminDashboard() {
                                 </div>
                                 <div>
                                   <span className="font-medium">{lang === 'ar' ? 'الموقع:' : 'Location:'} </span>
-                                  <span className="text-muted-foreground">{tech.location || 'N/A'}</span>
+                                  <span className="text-muted-foreground">{normalized.location || 'N/A'}</span>
                                 </div>
                               </div>
 
@@ -1108,44 +1138,50 @@ export default function AdminDashboard() {
                                     <div className="text-center py-4 text-muted-foreground">{txt.noDocuments}</div>
                                   ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                      {technicianDocsMap[tech.id].map((doc) => (
-                                        <div 
-                                          key={doc.id} 
-                                          className="flex items-center justify-between p-3 bg-background border rounded-lg"
-                                          data-testid={`doc-item-${doc.id}`}
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <Image className="w-4 h-4 text-muted-foreground" />
-                                            <div>
-                                              <p className="text-sm font-medium">{getDocumentTypeLabel(doc.documentType)}</p>
-                                              <p className="text-xs text-muted-foreground">{doc.fileName}</p>
+                                      {technicianDocsMap[tech.id].map((doc) => {
+                                        const normalizedDoc = normalizeDoc(doc);
+                                        const docUrl = normalizedDoc.documentUrl;
+                                        const docName = normalizedDoc.fileName || '';
+                                        return (
+                                          <div 
+                                            key={doc.id} 
+                                            className="flex items-center justify-between p-3 bg-background border rounded-lg"
+                                            data-testid={`doc-item-${doc.id}`}
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <Image className="w-4 h-4 text-muted-foreground" />
+                                              <div>
+                                                <p className="text-sm font-medium">{getDocumentTypeLabel(normalizedDoc.documentType || '')}</p>
+                                                <p className="text-xs text-muted-foreground">{docName}</p>
+                                              </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                              <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={() => docUrl && window.open(docUrl, '_blank')}
+                                                data-testid={`button-view-doc-${doc.id}`}
+                                              >
+                                                <Eye className="w-4 h-4" />
+                                              </Button>
+                                              <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  if (!docUrl) return;
+                                                  const link = document.createElement('a');
+                                                  link.href = docUrl;
+                                                  link.download = docName || 'document';
+                                                  link.click();
+                                                }}
+                                                data-testid={`button-download-doc-${doc.id}`}
+                                              >
+                                                <Download className="w-4 h-4" />
+                                              </Button>
                                             </div>
                                           </div>
-                                          <div className="flex gap-2">
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              onClick={() => window.open(doc.documentUrl, '_blank')}
-                                              data-testid={`button-view-doc-${doc.id}`}
-                                            >
-                                              <Eye className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              onClick={() => {
-                                                const link = document.createElement('a');
-                                                link.href = doc.documentUrl;
-                                                link.download = doc.fileName;
-                                                link.click();
-                                              }}
-                                              data-testid={`button-download-doc-${doc.id}`}
-                                            >
-                                              <Download className="w-4 h-4" />
-                                            </Button>
-                                          </div>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   )}
                                 </div>

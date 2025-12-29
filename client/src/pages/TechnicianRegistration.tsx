@@ -13,11 +13,15 @@ import LanguageToggle from "@/components/LanguageToggle";
 import { queryClient } from "@/lib/queryClient";
 import technicianBg from "@assets/stock_images/bicycle_mechanic_tec_e306465b.jpg";
 
+type FieldErrors = Record<string, string>;
+
 export default function TechnicianRegistration() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { lang, toggleLanguage, t } = useLanguage();
-  const isRTL = lang === 'ar';
+  const isRTL = lang === "ar";
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [successMessage, setSuccessMessage] = useState("");
 
   // Form refs for file inputs
   const profileImageRef = useRef<HTMLInputElement>(null);
@@ -31,7 +35,9 @@ export default function TechnicianRegistration() {
     email: "",
     phoneNumber: "",
     experienceYears: "",
-    location: "",
+    locationText: "",
+    latitude: "",
+    longitude: "",
     nationalId: "",
     commercialRegister: "",
     iban: "",
@@ -45,61 +51,61 @@ export default function TechnicianRegistration() {
     certifications: [] as string[],
   });
 
+  const gatherDocuments = () => {
+    const docs: File[] = [];
+    [profileImageRef, nationalIdRef, commercialRef, certificationsRef].forEach((ref) => {
+      if (ref.current?.files) {
+        docs.push(...Array.from(ref.current.files));
+      }
+    });
+    return docs;
+  };
+
   // Submit mutation - uses FormData for multipart upload
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (documents: File[]) => {
       const formDataToSend = new FormData();
-      
-      // Add text fields
-      formDataToSend.append("name", formData.fullName);
-      formDataToSend.append("email", formData.email);
-      formDataToSend.append("phoneNumber", formData.phoneNumber);
-      formDataToSend.append("experienceYears", formData.experienceYears || "0");
-      if (formData.location) formDataToSend.append("location", formData.location);
-      if (formData.nationalId) formDataToSend.append("nationalId", formData.nationalId);
-      if (formData.iban) formDataToSend.append("iban", formData.iban);
-      if (formData.commercialRegister) formDataToSend.append("commercialRegister", formData.commercialRegister);
+      formDataToSend.append("phone_number", formData.phoneNumber);
+      formDataToSend.append("years_of_experience", formData.experienceYears || "0");
+      formDataToSend.append("location_text", formData.locationText);
+      formDataToSend.append("latitude", formData.latitude);
+      formDataToSend.append("longitude", formData.longitude);
+      documents.forEach((file) => formDataToSend.append("documents", file));
 
-      // Add files
-      if (profileImageRef.current?.files?.[0]) {
-        formDataToSend.append("profileImage", profileImageRef.current.files[0]);
-      }
-      if (nationalIdRef.current?.files?.[0]) {
-        formDataToSend.append("nationalIdFile", nationalIdRef.current.files[0]);
-      }
-      if (commercialRef.current?.files?.[0]) {
-        formDataToSend.append("commercialFile", commercialRef.current.files[0]);
-      }
-      if (certificationsRef.current?.files) {
-        Array.from(certificationsRef.current.files).forEach(file => {
-          formDataToSend.append("certifications", file);
-        });
-      }
-
-      const response = await fetch("/api/public/technicians/upload", {
+      const response = await fetch("/api/technicians/apply", {
         method: "POST",
         body: formDataToSend,
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.message || "Submission failed");
+        const error: any = new Error(data.message || "Submission failed");
+        error.fieldErrors = data.fieldErrors;
+        throw error;
       }
       return data;
     },
     onSuccess: () => {
+      setSuccessMessage(
+        lang === "ar"
+          ? "تم إرسال طلبك وهو قيد المراجعة."
+          : "Your application has been submitted and is under review."
+      );
+      setErrors({});
       toast({
-        title: t('applicationSuccess'),
-        description: t('applicationSuccessDesc'),
+        title: t("applicationSuccess"),
+        description: t("applicationSuccessDesc"),
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/technicians'] });
-      setTimeout(() => navigate("/"), 2000);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      if (error.fieldErrors) {
+        setErrors(error.fieldErrors);
+      }
       toast({
-        title: t('applicationError'),
-        description: error.message.includes("already") 
-          ? t('emailAlreadyRegistered') 
+        title: t("applicationError"),
+        description: error.message.includes("already")
+          ? t("emailAlreadyRegistered")
           : error.message,
         variant: "destructive",
       });
@@ -107,46 +113,66 @@ export default function TechnicianRegistration() {
   });
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleFileChange = (field: keyof typeof fileNames, files: FileList | null) => {
     if (!files) return;
     if (field === "certifications") {
-      setFileNames(prev => ({ ...prev, certifications: Array.from(files).map(f => f.name) }));
+      setFileNames((prev) => ({ ...prev, certifications: Array.from(files).map((f) => f.name) }));
     } else {
-      setFileNames(prev => ({ ...prev, [field]: files[0]?.name || "" }));
+      setFileNames((prev) => ({ ...prev, [field]: files[0]?.name || "" }));
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Basic validation
-    if (!formData.fullName || !formData.email || !formData.phoneNumber) {
-      toast({
-        title: t('applicationError'),
-        description: t('requiredField'),
-        variant: "destructive",
-      });
-      return;
+    const newErrors: FieldErrors = {};
+    const docs = gatherDocuments();
+
+    if (!formData.phoneNumber.trim()) newErrors.phone_number = t("requiredField");
+    if (!formData.experienceYears.trim()) newErrors.years_of_experience = t("requiredField");
+    if (!formData.locationText.trim()) newErrors.location_text = t("requiredField");
+    if (!formData.latitude.trim()) newErrors.latitude = t("requiredField");
+    if (!formData.longitude.trim()) newErrors.longitude = t("requiredField");
+    if (docs.length === 0)
+      newErrors.documents =
+        lang === "ar" ? "يرجى إرفاق مستند واحد على الأقل" : "Please attach at least one document";
+
+    const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
+    const maxSize = 5 * 1024 * 1024;
+    for (const file of docs) {
+      if (!allowedTypes.includes(file.type)) {
+        newErrors.documents = lang === "ar" ? "صيغة ملف غير مسموحة" : "Invalid file type";
+        break;
+      }
+      if (file.size > maxSize) {
+        newErrors.documents = lang === "ar" ? "الحد الأقصى للملف 5 ميجابايت" : "File too large (max 5MB)";
+        break;
+      }
     }
 
-    submitMutation.mutate();
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
+    submitMutation.mutate(docs);
   };
 
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
 
+  const inputErrorClass = (field: string) =>
+    errors[field] ? "border-destructive focus-visible:ring-destructive" : "";
+
   return (
     <div className="min-h-screen relative">
       {/* Background Image with Overlay */}
-      <div 
+      <div
         className="fixed inset-0 z-0"
         style={{
           backgroundImage: `url(${technicianBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundAttachment: 'fixed',
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundAttachment: "fixed",
         }}
       >
         <div className="absolute inset-0 bg-black/60" />
@@ -165,9 +191,9 @@ export default function TechnicianRegistration() {
               data-testid="button-back-home"
             >
               <BackIcon className="w-4 h-4" />
-              <span className="mx-2">{t('backToHome')}</span>
+              <span className="mx-2">{t("backToHome")}</span>
             </Button>
-            
+
             <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
           </div>
         </header>
@@ -182,13 +208,19 @@ export default function TechnicianRegistration() {
             <div className="flex items-center justify-center gap-2 mb-2">
               <Wrench className="w-6 h-6 text-primary" />
               <h1 className="text-2xl font-bold text-white drop-shadow-lg" data-testid="text-page-title">
-                {t('techRegTitle')}
+                {t("techRegTitle")}
               </h1>
             </div>
             <p className="text-white/90 drop-shadow" data-testid="text-page-subtitle">
-              {t('techRegSubtitle')}
+              {t("techRegSubtitle")}
             </p>
           </div>
+
+          {successMessage && (
+            <div className="mb-4 text-center text-sm font-medium text-green-500 bg-white/80 dark:bg-black/60 p-3 rounded-lg">
+              {successMessage}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit}>
             {/* Personal Information Card */}
@@ -196,54 +228,57 @@ export default function TechnicianRegistration() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Wrench className="w-5 h-5 text-primary" />
-                  {t('personalInfo')}
+                  {t("personalInfo")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Full Name */}
                 <div className="space-y-2">
-                  <Label htmlFor="fullName">{t('fullName')} *</Label>
+                  <Label htmlFor="fullName">{t("fullName")} *</Label>
                   <Input
                     id="fullName"
                     value={formData.fullName}
                     onChange={(e) => handleInputChange("fullName", e.target.value)}
-                    placeholder={t('fullNamePlaceholder')}
-                    required
+                    placeholder={t("fullNamePlaceholder")}
+                    className={inputErrorClass("name")}
                     data-testid="input-fullname"
                   />
+                  {errors.name && <p className="text-destructive text-sm">{errors.name}</p>}
                 </div>
 
                 {/* Email */}
                 <div className="space-y-2">
-                  <Label htmlFor="email">{t('email')} *</Label>
+                  <Label htmlFor="email">{t("email")} *</Label>
                   <Input
                     id="email"
                     type="email"
                     value={formData.email}
                     onChange={(e) => handleInputChange("email", e.target.value)}
                     placeholder="example@email.com"
-                    required
+                    className={inputErrorClass("email")}
                     data-testid="input-email"
                   />
+                  {errors.email && <p className="text-destructive text-sm">{errors.email}</p>}
                 </div>
 
                 {/* Phone */}
                 <div className="space-y-2">
-                  <Label htmlFor="phone">{t('phone')} *</Label>
+                  <Label htmlFor="phone">{t("phone")} *</Label>
                   <Input
                     id="phone"
                     type="tel"
                     value={formData.phoneNumber}
                     onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
-                    placeholder={t('phonePlaceholder')}
-                    required
+                    placeholder={t("phonePlaceholder")}
+                    className={inputErrorClass("phone_number")}
                     data-testid="input-phone"
                   />
+                  {errors.phone_number && <p className="text-destructive text-sm">{errors.phone_number}</p>}
                 </div>
 
                 {/* Experience Years */}
                 <div className="space-y-2">
-                  <Label htmlFor="experience">{t('experienceYears')}</Label>
+                  <Label htmlFor="experience">{t("experienceYears")}</Label>
                   <Input
                     id="experience"
                     type="number"
@@ -252,56 +287,89 @@ export default function TechnicianRegistration() {
                     value={formData.experienceYears}
                     onChange={(e) => handleInputChange("experienceYears", e.target.value)}
                     placeholder="0"
+                    className={inputErrorClass("years_of_experience")}
                     data-testid="input-experience"
                   />
+                  {errors.years_of_experience && (
+                    <p className="text-destructive text-sm">{errors.years_of_experience}</p>
+                  )}
                 </div>
 
                 {/* National ID */}
                 <div className="space-y-2">
-                  <Label htmlFor="nationalId">{t('nationalIdNumber')}</Label>
+                  <Label htmlFor="nationalId">{t("nationalIdNumber")}</Label>
                   <Input
                     id="nationalId"
                     value={formData.nationalId}
                     onChange={(e) => handleInputChange("nationalId", e.target.value)}
-                    placeholder={t('nationalIdPlaceholder')}
+                    placeholder={t("nationalIdPlaceholder")}
                     data-testid="input-national-id"
                   />
                 </div>
 
                 {/* IBAN */}
                 <div className="space-y-2">
-                  <Label htmlFor="iban">{t('ibanNumber')}</Label>
+                  <Label htmlFor="iban">{t("ibanNumber")}</Label>
                   <Input
                     id="iban"
                     value={formData.iban}
                     onChange={(e) => handleInputChange("iban", e.target.value)}
-                    placeholder={t('ibanPlaceholder')}
+                    placeholder={t("ibanPlaceholder")}
                     data-testid="input-iban"
                   />
                 </div>
 
                 {/* Commercial Register */}
                 <div className="space-y-2">
-                  <Label htmlFor="commercial">{t('commercialRegisterNumber')}</Label>
+                  <Label htmlFor="commercial">{t("commercialRegisterNumber")}</Label>
                   <Input
                     id="commercial"
                     value={formData.commercialRegister}
                     onChange={(e) => handleInputChange("commercialRegister", e.target.value)}
-                    placeholder={t('commercialRegisterPlaceholder')}
+                    placeholder={t("commercialRegisterPlaceholder")}
                     data-testid="input-commercial-register"
                   />
                 </div>
 
                 {/* Location */}
                 <div className="space-y-2">
-                  <Label htmlFor="location">{t('locationArea')}</Label>
+                  <Label htmlFor="location">{t("locationArea")}</Label>
                   <Input
                     id="location"
-                    value={formData.location}
-                    onChange={(e) => handleInputChange("location", e.target.value)}
-                    placeholder={t('locationPlaceholder')}
+                    value={formData.locationText}
+                    onChange={(e) => handleInputChange("locationText", e.target.value)}
+                    placeholder={t("locationPlaceholder")}
+                    className={inputErrorClass("location_text")}
                     data-testid="input-location"
                   />
+                  {errors.location_text && <p className="text-destructive text-sm">{errors.location_text}</p>}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="latitude">{lang === "ar" ? "خط العرض" : "Latitude"} *</Label>
+                    <Input
+                      id="latitude"
+                      value={formData.latitude}
+                      onChange={(e) => handleInputChange("latitude", e.target.value)}
+                      placeholder="24.7136"
+                      className={inputErrorClass("latitude")}
+                      data-testid="input-latitude"
+                    />
+                    {errors.latitude && <p className="text-destructive text-sm">{errors.latitude}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="longitude">{lang === "ar" ? "خط الطول" : "Longitude"} *</Label>
+                    <Input
+                      id="longitude"
+                      value={formData.longitude}
+                      onChange={(e) => handleInputChange("longitude", e.target.value)}
+                      placeholder="46.6753"
+                      className={inputErrorClass("longitude")}
+                      data-testid="input-longitude"
+                    />
+                    {errors.longitude && <p className="text-destructive text-sm">{errors.longitude}</p>}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -311,18 +379,18 @@ export default function TechnicianRegistration() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Upload className="w-5 h-5 text-secondary" />
-                  {t('attachmentsOptional')}
+                  {lang === "ar" ? "المستندات مطلوبة" : "Documents are required"}
                 </CardTitle>
                 <CardDescription>
-                  {lang === 'ar' 
-                    ? 'يمكنك رفع الصور والمستندات لتسريع عملية المراجعة'
-                    : 'You can upload photos and documents to speed up the review process'}
+                  {lang === "ar"
+                    ? "يرجى رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
+                    : "Please upload ID or certificates (PDF or image), max 5MB each"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Profile Photo */}
                 <div className="space-y-2">
-                  <Label>{t('profilePhoto')}</Label>
+                  <Label>{t("profilePhoto")}</Label>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
@@ -332,11 +400,11 @@ export default function TechnicianRegistration() {
                       data-testid="button-upload-profile"
                     >
                       <Upload className="w-4 h-4 mx-1" />
-                      {t('chooseFile')}
+                      {t("chooseFile")}
                       <input
                         ref={profileImageRef}
                         type="file"
-                        accept="image/*"
+                        accept="image/*,.pdf"
                         className="absolute inset-0 opacity-0 cursor-pointer"
                         onChange={(e) => handleFileChange("profileImage", e.target.files)}
                       />
@@ -352,7 +420,7 @@ export default function TechnicianRegistration() {
 
                 {/* National ID Photo */}
                 <div className="space-y-2">
-                  <Label>{t('nationalIdPhoto')}</Label>
+                  <Label>{t("nationalIdPhoto")}</Label>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
@@ -362,7 +430,7 @@ export default function TechnicianRegistration() {
                       data-testid="button-upload-national-id"
                     >
                       <Upload className="w-4 h-4 mx-1" />
-                      {t('chooseFile')}
+                      {t("chooseFile")}
                       <input
                         ref={nationalIdRef}
                         type="file"
@@ -382,7 +450,7 @@ export default function TechnicianRegistration() {
 
                 {/* Commercial Register Photo */}
                 <div className="space-y-2">
-                  <Label>{t('commercialRegisterPhoto')}</Label>
+                  <Label>{t("commercialRegisterPhoto")}</Label>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
@@ -392,7 +460,7 @@ export default function TechnicianRegistration() {
                       data-testid="button-upload-commercial"
                     >
                       <Upload className="w-4 h-4 mx-1" />
-                      {t('chooseFile')}
+                      {t("chooseFile")}
                       <input
                         ref={commercialRef}
                         type="file"
@@ -412,7 +480,7 @@ export default function TechnicianRegistration() {
 
                 {/* Certifications */}
                 <div className="space-y-2">
-                  <Label>{t('professionalCerts')}</Label>
+                  <Label>{t("professionalCerts")}</Label>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
@@ -422,7 +490,7 @@ export default function TechnicianRegistration() {
                       data-testid="button-upload-certs"
                     >
                       <Upload className="w-4 h-4 mx-1" />
-                      {t('chooseFiles')}
+                      {t("chooseFiles")}
                       <input
                         ref={certificationsRef}
                         type="file"
@@ -435,10 +503,11 @@ export default function TechnicianRegistration() {
                     {fileNames.certifications.length > 0 && (
                       <span className="text-sm text-green-600 flex items-center gap-1">
                         <Check className="w-4 h-4" />
-                        {fileNames.certifications.length} {t('filesSelected')}
+                        {fileNames.certifications.length} {t("filesSelected")}
                       </span>
                     )}
                   </div>
+                  {errors.documents && <p className="text-destructive text-sm">{errors.documents}</p>}
                 </div>
               </CardContent>
             </Card>
@@ -454,12 +523,12 @@ export default function TechnicianRegistration() {
               {submitMutation.isPending ? (
                 <>
                   <Loader2 className="w-5 h-5 mx-2 animate-spin" />
-                  {t('submitting')}
+                  {t("submitting")}
                 </>
               ) : (
                 <>
                   <Wrench className="w-5 h-5 mx-2" />
-                  {t('submitApplication')}
+                  {t("submitApplication")}
                 </>
               )}
             </Button>
