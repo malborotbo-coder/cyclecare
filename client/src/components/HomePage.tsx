@@ -118,6 +118,10 @@ export default function HomePage() {
     queryKey: ["/api/technicians"],
     enabled: !shouldSkipAPI,
   });
+  const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const visibleTechnicians = safeTechnicians.filter(
+    (tech) => tech.is_available === true && tech.status === "approved" && tech.is_active === true,
+  );
 
   // Show success toast after successful login
   useEffect(() => {
@@ -320,19 +324,19 @@ export default function HomePage() {
             </CardContent>
           </Card>
 
-          {technicians && technicians.length > 0 && (
+          {visibleTechnicians.length > 0 && (
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold">{t('nearbyTechnicians')}</h2>
               </div>
               <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4">
-                {technicians.map((tech, idx) => (
+                {visibleTechnicians.map((tech, idx) => (
                   <TechnicianCard
                     key={tech.id}
                     name={`${lang === 'ar' ? 'فني' : 'Technician'} #${idx + 1}`}
-                    rating={tech.rating || "0.0"}
-                    reviewCount={tech.reviewCount || 0}
-                    available={tech.isAvailable || false}
+                    rating={(tech.rating as any) || "0.0"}
+                    reviewCount={tech.review_count || tech.reviewCount || 0}
+                    available={tech.is_available || tech.isAvailable || false}
                   />
                 ))}
               </div>

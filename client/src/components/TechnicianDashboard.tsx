@@ -163,7 +163,7 @@ export default function TechnicianDashboard() {
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
-      return apiRequest('PATCH', '/api/technicians/me/availability', { is_available: next });
+      return apiRequest('PATCH', '/api/technicians/availability', { is_available: next });
     },
     onSuccess: (updated: any) => {
       setIsOnline(!!updated?.is_available);
