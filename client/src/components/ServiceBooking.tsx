@@ -13,7 +13,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import type { Technician, User as UserType, Bike as BikeType, PaymentMethod } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
 import { useLanguage } from "@/contexts/LanguageContext";
-import bookingBgImage from "@assets/generated_images/Professional_bike_workshop_scene_2f400594.png";
+import BookingBackgroundLayout from "@/components/layout/BookingBackgroundLayout";
 
 export default function ServiceBooking() {
   const { lang: language } = useLanguage();
@@ -443,76 +443,71 @@ export default function ServiceBooking() {
   const selectedTechnician = technicians?.find((t) => t.id === selectedTechnicianId);
 
   return (
-    <div 
-      className="min-h-screen p-4 relative bg-cover bg-center"
-      style={{ backgroundImage: `url(${bookingBgImage})` }}
-    >
-      {/* Subtle overlay for better readability */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/90 to-background/95"></div>
-      
-      <div className="max-w-2xl mx-auto relative z-10">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{t[language].title}</h1>
-          <div className="flex items-center gap-2 mt-4">
-            {steps.map((step, idx) => (
-              <div key={idx} className="flex items-center flex-1">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                  idx <= currentStep ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'
-                }`}>
-                  {idx < currentStep ? <Check className="w-4 h-4" /> : idx + 1}
+    <BookingBackgroundLayout>
+      <div className="min-h-screen p-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold mb-2 text-white">{t[language].title}</h1>
+            <div className="flex items-center gap-2 mt-4">
+              {steps.map((step, idx) => (
+                <div key={idx} className="flex items-center flex-1">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                    idx <= currentStep ? 'bg-primary text-white' : 'bg-white/40 text-white'
+                  }`}>
+                    {idx < currentStep ? <Check className="w-4 h-4" /> : idx + 1}
+                  </div>
+                  {idx < steps.length - 1 && (
+                    <div className={`flex-1 h-1 mx-2 ${
+                      idx < currentStep ? 'bg-primary' : 'bg-white/40'
+                    }`}></div>
+                  )}
                 </div>
-                {idx < steps.length - 1 && (
-                  <div className={`flex-1 h-1 mx-2 ${
-                    idx < currentStep ? 'bg-primary' : 'bg-muted'
-                  }`}></div>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="flex justify-between mt-2">
+              {steps.map((step, idx) => (
+                <span 
+                  key={idx} 
+                  className={`text-xs ${idx <= currentStep ? 'text-white' : 'text-white/70'}`}
+                >
+                  {step}
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="flex justify-between mt-2">
-            {steps.map((step, idx) => (
-              <span 
-                key={idx} 
-                className={`text-xs ${idx <= currentStep ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
-                {step}
-              </span>
-            ))}
-          </div>
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{steps[currentStep]}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {currentStep === 0 && (
-              <RadioGroup value={selectedService} onValueChange={setSelectedService}>
-                <div className="space-y-3">
-                  {services.map((service) => (
-                    <Label
-                      key={service.id}
-                      htmlFor={service.id}
-                      className={`flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer transition-all hover-elevate ${
-                        selectedService === service.id ? 'border-primary bg-primary/5' : 'border-border'
-                      }`}
-                      data-testid={`option-service-${service.id}`}
-                    >
-                      <RadioGroupItem value={service.id} id={service.id} />
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                          {service.icon}
+          <Card className="bg-white/85 dark:bg-slate-900/85 backdrop-blur border border-white/20 shadow-xl">
+            <CardHeader>
+              <CardTitle>{steps[currentStep]}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {currentStep === 0 && (
+                <RadioGroup value={selectedService} onValueChange={setSelectedService}>
+                  <div className="space-y-3">
+                    {services.map((service) => (
+                      <Label
+                        key={service.id}
+                        htmlFor={service.id}
+                        className={`flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer transition-all hover-elevate ${
+                          selectedService === service.id ? 'border-primary bg-primary/5' : 'border-border'
+                        }`}
+                        data-testid={`option-service-${service.id}`}
+                      >
+                        <RadioGroupItem value={service.id} id={service.id} />
+                        <div className="flex items-center gap-3 flex-1">
+                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                            {service.icon}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-semibold">{service.name}</div>
+                            <div className="text-sm text-muted-foreground">{service.price}</div>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <div className="font-semibold">{service.name}</div>
-                          <div className="text-sm text-muted-foreground">{service.price}</div>
-                        </div>
-                      </div>
-                    </Label>
-                  ))}
-                </div>
-              </RadioGroup>
-            )}
+                      </Label>
+                    ))}
+                  </div>
+                </RadioGroup>
+              )}
 
             {currentStep === 1 && (
               <div className="space-y-4">

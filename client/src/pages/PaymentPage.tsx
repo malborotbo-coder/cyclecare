@@ -7,6 +7,7 @@ import { useLocation } from "wouter";
 import { Apple, CreditCard, Wallet } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import BookingBackgroundLayout from "@/components/layout/BookingBackgroundLayout";
 
 export default function PaymentPage() {
   const { lang } = useLanguage();
@@ -94,80 +95,84 @@ export default function PaymentPage() {
 
   if (showSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-black p-4">
-        <Card className="w-full max-w-md bg-slate-800 border-slate-700 p-8 text-center">
-          <div className="text-green-500 text-5xl mb-4">✓</div>
-          <h2 className="text-2xl font-bold text-white mb-2">{labels.success}</h2>
-          <p className="text-slate-300">{labels.successMsg}</p>
-        </Card>
-      </div>
+      <BookingBackgroundLayout>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <Card className="w-full max-w-md bg-white/85 dark:bg-slate-900/85 backdrop-blur border border-white/20 p-8 text-center shadow-xl">
+            <div className="text-green-500 text-5xl mb-4">✓</div>
+            <h2 className="text-2xl font-bold mb-2">{labels.success}</h2>
+            <p className="text-muted-foreground">{labels.successMsg}</p>
+          </Card>
+        </div>
+      </BookingBackgroundLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-black p-4">
-      <div className="max-w-2xl mx-auto">
-        <h1 className={`text-3xl font-bold text-white mb-8 ${isArabic ? "text-right" : "text-left"}`}>
-          {labels.title}
-        </h1>
+    <BookingBackgroundLayout>
+      <div className="min-h-screen p-4">
+        <div className="max-w-2xl mx-auto">
+          <h1 className={`text-3xl font-bold text-white mb-8 ${isArabic ? "text-right" : "text-left"}`}>
+            {labels.title}
+          </h1>
 
-        {/* Amount Card */}
-        <Card className="bg-slate-800 border-slate-700 p-6 mb-6">
-          <div className={`text-slate-400 mb-2 ${isArabic ? "text-right" : "text-left"}`}>
-            {labels.amount}
-          </div>
-          <div className={`text-4xl font-bold text-white ${isArabic ? "text-right" : "text-left"}`}>
-            150.00 <span className="text-lg">SAR</span>
-          </div>
-        </Card>
+          {/* Amount Card */}
+          <Card className="bg-white/85 dark:bg-slate-900/85 backdrop-blur border border-white/20 p-6 mb-6 shadow-xl">
+            <div className={`text-muted-foreground mb-2 ${isArabic ? "text-right" : "text-left"}`}>
+              {labels.amount}
+            </div>
+            <div className={`text-4xl font-bold ${isArabic ? "text-right" : "text-left"}`}>
+              150.00 <span className="text-lg">SAR</span>
+            </div>
+          </Card>
 
-        {/* Payment Methods */}
-        <div className="mb-6">
-          <h3 className={`text-lg font-semibold text-white mb-4 ${isArabic ? "text-right" : "text-left"}`}>
-            {labels.selectMethod}
-          </h3>
-          <div className="grid grid-cols-2 gap-4">
-            {paymentMethods.map((method) => {
-              const Icon = method.icon;
-              return (
-                <button
-                  key={method.id}
-                  onClick={() => setSelectedMethod(method.id)}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    selectedMethod === method.id
-                      ? "border-primary bg-slate-700"
-                      : "border-slate-700 bg-slate-800 hover:border-slate-600"
-                  }`}
-                  data-testid={`button-payment-${method.id}`}
-                >
-                  <Icon className="w-6 h-6 text-white mx-auto mb-2" />
-                  <p className="text-sm font-medium text-white">{method.label}</p>
-                </button>
-              );
-            })}
+          {/* Payment Methods */}
+          <div className="mb-6">
+            <h3 className={`text-lg font-semibold text-white mb-4 ${isArabic ? "text-right" : "text-left"}`}>
+              {labels.selectMethod}
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              {paymentMethods.map((method) => {
+                const Icon = method.icon;
+                return (
+                  <button
+                    key={method.id}
+                    onClick={() => setSelectedMethod(method.id)}
+                    className={`p-4 rounded-lg border-2 transition-all bg-white/80 dark:bg-slate-900/80 backdrop-blur ${
+                      selectedMethod === method.id
+                        ? "border-primary"
+                        : "border-white/30 hover:border-primary/60"
+                    }`}
+                    data-testid={`button-payment-${method.id}`}
+                  >
+                    <Icon className="w-6 h-6 mx-auto mb-2" />
+                    <p className="text-sm font-medium">{method.label}</p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-4">
-          <Button
-            onClick={() => setLocation("/")}
-            variant="outline"
-            className="flex-1"
-            data-testid="button-cancel-payment"
-          >
-            {labels.cancel}
-          </Button>
-          <Button
-            onClick={handlePayment}
-            className="flex-1 bg-primary hover:bg-primary/90"
-            disabled={paymentMutation.isPending || !selectedMethod}
-            data-testid="button-submit-payment"
-          >
-            {paymentMutation.isPending ? labels.processing : labels.pay}
-          </Button>
+          {/* Action Buttons */}
+          <div className="flex gap-4">
+            <Button
+              onClick={() => setLocation("/")}
+              variant="outline"
+              className="flex-1"
+              data-testid="button-cancel-payment"
+            >
+              {labels.cancel}
+            </Button>
+            <Button
+              onClick={handlePayment}
+              className="flex-1 bg-primary hover:bg-primary/90"
+              disabled={paymentMutation.isPending || !selectedMethod}
+              data-testid="button-submit-payment"
+            >
+              {paymentMutation.isPending ? labels.processing : labels.pay}
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </BookingBackgroundLayout>
   );
 }
