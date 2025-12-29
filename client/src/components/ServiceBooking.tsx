@@ -677,5 +677,6 @@ export default function ServiceBooking() {
         </Card>
       </div>
     </div>
+  </BookingBackgroundLayout>
   );
 }
