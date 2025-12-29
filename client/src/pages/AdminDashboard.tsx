@@ -73,7 +73,8 @@ export default function AdminDashboard() {
     fileName: doc.fileName ?? doc.file_name,
   });
 
-  const normalizedTechnicians = (technicians || []).map(normalizeTechnician);
+  const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const normalizedTechnicians = safeTechnicians.map(normalizeTechnician);
   const pendingList = normalizedTechnicians.filter((t) => t.status === "pending");
   const activeList = normalizedTechnicians.filter((t) => t.status === "approved" && (t.is_active ?? true));
   const inactiveList = normalizedTechnicians.filter((t) => t.status === "rejected" || t.is_active === false);
@@ -957,9 +958,9 @@ export default function AdminDashboard() {
                       ) : (
                         <div className="space-y-3">
                           {pendingList.map((tech) => {
-                            const normalized = tech;
+                            const normalized = tech || {};
                             return (
-                              <Card key={tech.id} className="p-4 hover-elevate" data-testid={`pending-tech-${tech.id}`}>
+                              <Card key={tech.id || Math.random()} className="p-4 hover-elevate" data-testid={`pending-tech-${tech.id || 'unknown'}`}>
                                 <div className="flex items-start justify-between">
                                   <div>
                                     <p className="font-semibold text-foreground text-lg">{normalized.userName || (lang === 'ar' ? 'اسم غير محدد' : 'Name not set')}</p>
@@ -969,18 +970,18 @@ export default function AdminDashboard() {
                                   <Badge variant="secondary">{txt.pending}</Badge>
                                 </div>
                                 <div className="flex flex-wrap gap-2 mt-3">
-                                  <Button size="sm" onClick={() => approveTechnicianMutation.mutate(tech.id)} disabled={approveTechnicianMutation.isPending}>
+                                  <Button size="sm" onClick={() => tech.id && approveTechnicianMutation.mutate(tech.id)} disabled={approveTechnicianMutation.isPending}>
                                     {txt.approve}
                                   </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => rejectTechnicianMutation.mutate(tech.id)} disabled={rejectTechnicianMutation.isPending}>
+                                  <Button size="sm" variant="destructive" onClick={() => tech.id && rejectTechnicianMutation.mutate(tech.id)} disabled={rejectTechnicianMutation.isPending}>
                                     {txt.reject}
                                   </Button>
-                                  <Button size="sm" variant="outline" onClick={() => handleViewDocuments(tech.id)}>
+                                  <Button size="sm" variant="outline" onClick={() => tech.id && handleViewDocuments(tech.id)}>
                                     <Eye className="w-4 h-4 mr-1" />
-                                    {expandedTechnicianIds.has(tech.id) ? (lang === 'ar' ? 'إخفاء المستندات' : 'Hide Documents') : txt.documents}
+                                    {tech.id && expandedTechnicianIds.has(tech.id) ? (lang === 'ar' ? 'إخفاء المستندات' : 'Hide Documents') : txt.documents}
                                   </Button>
                                 </div>
-                                {expandedTechnicianIds.has(tech.id) && (
+                                {tech.id && expandedTechnicianIds.has(tech.id) && (
                                   <div className="mt-3">
                                     {loadingDocsMap[tech.id] ? (
                                       <div className="text-muted-foreground text-sm">{txt.loading}</div>
@@ -989,11 +990,11 @@ export default function AdminDashboard() {
                                     ) : (
                                       <div className="space-y-2 mt-2">
                                         {technicianDocsMap[tech.id].map((doc) => {
-                                          const normalizedDoc = normalizeDoc(doc);
+                                          const normalizedDoc = normalizeDoc(doc || {});
                                           const docUrl = normalizedDoc.documentUrl;
                                           const docName = normalizedDoc.fileName || '';
                                           return (
-                                            <div key={doc.id} className="flex items-center justify-between p-2 border rounded">
+                                            <div key={doc.id || Math.random()} className="flex items-center justify-between p-2 border rounded">
                                               <div className="flex items-center gap-2">
                                                 <Image className="w-4 h-4 text-muted-foreground" />
                                                 <div>
@@ -1031,7 +1032,7 @@ export default function AdminDashboard() {
                       ) : (
                         <div className="space-y-3">
                           {activeList.map((tech) => (
-                            <Card key={tech.id} className="p-4">
+                            <Card key={tech.id || Math.random()} className="p-4">
                               <div className="flex items-start justify-between">
                                 <div>
                                   <p className="font-semibold">{tech.userName || '-'}</p>
@@ -1044,7 +1045,7 @@ export default function AdminDashboard() {
                                 </div>
                               </div>
                               <div className="flex flex-wrap gap-2 mt-3">
-                                <Button size="sm" variant="outline" onClick={() => suspendTechnicianMutation.mutate(tech.id)} disabled={suspendTechnicianMutation.isPending}>
+                                <Button size="sm" variant="outline" onClick={() => tech.id && suspendTechnicianMutation.mutate(tech.id)} disabled={suspendTechnicianMutation.isPending}>
                                   {lang === 'ar' ? 'إيقاف مؤقت' : 'Suspend'}
                                 </Button>
                               </div>
@@ -1065,7 +1066,7 @@ export default function AdminDashboard() {
                       ) : (
                         <div className="space-y-3">
                           {inactiveList.map((tech) => (
-                            <Card key={tech.id} className="p-4 border-dashed">
+                            <Card key={tech.id || Math.random()} className="p-4 border-dashed">
                               <div className="flex items-start justify-between">
                                 <div>
                                   <p className="font-semibold">{tech.userName || '-'}</p>
@@ -1076,7 +1077,7 @@ export default function AdminDashboard() {
                               </div>
                               <div className="flex flex-wrap gap-2 mt-3">
                                 {tech.status === 'approved' && (
-                                  <Button size="sm" onClick={() => reactivateTechnicianMutation.mutate(tech.id)} disabled={reactivateTechnicianMutation.isPending}>
+                                  <Button size="sm" onClick={() => tech.id && reactivateTechnicianMutation.mutate(tech.id)} disabled={reactivateTechnicianMutation.isPending}>
                                     {lang === 'ar' ? 'تفعيل' : 'Reactivate'}
                                   </Button>
                                 )}
