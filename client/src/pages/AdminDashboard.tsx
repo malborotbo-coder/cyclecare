@@ -73,12 +73,6 @@ export default function AdminDashboard() {
     fileName: doc.fileName ?? doc.file_name,
   });
 
-  const safeTechnicians = Array.isArray(technicians) ? technicians : [];
-  const normalizedTechnicians = safeTechnicians.map(normalizeTechnician);
-  const pendingList = normalizedTechnicians.filter((t) => t.status === "pending");
-  const activeList = normalizedTechnicians.filter((t) => t.status === "approved" && (t.is_active ?? true));
-  const inactiveList = normalizedTechnicians.filter((t) => t.status === "rejected" || t.is_active === false);
-
   const fetchTechnicianDocuments = async (technicianId: string) => {
     setLoadingDocsMap(prev => ({ ...prev, [technicianId]: true }));
     try {
@@ -388,6 +382,20 @@ export default function AdminDashboard() {
   const { data: discountCodes, isLoading: discountCodesLoading } = useQuery({
     queryKey: ["/api/admin/discount-codes"],
   });
+
+  const safeUsers = Array.isArray(users) ? users : [];
+  const safeBikes = Array.isArray(bikes) ? bikes : [];
+  const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
+  const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
+  const safeInvoices = Array.isArray(invoices) ? invoices : [];
+  const safeParts = Array.isArray(parts as any) ? (parts as any) : [];
+  const safeDiscountCodes = Array.isArray(discountCodes as any) ? (discountCodes as any) : [];
+
+  const normalizedTechnicians = safeTechnicians.map(normalizeTechnician);
+  const pendingList = normalizedTechnicians.filter((t) => t.status === "pending");
+  const activeList = normalizedTechnicians.filter((t) => t.status === "approved" && (t.is_active ?? true));
+  const inactiveList = normalizedTechnicians.filter((t) => t.status === "rejected" || t.is_active === false);
 
   const getErrorMessage = (error: unknown, fallbackAr: string, fallbackEn: string): string => {
     if (error instanceof Error) {
@@ -764,52 +772,52 @@ export default function AdminDashboard() {
         {/* Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{txt.totalUsers}</CardTitle>
-              <Users className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="stat-total-users">
-                {usersLoading ? txt.loading : users?.length || 0}
-              </div>
-            </CardContent>
-          </Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{txt.totalUsers}</CardTitle>
+                <Users className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-users">
+                {usersLoading ? txt.loading : safeUsers.length}
+                </div>
+              </CardContent>
+            </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{txt.totalBikes}</CardTitle>
-              <Bike className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="stat-total-bikes">
-                {bikesLoading ? txt.loading : bikes?.length || 0}
-              </div>
-            </CardContent>
-          </Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{txt.totalBikes}</CardTitle>
+                <Bike className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-bikes">
+                {bikesLoading ? txt.loading : safeBikes.length}
+                </div>
+              </CardContent>
+            </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{txt.totalTechnicians}</CardTitle>
-              <Wrench className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="stat-total-technicians">
-                {techniciansLoading ? txt.loading : technicians?.length || 0}
-              </div>
-            </CardContent>
-          </Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{txt.totalTechnicians}</CardTitle>
+                <Wrench className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-technicians">
+                {techniciansLoading ? txt.loading : safeTechnicians.length}
+                </div>
+              </CardContent>
+            </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{txt.totalRequests}</CardTitle>
-              <ClipboardList className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="stat-total-requests">
-                {requestsLoading ? txt.loading : serviceRequests?.length || 0}
-              </div>
-            </CardContent>
-          </Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{txt.totalRequests}</CardTitle>
+                <ClipboardList className="w-4 h-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="stat-total-requests">
+                {requestsLoading ? txt.loading : safeServiceRequests.length}
+                </div>
+              </CardContent>
+            </Card>
         </div>
 
         {/* Data Tables */}
@@ -869,7 +877,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {users.map((user) => (
+                      {safeUsers.map((user) => (
                         <div
                           key={user.id}
                           className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
@@ -915,7 +923,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {bikes.map((bike) => (
+                      {safeBikes.map((bike) => (
                         <div
                           key={bike.id}
                           className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
@@ -1102,11 +1110,11 @@ export default function AdminDashboard() {
                 <ScrollArea className="h-[500px]">
                   {requestsLoading ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : !serviceRequests || serviceRequests.length === 0 ? (
+                  ) : safeServiceRequests.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {serviceRequests.map((request) => (
+                      {safeServiceRequests.map((request) => (
                         <div
                           key={request.id}
                           className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
@@ -1190,12 +1198,12 @@ export default function AdminDashboard() {
                   <ScrollArea className="h-[400px]">
                     {userRolesLoading ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                    ) : !userRolesData || userRolesData.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
-                    ) : (
-                      <div className="space-y-3">
-                        {userRolesData.map((userRole) => {
-                          const user = users?.find((u) => u.id === userRole.userId);
+                    ) : safeUserRoles.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
+                  ) : (
+                    <div className="space-y-3">
+                        {safeUserRoles.map((userRole) => {
+                          const user = safeUsers.find((u) => u.id === userRole.userId);
                           const role = roles?.find((r) => r.id === userRole.roleId);
                           const userName = user 
                             ? ([user.firstName, user.lastName].filter(Boolean).join(' ') || user.email || 'Unknown')
@@ -1253,12 +1261,12 @@ export default function AdminDashboard() {
                 <ScrollArea className="h-[500px]">
                   {invoicesLoading ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : !invoices || invoices.length === 0 ? (
+                  ) : safeInvoices.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {invoices.map((invoice) => {
-                        const user = users?.find((u) => u.id === invoice.userId);
+                      {safeInvoices.map((invoice) => {
+                        const user = safeUsers.find((u) => u.id === invoice.userId);
                         return (
                           <div
                             key={invoice.id}
@@ -1364,8 +1372,8 @@ export default function AdminDashboard() {
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {(discountCodes as any[])?.map((dc: any) => (
-                    <div key={dc.id} className="border p-3 rounded flex justify-between items-center">
+                  {safeDiscountCodes.map((dc: any) => (
+                    <div key={dc.id || Math.random()} className="border p-3 rounded flex justify-between items-center">
                       <span className="font-semibold">{dc.code}</span>
                       <span>{dc.discountValue} {dc.discountType === 'percentage' ? '%' : 'SAR'}</span>
                     </div>
@@ -1479,10 +1487,10 @@ export default function AdminDashboard() {
                   <div className="space-y-3">
                     {partsLoading ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                    ) : !parts || (parts as any[]).length === 0 ? (
+                    ) : safeParts.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                     ) : (
-                      (parts as any[])?.map((part: any) => {
+                      safeParts.map((part: any) => {
                         const img = part.imageUrl || part.image_url;
                         return (
                           <div 
