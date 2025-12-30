@@ -3,6 +3,7 @@ import admin from "firebase-admin";
 import twilio from "twilio";
 import { storage } from "./storage";
 import { signJWT, verifyJWT } from "./jwt";
+import { pgFetch } from "./postgrest";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -304,9 +305,74 @@ export async function setupFirebaseAuth(app: Express) {
       }
 
       const normalizedPhone = normalizePhone(phoneNumber);
-      const userId = `phone_${normalizedPhone}`;
+      const fallbackUserId = `phone_${normalizedPhone}`;
+      const ensureUsersSql = `
+-- Ensure users table exists with phone storage
+CREATE TABLE IF NOT EXISTS users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email varchar,
+  first_name varchar,
+  last_name varchar,
+  phone_number varchar,
+  auth_provider varchar,
+  auth_provider_id varchar,
+  profile_image_url varchar,
+  is_technician boolean DEFAULT false,
+  is_admin boolean DEFAULT false,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number);
+      `.trim();
+
+      let userId = fallbackUserId;
+
+      // Look up user by phone number (best-effort)
+      try {
+        const { resp, data } = await pgFetch(
+          `/users?phone_number=eq.${encodeURIComponent(phoneNumber)}&select=id,phone_number&limit=1`,
+        );
+
+        if (resp.ok && Array.isArray(data) && data[0]?.id) {
+          userId = data[0].id;
+        } else {
+          console.warn("[OTP][Users] Not found; ensure users table exists. SQL:\n" + ensureUsersSql);
+          // Try to create a minimal user with phone
+          try {
+            const { resp: createResp, data: createData } = await pgFetch("/users", {
+              method: "POST",
+              body: [
+                {
+                  phone_number: phoneNumber,
+                  auth_provider: "phone",
+                  auth_provider_id: fallbackUserId,
+                  is_admin: false,
+                  is_technician: false,
+                },
+              ],
+            });
+            if (createResp.ok) {
+              const created = Array.isArray(createData) ? createData[0] : createData;
+              if (created?.id) {
+                userId = created.id;
+              }
+            } else {
+              console.warn("[OTP][Users] Create user failed:", createResp.status, createData);
+              console.warn("[OTP][Users][SQL] Run this if table/column is missing:\n" + ensureUsersSql);
+            }
+          } catch (createErr: any) {
+            console.warn("[OTP][Users] Create user error:", createErr?.message || createErr);
+            console.warn("[OTP][Users][SQL] Run this if table/column is missing:\n" + ensureUsersSql);
+          }
+        }
+      } catch (userErr: any) {
+        console.warn("[OTP][Users] Lookup error:", userErr?.message || userErr);
+        console.warn("[OTP][Users][SQL] Run this if table/column is missing:\n" + ensureUsersSql);
+      }
+
       const sessionToken = createSessionToken();
 
+      // Best-effort session persistence
       try {
         const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
         await storage.createPhoneSession({
@@ -317,18 +383,24 @@ export async function setupFirebaseAuth(app: Express) {
         });
         console.log(`[OTP] Session persisted to database for: ${userId}`);
       } catch (dbError: any) {
-        console.error("[OTP] Failed to persist session:", dbError.message);
-        return res.status(500).json({ error: "session_persist_failed" });
+        const phoneSessionsSql = `
+-- Ensure phone_sessions table exists for OTP sessions
+CREATE TABLE IF NOT EXISTS phone_sessions (
+  token varchar PRIMARY KEY,
+  user_id varchar NOT NULL,
+  phone_number varchar NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_phone_session_expires ON phone_sessions (expires_at);
+        `.trim();
+        console.error("[OTP] Failed to persist session (login continues):", dbError?.message || dbError);
+        console.warn("[OTP][SQL] To enable session persistence, run:\n" + phoneSessionsSql);
       }
 
       const user = {
         id: userId,
-        email: null,
-        firstName: null,
-        lastName: null,
-        phone: phoneNumber,
-        isAdmin: isAdminPhoneNumber(phoneNumber),
-        source: "firebase_auth" as const,
+        phoneNumber,
       };
 
       return res.json({
