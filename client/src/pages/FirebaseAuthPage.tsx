@@ -23,7 +23,6 @@ import workshopBg from "@assets/generated_images/bike_repair_workshop_background
 import { motion } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
@@ -60,7 +59,7 @@ export default function FirebaseAuthPage() {
     "129179738500-h7dsfkh9jal9degc081su6m9veikm73l.apps.googleusercontent.com";
   const googleInitPromise = useRef<Promise<void> | null>(null);
 
-  const ensureGoogleInitialized = async () => {
+  const ensureGoogleInitialized = async (GoogleAuth: any) => {
     if (!isAndroid) return;
     if (!googleInitPromise.current) {
       googleInitPromise.current = GoogleAuth.initialize({
@@ -224,7 +223,8 @@ export default function FirebaseAuthPage() {
 
       // Native Android flow using Capacitor plugin
       if (isAndroid) {
-        await ensureGoogleInitialized();
+        const { GoogleAuth } = await import("@codetrix-studio/capacitor-google-auth");
+        await ensureGoogleInitialized(GoogleAuth);
         const googleUser = await GoogleAuth.signIn();
         const idToken = googleUser?.authentication?.idToken;
         if (!idToken) {
