@@ -2,6 +2,14 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { resolveApiUrl } from "./lib/apiConfig";
+import { Capacitor } from "@capacitor/core";
+import { syncAuthTokensFromPreferences } from "./lib/authStorage";
+
+const platform = Capacitor.getPlatform();
+const isNative = platform === "android" || platform === "ios";
+
+// Sync native-stored tokens into localStorage on startup for unified access
+syncAuthTokensFromPreferences();
 
 // Attach Authorization header to all /api requests when a token exists
 const originalFetch = window.fetch.bind(window);
@@ -20,13 +28,8 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
         const firebaseToken = localStorage.getItem("firebase_token");
         const phoneSession = localStorage.getItem("phone_session");
 
-        if (authToken) {
-          headers.set("Authorization", `Bearer ${authToken}`);
-        } else if (firebaseToken) {
-          headers.set("Authorization", `Bearer ${firebaseToken}`);
-        } else if (phoneSession) {
-          headers.set("Authorization", `Bearer ${phoneSession}`);
-        }
+        const bearerToken = authToken || phoneSession || firebaseToken;
+        if (bearerToken) headers.set("Authorization", `Bearer ${bearerToken}`);
       }
 
       const resolvedUrl = resolveApiUrl(url);
@@ -34,7 +37,7 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
         method: request.method,
         headers,
         body: request.body,
-        credentials: request.credentials,
+        credentials: isNative ? "omit" : request.credentials,
         cache: request.cache,
         mode: request.mode as RequestMode,
         redirect: request.redirect as RequestRedirect,
@@ -52,6 +55,11 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     return originalFetch(input as any, init as any);
   }
 };
+
+// Keep native token cache in sync when auth token updates
+window.addEventListener("auth-token-updated", () => {
+  syncAuthTokensFromPreferences();
+});
 
 createRoot(document.getElementById("root")!).render(<App />);
 

@@ -3,9 +3,13 @@ import { auth } from "@/lib/firebase";
 import { buildApiError, ensureApiError } from "@/lib/apiError";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
+import { Capacitor } from "@capacitor/core";
+import { getBestAuthToken } from "./authStorage";
 
 // Token storage key (must match FirebaseAuthContext)
 const AUTH_TOKEN_KEY = "auth_token";
+const platform = Capacitor.getPlatform();
+const isNative = platform === "android" || platform === "ios";
 
 // Mock data for iOS development
 const mockTechnicians = [
@@ -24,21 +28,10 @@ function getLanguagePreference(): Language {
 
 // Helper to get auth token - supports JWT, phone session, and Firebase tokens
 async function getAuthToken(): Promise<string | null> {
-  const storedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
-  const phoneSession = localStorage.getItem("phone_session");
-  const storedFirebaseToken = localStorage.getItem("firebase_token");
+  const bestToken = await getBestAuthToken();
+  if (bestToken) return bestToken;
 
-  // Prefer app JWT (auth_token) if present
-  if (storedAuthToken) {
-    return storedAuthToken;
-  }
-
-  // Phone session token (OTP/custom token)
-  if (phoneSession) {
-    return phoneSession;
-  }
-  
-  // Try to refresh Firebase token if we have a current user
+  // Try to refresh Firebase token if we have a current user (web)
   try {
     const currentUser = auth.currentUser;
     if (currentUser) {
@@ -46,11 +39,9 @@ async function getAuthToken(): Promise<string | null> {
       const freshToken = await currentUser.getIdToken(false);
       // Update Firebase token cache without overriding app JWT
       localStorage.setItem("firebase_token", freshToken);
-      if (!storedAuthToken) {
-        localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
-      }
+      localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
       console.log("[Auth] Firebase token refreshed");
-      return storedAuthToken || freshToken;
+      return freshToken;
     }
   } catch (error) {
     console.error("[Auth] Error refreshing Firebase ID token:", error);
@@ -72,7 +63,7 @@ async function getAuthToken(): Promise<string | null> {
   return null;
 }
 
-// Build headers with auth token if available (async version)
+  // Build headers with auth token if available (async version)
 async function getAuthHeadersAsync(includeContentType: boolean = false, lang?: Language): Promise<HeadersInit> {
   const headers: HeadersInit = {};
   const resolvedLang = lang || getLanguagePreference();
@@ -117,7 +108,7 @@ export async function apiRequest(
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
-      credentials: "include",
+      credentials: isNative ? "omit" : "include",
     });
 
     await throwIfResNotOk(res, lang);
@@ -158,7 +149,7 @@ export const getQueryFn: <T>(options: {
       const targetUrl = buildApiUrl(path);
       const res = await fetch(targetUrl, {
         headers,
-        credentials: "include",
+        credentials: isNative ? "omit" : "include",
       });
 
       if (unauthorizedBehavior === "returnNull" && res.status === 401) {

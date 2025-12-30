@@ -1,12 +1,17 @@
 import { Capacitor } from '@capacitor/core';
 
-export const getApiBaseUrl = () => {
-  const returnedBaseUrl =
-    Capacitor.getPlatform() === 'android'
-      ? 'http://10.0.2.2:5000/api' // Android emulator maps host loopback to 10.0.2.2
-      : '/api';
+const platform = Capacitor.getPlatform();
+const isNative = platform === 'android' || platform === 'ios';
+const PROD_API_BASE =
+  import.meta.env.VITE_PROD_API_BASE ||
+  import.meta.env.VITE_API_BASE ||
+  'https://cyclecaretec.com/api'; // Render production URL (WebView must hit remote backend)
 
-  console.log('[API BASE]', Capacitor.getPlatform(), returnedBaseUrl);
+export const getApiBaseUrl = () => {
+  const returnedBaseUrl = isNative ? PROD_API_BASE : '/api';
+  if (typeof console !== 'undefined') {
+    console.log('[API BASE]', platform, returnedBaseUrl);
+  }
   return returnedBaseUrl;
 };
 

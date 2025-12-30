@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "@/lib/apiConfig";
+import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
@@ -48,6 +49,8 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
 
   const checkSession = useCallback(async () => {
     try {
+      // Ensure native-stored tokens are available in localStorage for API calls
+      await syncAuthTokensFromPreferences();
       // Check for JWT token first (Google Auth)
       const authToken = getAuthToken();
       
@@ -161,27 +164,16 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     try {
       // Call logout endpoint
       await fetch(buildApiUrl("/api/logout"), { method: "POST" });
-      
-      // Clear JWT token (Google Auth)
-      clearAuthToken();
-      
-      // Clear phone session
-      localStorage.removeItem("phone_session");
-      localStorage.removeItem("phone_user_id");
-      localStorage.removeItem("phone_number");
-      
-      // Clear all other storage
+
+      // Clear tokens (native + web) and local state
+      await clearAuthTokens();
       localStorage.removeItem("onboarding_completed");
-      
-      // Reset user state
       setUser(null);
-      
-      // Redirect to login
       window.location.href = "/";
     } catch (error) {
       console.error("[Auth] Logout error:", error);
       // Still redirect on error
-      clearAuthToken();
+      await clearAuthTokens();
       window.location.href = "/";
     }
   };
