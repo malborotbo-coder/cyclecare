@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { buildApiUrl } from "@/lib/apiConfig";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
@@ -73,8 +74,10 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         console.log("[Auth] No token found for session check");
       }
       
-      const response = await fetch("/api/auth/session", { headers });
+      const response = await fetch(buildApiUrl("/api/auth/session"), { headers });
       
+      let sessionResolved = false;
+
       if (!response.ok) {
         console.warn("[Auth] Session check returned non-200:", response.status);
       } else {
@@ -85,11 +88,16 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           if (userData && userData.id) {
             console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
             setUser(userData);
-            return;
+            sessionResolved = true;
           }
         } else {
-          console.warn("[Auth] Session response was not JSON, skipping parse");
+          const body = await response.text().catch(() => "");
+          console.warn("[Auth] Session response was not JSON, treating as unauthenticated. Body snippet:", body.slice(0, 200));
         }
+      }
+
+      if (sessionResolved) {
+        return;
       }
       
       // Fallback to localStorage phone session
@@ -152,7 +160,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const logout = async () => {
     try {
       // Call logout endpoint
-      await fetch("/api/logout", { method: "POST" });
+      await fetch(buildApiUrl("/api/logout"), { method: "POST" });
       
       // Clear JWT token (Google Auth)
       clearAuthToken();

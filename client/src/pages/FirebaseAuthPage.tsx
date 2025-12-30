@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -22,6 +23,9 @@ import workshopBg from "@assets/generated_images/bike_repair_workshop_background
 import { motion } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
+import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
+import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
 import { 
   checkBiometricAvailability, 
@@ -32,6 +36,7 @@ import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 
 export default function FirebaseAuthPage() {
+  const [, setLocation] = useLocation();
   const { lang, toggleLanguage } = useLanguage();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -49,6 +54,28 @@ export default function FirebaseAuthPage() {
   const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
   
   const isNative = Capacitor.isNativePlatform();
+  const isAndroid = Capacitor.getPlatform() === "android";
+
+  const WEB_CLIENT_ID =
+    "129179738500-h7dsfkh9jal9degc081su6m9veikm73l.apps.googleusercontent.com";
+  const googleInitPromise = useRef<Promise<void> | null>(null);
+
+  const ensureGoogleInitialized = async () => {
+    if (!isAndroid) return;
+    if (!googleInitPromise.current) {
+      googleInitPromise.current = GoogleAuth.initialize({
+        clientId: WEB_CLIENT_ID,
+        scopes: ["profile", "email"],
+        grantOfflineAccess: true,
+      });
+    }
+    try {
+      await googleInitPromise.current;
+    } catch (err) {
+      googleInitPromise.current = null;
+      throw err;
+    }
+  };
 
   useEffect(() => {
     if (isNative) {
@@ -70,7 +97,7 @@ export default function FirebaseAuthPage() {
         return;
       }
       
-      const response = await fetch('/api/auth/session', {
+      const response = await fetch(buildApiUrl('/api/auth/session'), {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -194,14 +221,37 @@ export default function FirebaseAuthPage() {
     try {
       setIsLoading(true);
       setError("");
-      
+
+      // Native Android flow using Capacitor plugin
+      if (isAndroid) {
+        await ensureGoogleInitialized();
+        const googleUser = await GoogleAuth.signIn();
+        const idToken = googleUser?.authentication?.idToken;
+        if (!idToken) {
+          throw new Error("No idToken returned from Google Sign-In");
+        }
+
+        const credential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, credential);
+        const firebaseIdToken = await result.user.getIdToken(true);
+
+        localStorage.setItem("auth_token", firebaseIdToken);
+        localStorage.setItem("firebase_token", firebaseIdToken);
+        window.dispatchEvent(new CustomEvent("auth-token-updated"));
+
+        // Explicit navigation to dashboard/home after success
+        setLocation("/");
+        return;
+      }
+
+      // Web / other native platforms preserve existing behavior
       const user = await signInWithGoogle();
       if (user) {
-        console.log('[Auth] Google sign-in successful:', user.email);
-        window.location.href = '/';
+        console.log("[Auth] Google sign-in successful:", user.email);
+        setLocation("/");
       } else if (!isNative) {
         // Web platform redirects automatically
-        console.log('[Auth] Redirecting to web OAuth...');
+        console.log("[Auth] Redirecting to web OAuth...");
       }
     } catch (err: any) {
       console.error("[Auth] Google sign-in error:", err);
@@ -319,7 +369,7 @@ export default function FirebaseAuthPage() {
         }
       }
       
-      const response = await fetch("/api/auth/send-otp", {
+      const response = await fetch(buildApiUrl("/api/auth/send-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phoneNumber: fullPhone }),
@@ -371,7 +421,7 @@ export default function FirebaseAuthPage() {
         throw new Error(labels.error);
       }
 
-      const response = await fetch("/api/auth/verify-otp", {
+      const response = await fetch(buildApiUrl("/api/auth/verify-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, code: otp }),
@@ -384,18 +434,23 @@ export default function FirebaseAuthPage() {
 
       const data = await response.json();
 
-      if (data.customToken) {
-        // Use returned token for all API calls
-        localStorage.setItem("auth_token", data.customToken);
-        localStorage.setItem("firebase_token", ""); // keep key but clear Firebase phone usage
-        localStorage.setItem("phone_session", data.customToken);
-        localStorage.setItem("phone_user_id", data.userId);
-        localStorage.setItem("phone_number", data.phoneNumber);
-        window.dispatchEvent(new CustomEvent("auth-token-updated"));
-        window.location.href = "/";
-      } else {
+      const authToken =
+        data.authToken || data.sessionToken || data.customToken || null;
+
+      if (!authToken) {
         throw new Error("No auth token received");
       }
+
+      // Prefer dedicated session token for phone auth to align with backend middleware
+      const sessionToken = data.sessionToken || authToken;
+
+      localStorage.setItem("auth_token", authToken);
+      localStorage.setItem("firebase_token", ""); // keep key but clear Firebase phone usage
+      localStorage.setItem("phone_session", sessionToken);
+      localStorage.setItem("phone_user_id", data.userId || "");
+      localStorage.setItem("phone_number", data.phoneNumber || "");
+      window.dispatchEvent(new CustomEvent("auth-token-updated"));
+      window.location.href = "/";
     } catch (error: any) {
       console.error("OTP verification error:", error);
       setError(error.message || labels.error);

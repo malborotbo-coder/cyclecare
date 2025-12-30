@@ -1,5 +1,1 @@
-package com.cyclecatrtec.app;
-
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {}
+// This file is deprecated. Please use com.cyclecare.app.MainActivity instead.

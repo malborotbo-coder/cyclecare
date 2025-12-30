@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { useState, useEffect, useRef } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { buildApiUrl } from "@/lib/apiConfig";
 import { useToast } from "@/hooks/use-toast";
 import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole, Invoice } from "@shared/schema";
 import type { Language } from "@/lib/i18n";
@@ -704,7 +705,7 @@ export default function AdminDashboard() {
         headers["Authorization"] = `Bearer ${phoneSession}`;
       }
 
-      const response = await fetch("/api/admin/parts", {
+      const response = await fetch(buildApiUrl("/api/admin/parts"), {
         method: "POST",
         credentials: "include",
         headers,

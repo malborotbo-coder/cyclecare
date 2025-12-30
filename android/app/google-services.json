@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "129179738500",
+    "project_id": "cyclecare-aa686",
+    "storage_bucket": "cyclecare-aa686.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:129179738500:android:a14c2b951dfca9ad6cbdd1",
+        "android_client_info": {
+          "package_name": "com.cyclecare.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "129179738500-q9uutke348hug2hbk3scsvsj006vtlva.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.cyclecare.app",
+            "certificate_hash": "5a95e727ef539977e10eee73581c8247f4f8f3b0"
+          }
+        },
+        {
+          "client_id": "129179738500-h7dsfkh9jal9degc081su6m9veikm73l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAC97CQ6FAr42eRufcIOmuK1sc9IZUNe6c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "129179738500-h7dsfkh9jal9degc081su6m9veikm73l.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "129179738500-21jnao26pqvbj93m5j3pbuqhf6on4gs1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mujtabanasr.cyclecare"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

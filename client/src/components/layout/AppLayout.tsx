@@ -2,6 +2,7 @@ import AppHeader from "./AppHeader";
 import { Capacitor } from "@capacitor/core";
 import { useNativeAuth } from "@/contexts/NativeAuthContext";
 import { queryClient } from "@/lib/queryClient";
+import { buildApiUrl } from "@/lib/apiConfig";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -25,7 +26,7 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
     
     console.log('[Logout] Step 1: Calling logout API...');
     try {
-      await fetch("/api/logout", { 
+      await fetch(buildApiUrl("/api/logout"), { 
         method: "POST", 
         credentials: "include",
         headers: { 'Content-Type': 'application/json' }

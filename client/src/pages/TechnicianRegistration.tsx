@@ -11,6 +11,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import Logo from "@/components/Logo";
 import LanguageToggle from "@/components/LanguageToggle";
 import { queryClient } from "@/lib/queryClient";
+import { buildApiUrl } from "@/lib/apiConfig";
 import technicianBg from "@assets/stock_images/bicycle_mechanic_tec_e306465b.jpg";
 
 type FieldErrors = Record<string, string>;
@@ -68,7 +69,7 @@ export default function TechnicianRegistration() {
       formDataToSend.append("national_address", formData.nationalAddress);
       documents.forEach((file) => formDataToSend.append("documents", file));
 
-      const response = await fetch("/api/technicians/apply", {
+      const response = await fetch(buildApiUrl("/api/technicians/apply"), {
         method: "POST",
         body: formDataToSend,
       });

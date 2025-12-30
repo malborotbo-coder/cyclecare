@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { resolveApiUrl } from "./lib/apiConfig";
 
 // Attach Authorization header to all /api requests when a token exists
 const originalFetch = window.fetch.bind(window);
@@ -28,7 +29,22 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
         }
       }
 
-      return originalFetch(new Request(request, { headers }));
+      const resolvedUrl = resolveApiUrl(url);
+      const updatedRequest = new Request(resolvedUrl, {
+        method: request.method,
+        headers,
+        body: request.body,
+        credentials: request.credentials,
+        cache: request.cache,
+        mode: request.mode as RequestMode,
+        redirect: request.redirect as RequestRedirect,
+        referrer: request.referrer,
+        referrerPolicy: request.referrerPolicy,
+        integrity: request.integrity,
+        keepalive: request.keepalive,
+        signal: request.signal,
+      });
+      return originalFetch(updatedRequest);
     }
 
     return originalFetch(request);

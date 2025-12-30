@@ -2,16 +2,42 @@ import type { Express, Request, Response, NextFunction } from "express";
 import admin from "firebase-admin";
 import twilio from "twilio";
 import { storage } from "./storage";
-import { verifyJWT } from "./jwt";
+import { signJWT, verifyJWT } from "./jwt";
 
 declare global {
   var otpSessions: Record<string, { phoneNumber: string; code: string; timestamp: number; verified: boolean }> | undefined;
 }
 
+const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 // Initialize Twilio
 const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
   : null;
+
+// Normalize phone numbers to 9-digit SA local format for comparisons/admin checks
+const normalizePhone = (p: string): string => {
+  if (!p) return '';
+  let digits = p.replace(/\D/g, '');
+  if (digits.startsWith('966')) {
+    digits = digits.slice(3);
+  }
+  if (digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+  return digits.slice(-9);
+};
+
+const isAdminPhoneNumber = (phone: string | undefined | null): boolean => {
+  if (!phone) return false;
+  const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+  if (!adminPhone) return false;
+  return normalizePhone(adminPhone) === normalizePhone(phone);
+};
+
+const createSessionToken = () =>
+  `session_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
 
 const APP_JWT_ISSUER = "cyclecare-app";
 const APP_JWT_AUDIENCE = "cyclecare-users";
@@ -72,19 +98,6 @@ declare global {
 
 export async function setupFirebaseAuth(app: Express) {
   await initializeFirebaseAdmin();
-
-  // Helper to normalize phone numbers
-  const normalizePhone = (p: string): string => {
-    if (!p) return '';
-    let digits = p.replace(/\D/g, '');
-    if (digits.startsWith('966')) {
-      digits = digits.slice(3);
-    }
-    if (digits.startsWith('0')) {
-      digits = digits.slice(1);
-    }
-    return digits.slice(-9);
-  };
 
   // Middleware to verify Firebase ID tokens or phone session tokens
   app.use("/api", async (req: Request, res: Response, next: NextFunction) => {
@@ -183,6 +196,59 @@ export async function setupFirebaseAuth(app: Express) {
     next();
   });
 
+  // Exchange Firebase ID token for app JWT
+  app.post("/api/auth/firebase", async (req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+      const idToken = req.body?.idToken as string | undefined;
+      if (!idToken) {
+        return res.status(400).json({ authenticated: false, error: "idToken_required" });
+      }
+
+      const firebaseAuth = auth || (await initializeFirebaseAdmin());
+      if (!firebaseAuth) {
+        console.error("[Firebase Auth] Admin SDK not configured");
+        return res.status(500).json({ authenticated: false, error: "firebase_admin_not_configured" });
+      }
+
+      const decoded = await firebaseAuth.verifyIdToken(idToken);
+      const adminEmails = (process.env.ADMIN_EMAILS || "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+      const isAdminEmail = decoded.email && adminEmails.includes(decoded.email.toLowerCase());
+      const isAdminUser = decoded.admin === true || isAdminEmail;
+
+      const jwt = signJWT({
+        sub: decoded.uid,
+        email: decoded.email,
+        firstName: decoded.name || (decoded as any).given_name || null,
+        lastName: (decoded as any).family_name || null,
+        profileImageUrl: decoded.picture,
+        isAdmin: isAdminUser,
+      });
+
+      return res.status(200).json({
+        authenticated: true,
+        authToken: jwt,
+        token: jwt,
+        user: {
+          id: decoded.uid,
+          email: decoded.email || null,
+          firstName: decoded.name || (decoded as any).given_name || null,
+          lastName: (decoded as any).family_name || null,
+          profileImageUrl: decoded.picture || null,
+          isAdmin: isAdminUser,
+          source: "firebase_auth",
+        },
+      });
+    } catch (error: any) {
+      console.error("[Firebase Auth] ID token exchange failed:", error?.message || error);
+      return res.status(401).json({ authenticated: false, error: "invalid_firebase_token" });
+    }
+  });
+
   // Backup: existing OTP endpoint preserved; Twilio flow annotated below.
   // Send OTP endpoint with Twilio
   app.post("/api/auth/send-otp", async (req: Request, res: Response) => {
@@ -194,28 +260,10 @@ export async function setupFirebaseAuth(app: Express) {
       }
 
       // === TWILIO OTP START ===
-      // Admin phone bypass - use fixed code for admin
       const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-      // Normalize phone to E.164 format for comparison
-      const normalizePhone = (p: string): string => {
-        if (!p) return '';
-        // Remove all non-digits
-        let digits = p.replace(/\D/g, '');
-        // If starts with 966, keep as is
-        // If 10 digits starting with 0, remove the 0
-        // If 9 digits, that's the core number
-        if (digits.startsWith('966')) {
-          digits = digits.slice(3); // Remove country code for comparison
-        }
-        if (digits.startsWith('0')) {
-          digits = digits.slice(1); // Remove leading 0
-        }
-        return digits.slice(-9); // Get last 9 digits
-      };
-      
+      const isAdminPhone = isAdminPhoneNumber(phoneNumber);
       const incomingNormalized = normalizePhone(phoneNumber);
       const adminNormalized = normalizePhone(adminPhone || '');
-      const isAdminPhone = adminNormalized.length === 9 && incomingNormalized === adminNormalized;
       
       console.log(`[OTP] Phone check: incoming="${phoneNumber}" -> "${incomingNormalized}", admin="${adminPhone}" -> "${adminNormalized}", isAdmin=${isAdminPhone}`);
 
@@ -309,20 +357,22 @@ export async function setupFirebaseAuth(app: Express) {
       }
 
       // Check session expiry (5 minutes)
-      if (Date.now() - session.timestamp > 5 * 60 * 1000) {
+      if (Date.now() - session.timestamp > OTP_EXPIRY_MS) {
         return res.status(400).json({ error: "OTP expired" });
       }
 
       // Mark as verified and consume OTP
       session.verified = true;
       const phoneNumber = session.phoneNumber;
+      const normalizedPhone = normalizePhone(phoneNumber);
+      const isAdminPhone = isAdminPhoneNumber(phoneNumber);
       delete (global as any).otpSessions[sessionId]; // invalidate OTP after use
 
       console.log(`[OTP] Verified for ${phoneNumber}`);
 
-      // Try Firebase first, fallback to simple token if it fails
-      let customToken: string | null = null;
-      let userId: string | null = null;
+      // Always create a durable session token for backend auth
+      let userId: string | null = `phone_${normalizedPhone}`;
+      let firebaseCustomToken: string | null = null;
 
       if (auth) {
         try {
@@ -343,46 +393,43 @@ export async function setupFirebaseAuth(app: Express) {
             }
           }
 
-          // Create custom token
-          customToken = await auth.createCustomToken(user.uid);
+          firebaseCustomToken = await auth.createCustomToken(user.uid);
           userId = user.uid;
-          console.log(`[OTP] Custom token created for ${user.uid}`);
+          console.log(`[OTP] Firebase custom token created for ${user.uid}`);
         } catch (firebaseError: any) {
-          console.warn("[OTP] Firebase token creation failed, using fallback:", firebaseError.message);
+          console.warn("[OTP] Firebase token creation failed, continuing with session token:", firebaseError.message);
         }
       }
 
-      // If Firebase failed, create a simple session token and persist to database
-      if (!customToken) {
-        // Generate a simple session token
-        userId = `phone_${phoneNumber.replace(/\D/g, '')}`;
-        customToken = `session_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
-        
-        // Store the session in database for persistence across server restarts
-        try {
-          // Session expires in 30 days
-          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-          await storage.createPhoneSession({
-            token: customToken,
-            userId,
-            phoneNumber,
-            expiresAt,
-          });
-          console.log(`[OTP] Session persisted to database for: ${userId}`);
-        } catch (dbError: any) {
-          console.error("[OTP] Failed to persist session:", dbError.message);
-        }
-        
-        console.log(`[OTP] Fallback session created: ${userId}`);
+      const sessionToken = createSessionToken();
+
+      // Store the session in database for persistence across server restarts
+      try {
+        const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+        await storage.createPhoneSession({
+          token: sessionToken,
+          userId: userId!,
+          phoneNumber,
+          expiresAt,
+        });
+        console.log(`[OTP] Session persisted to database for: ${userId}`);
+      } catch (dbError: any) {
+        console.error("[OTP] Failed to persist session:", dbError.message);
       }
+
+      const authToken = sessionToken; // session tokens are what the backend expects for phone auth
 
       res.json({
         success: true,
         message: "Phone verified successfully",
         phoneNumber,
-        customToken,
         userId,
-        useSimpleAuth: !auth || customToken.startsWith('session_'),
+        sessionToken,
+        authToken,
+        customToken: authToken, // backwards compatibility with older clients
+        firebaseCustomToken,
+        isAdmin: isAdminPhone,
+        useSimpleAuth: true,
       });
     } catch (error: any) {
       console.error("[OTP Verify] Error:", error);

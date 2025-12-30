@@ -12,6 +12,7 @@ import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
 import type { Technician, User as UserType } from "@shared/schema";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { buildApiUrl } from "@/lib/apiConfig";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState, useRef } from "react";
 import Logo from "@/components/Logo";
@@ -158,7 +159,7 @@ export default function HomePage() {
     // الخطوة 1: استدعاء API لتدمير الجلسة على السيرفر
     console.log('[Logout] Step 1: Calling logout API...');
     try {
-      const response = await fetch("/api/logout", { 
+      const response = await fetch(buildApiUrl("/api/logout"), { 
         method: "POST", 
         credentials: "include",
         headers: { 'Content-Type': 'application/json' }

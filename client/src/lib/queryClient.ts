@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { auth } from "@/lib/firebase";
 import { buildApiError, ensureApiError } from "@/lib/apiError";
+import { buildApiUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
 
 // Token storage key (must match FirebaseAuthContext)
@@ -23,15 +24,19 @@ function getLanguagePreference(): Language {
 
 // Helper to get auth token - supports JWT, phone session, and Firebase tokens
 async function getAuthToken(): Promise<string | null> {
-  // Check for phone session first (non-Firebase)
+  const storedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
   const phoneSession = localStorage.getItem("phone_session");
+  const storedFirebaseToken = localStorage.getItem("firebase_token");
+
+  // Prefer app JWT (auth_token) if present
+  if (storedAuthToken) {
+    return storedAuthToken;
+  }
+
+  // Phone session token (OTP/custom token)
   if (phoneSession) {
     return phoneSession;
   }
-  
-  // Get stored tokens
-  const storedFirebaseToken = localStorage.getItem("firebase_token");
-  const storedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
   
   // Try to refresh Firebase token if we have a current user
   try {
@@ -39,11 +44,13 @@ async function getAuthToken(): Promise<string | null> {
     if (currentUser) {
       // Get fresh token (force refresh if token is old)
       const freshToken = await currentUser.getIdToken(false);
-      // Update stored tokens
-      localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
+      // Update Firebase token cache without overriding app JWT
       localStorage.setItem("firebase_token", freshToken);
+      if (!storedAuthToken) {
+        localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
+      }
       console.log("[Auth] Firebase token refreshed");
-      return freshToken;
+      return storedAuthToken || freshToken;
     }
   } catch (error) {
     console.error("[Auth] Error refreshing Firebase ID token:", error);
@@ -104,8 +111,9 @@ export async function apiRequest(
 ): Promise<any> {
   const lang = getLanguagePreference();
   const headers = await getAuthHeadersAsync(!!data, lang);
+  const targetUrl = buildApiUrl(url);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(targetUrl, {
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
@@ -147,7 +155,8 @@ export const getQueryFn: <T>(options: {
 
     try {
       const headers = await getAuthHeadersAsync(false, lang);
-      const res = await fetch(path, {
+      const targetUrl = buildApiUrl(path);
+      const res = await fetch(targetUrl, {
         headers,
         credentials: "include",
       });
