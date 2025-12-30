@@ -4,11 +4,6 @@ import twilio from "twilio";
 import { storage } from "./storage";
 import { signJWT, verifyJWT } from "./jwt";
 
-declare global {
-  var otpSessions: Record<string, { phoneNumber: string; code: string; timestamp: number; verified: boolean }> | undefined;
-}
-
-const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // Initialize Twilio
@@ -249,8 +244,7 @@ export async function setupFirebaseAuth(app: Express) {
     }
   });
 
-  // Backup: existing OTP endpoint preserved; Twilio flow annotated below.
-  // Send OTP endpoint with Twilio
+  // Send OTP endpoint with Twilio Verify
   app.post("/api/auth/send-otp", async (req: Request, res: Response) => {
     try {
       const { phoneNumber } = req.body;
@@ -259,177 +253,89 @@ export async function setupFirebaseAuth(app: Express) {
         return res.status(400).json({ error: "Phone number required" });
       }
 
-      // === TWILIO OTP START ===
-      const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-      const isAdminPhone = isAdminPhoneNumber(phoneNumber);
-      const incomingNormalized = normalizePhone(phoneNumber);
-      const adminNormalized = normalizePhone(adminPhone || '');
-      
-      console.log(`[OTP] Phone check: incoming="${phoneNumber}" -> "${incomingNormalized}", admin="${adminPhone}" -> "${adminNormalized}", isAdmin=${isAdminPhone}`);
-
-      // Generate 6-digit OTP code (or use 123456 for admin)
-      const code = isAdminPhone ? "123456" : Math.floor(100000 + Math.random() * 900000).toString();
-      const sessionId = `otp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Store session with code
-      if (!global.otpSessions) {
-        (global as any).otpSessions = {};
+      const verifySid = process.env.TWILIO_VERIFY_SID;
+      if (!twilioClient || !verifySid) {
+        console.error("[OTP] Twilio Verify not configured");
+        return res.status(500).json({ error: "otp_not_configured" });
       }
-      (global as any).otpSessions[sessionId] = {
-        phoneNumber,
-        code,
-        timestamp: Date.now(),
-        verified: false,
-      };
 
-      console.log(`[OTP] Session created: ${sessionId} for ${phoneNumber}, code: ${code}${isAdminPhone ? ' (ADMIN)' : ''}`);
+      try {
+        const verification = await twilioClient.verify.v2
+          .services(verifySid)
+          .verifications.create({ to: phoneNumber, channel: "sms" });
 
-      // Admin bypass - skip Twilio, use fixed code
-      if (isAdminPhone) {
-        console.log(`[OTP] Admin phone detected - use code: 123456`);
+        console.log(`[OTP] Verification initiated for ${phoneNumber}: ${verification.status}`);
         return res.json({
           success: true,
-          sessionId,
+          status: verification.status,
           message: "OTP sent to your phone",
-          isAdmin: true,
         });
+      } catch (twilioError: any) {
+        console.error("[OTP] Twilio Verify error:", twilioError?.message || twilioError);
+        return res.status(500).json({ error: "otp_send_failed" });
       }
-
-      // Send SMS via Twilio if available
-      if (twilioClient) {
-        try {
-          const message = await twilioClient.messages.create({
-            body: `Your Cycle Care OTP: ${code}`,
-            from: process.env.TWILIO_PHONE_NUMBER,
-            to: phoneNumber,
-          });
-          console.log(`[OTP] SMS sent via Twilio: ${message.sid}`);
-        } catch (twilioError: any) {
-          console.error("[OTP] Twilio error:", twilioError.message);
-          // For international numbers, Twilio trial may fail - allow mock mode
-          console.warn("[OTP] Falling back to mock mode due to Twilio limitation");
-          return res.json({
-            success: true,
-            sessionId,
-            message: "OTP sent to your phone",
-            mockMode: true,
-          });
-        }
-      } else {
-        console.warn("[OTP] Twilio not configured, using mock mode");
-      }
-
-      res.json({
-        success: true,
-        sessionId,
-        message: "OTP sent to your phone",
-      });
-      // === TWILIO OTP END ===
     } catch (error: any) {
       console.error("[OTP] Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Verify OTP endpoint
+  // Verify OTP endpoint using Twilio Verify
   app.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
     try {
-      const { sessionId, code } = req.body;
+      const { phoneNumber, code } = req.body;
 
-      if (!sessionId || !code) {
-        return res.status(400).json({ error: "Session and code required" });
+      if (!phoneNumber || !code) {
+        return res.status(400).json({ error: "Phone and code required" });
       }
 
-      if (!global.otpSessions || !global.otpSessions[sessionId]) {
-        return res.status(400).json({ error: "Invalid or expired session" });
+      const verifySid = process.env.TWILIO_VERIFY_SID;
+      if (!twilioClient || !verifySid) {
+        console.error("[OTP] Twilio Verify not configured");
+        return res.status(500).json({ error: "otp_not_configured" });
       }
 
-      const session = (global as any).otpSessions[sessionId];
+      const verification = await twilioClient.verify.v2
+        .services(verifySid)
+        .verificationChecks.create({ to: phoneNumber, code });
 
-      // Verify code format
-      if (!/^\d{6}$/.test(code)) {
-        return res.status(400).json({ error: "Invalid code format" });
+      if (verification.status !== "approved") {
+        return res.status(400).json({ error: "invalid_or_expired_otp" });
       }
 
-      // Compare with stored code
-      if (session.code !== code) {
-        return res.status(400).json({ error: "Invalid OTP code" });
-      }
-
-      // Check session expiry (5 minutes)
-      if (Date.now() - session.timestamp > OTP_EXPIRY_MS) {
-        return res.status(400).json({ error: "OTP expired" });
-      }
-
-      // Mark as verified and consume OTP
-      session.verified = true;
-      const phoneNumber = session.phoneNumber;
       const normalizedPhone = normalizePhone(phoneNumber);
-      const isAdminPhone = isAdminPhoneNumber(phoneNumber);
-      delete (global as any).otpSessions[sessionId]; // invalidate OTP after use
-
-      console.log(`[OTP] Verified for ${phoneNumber}`);
-
-      // Always create a durable session token for backend auth
-      let userId: string | null = `phone_${normalizedPhone}`;
-      let firebaseCustomToken: string | null = null;
-
-      if (auth) {
-        try {
-          // Try to get user by phone, if not exists create one
-          let user: any;
-          try {
-            user = await auth.getUserByPhoneNumber(phoneNumber);
-            console.log(`[OTP] Existing Firebase user found: ${user.uid}`);
-          } catch (err: any) {
-            if (err.code === 'auth/user-not-found') {
-              user = await auth.createUser({
-                phoneNumber,
-                disabled: false,
-              });
-              console.log(`[OTP] New Firebase user created: ${user.uid}`);
-            } else {
-              throw err;
-            }
-          }
-
-          firebaseCustomToken = await auth.createCustomToken(user.uid);
-          userId = user.uid;
-          console.log(`[OTP] Firebase custom token created for ${user.uid}`);
-        } catch (firebaseError: any) {
-          console.warn("[OTP] Firebase token creation failed, continuing with session token:", firebaseError.message);
-        }
-      }
-
+      const userId = `phone_${normalizedPhone}`;
       const sessionToken = createSessionToken();
 
-      // Store the session in database for persistence across server restarts
       try {
         const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
         await storage.createPhoneSession({
           token: sessionToken,
-          userId: userId!,
+          userId,
           phoneNumber,
           expiresAt,
         });
         console.log(`[OTP] Session persisted to database for: ${userId}`);
       } catch (dbError: any) {
         console.error("[OTP] Failed to persist session:", dbError.message);
+        return res.status(500).json({ error: "session_persist_failed" });
       }
 
-      const authToken = sessionToken; // session tokens are what the backend expects for phone auth
+      const user = {
+        id: userId,
+        email: null,
+        firstName: null,
+        lastName: null,
+        phone: phoneNumber,
+        isAdmin: isAdminPhoneNumber(phoneNumber),
+        source: "firebase_auth" as const,
+      };
 
-      res.json({
+      return res.json({
         success: true,
-        message: "Phone verified successfully",
-        phoneNumber,
-        userId,
-        sessionToken,
-        authToken,
-        customToken: authToken, // backwards compatibility with older clients
-        firebaseCustomToken,
-        isAdmin: isAdminPhone,
-        useSimpleAuth: true,
+        authenticated: true,
+        authToken: sessionToken,
+        user,
       });
     } catch (error: any) {
       console.error("[OTP Verify] Error:", error);

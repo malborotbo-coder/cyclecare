@@ -380,8 +380,6 @@ export default function FirebaseAuthPage() {
         throw new Error(data.error || labels.error);
       }
 
-      const data = await response.json();
-      (window as any).__phoneSessionId = data.sessionId;
       setPhoneStep("verify");
     } catch (error: any) {
       console.error("Phone sign-in error:", error);
@@ -402,6 +400,8 @@ export default function FirebaseAuthPage() {
       setError("");
       setIsLoading(true);
 
+      const fullPhone = `+966${phone}`;
+
       // Prefer Firebase confirmation if available AND enabled (currently disabled on web)
       if (!USE_TWILIO_ONLY && confirmationResult) {
         const credential = await confirmPhoneOtp(confirmationResult, otp);
@@ -416,15 +416,10 @@ export default function FirebaseAuthPage() {
         return;
       }
 
-      const sessionId = (window as any).__phoneSessionId;
-      if (!sessionId) {
-        throw new Error(labels.error);
-      }
-
       const response = await fetch(buildApiUrl("/api/auth/verify-otp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, code: otp }),
+        body: JSON.stringify({ phoneNumber: fullPhone, code: otp }),
       });
 
       if (!response.ok) {
@@ -434,8 +429,7 @@ export default function FirebaseAuthPage() {
 
       const data = await response.json();
 
-      const authToken =
-        data.authToken || data.sessionToken || data.customToken || null;
+      const authToken = data.authToken || data.sessionToken || data.customToken || null;
 
       if (!authToken) {
         throw new Error("No auth token received");
@@ -447,8 +441,8 @@ export default function FirebaseAuthPage() {
       localStorage.setItem("auth_token", authToken);
       localStorage.setItem("firebase_token", ""); // keep key but clear Firebase phone usage
       localStorage.setItem("phone_session", sessionToken);
-      localStorage.setItem("phone_user_id", data.userId || "");
-      localStorage.setItem("phone_number", data.phoneNumber || "");
+      localStorage.setItem("phone_user_id", data.user?.id || data.userId || "");
+      localStorage.setItem("phone_number", data.user?.phone || data.phoneNumber || fullPhone);
       window.dispatchEvent(new CustomEvent("auth-token-updated"));
       window.location.href = "/";
     } catch (error: any) {
