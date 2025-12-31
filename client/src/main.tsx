@@ -13,7 +13,7 @@ syncAuthTokensFromPreferences();
 
 // Attach Authorization header to all /api requests when a token exists
 const originalFetch = window.fetch.bind(window);
-window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   try {
     const request = new Request(input as any, init);
     const url = request.url;
@@ -33,10 +33,30 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       }
 
       const resolvedUrl = resolveApiUrl(url);
+      let body: BodyInit | undefined = init?.body ?? undefined;
+
+      // Safari (and WKWebView) cannot upload ReadableStreams; normalize the body into concrete types
+      if (!body && request.body && request.method !== "GET" && request.method !== "HEAD") {
+        const contentType = headers.get("content-type") || "";
+        const clonedRequest = request.clone();
+
+        if (contentType.includes("application/json") || contentType.includes("text/")) {
+          body = await clonedRequest.text();
+        } else if (contentType.includes("application/x-www-form-urlencoded")) {
+          body = await clonedRequest.text();
+        } else if (contentType.includes("multipart/form-data")) {
+          // Let the browser set the multipart boundary again
+          headers.delete("content-type");
+          body = await clonedRequest.formData();
+        } else {
+          body = await clonedRequest.blob();
+        }
+      }
+
       const updatedRequest = new Request(resolvedUrl, {
         method: request.method,
         headers,
-        body: request.body,
+        body,
         credentials: isNative ? "omit" : request.credentials,
         cache: request.cache,
         mode: request.mode as RequestMode,
