@@ -12,6 +12,37 @@ async function startServer() {
     // Trust reverse proxies (Render/Cloudflare) so secure cookies work correctly
     app.set("trust proxy", true);
 
+    // Minimal CORS to allow the Capacitor WebView (capacitor://localhost) and web origins
+    const allowedOrigins = new Set([
+      "capacitor://localhost",
+      "http://localhost",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://cyclecaretec.com",
+      "https://www.cyclecaretec.com",
+    ]);
+    app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (origin) {
+        try {
+          const hostname = new URL(origin).hostname;
+          if (allowedOrigins.has(origin) || hostname.endsWith("cyclecaretec.com")) {
+            res.setHeader("Access-Control-Allow-Origin", origin);
+            res.setHeader("Vary", "Origin");
+          }
+        } catch {
+          // Ignore malformed Origin headers
+        }
+      }
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      if (req.method === "OPTIONS") {
+        return res.sendStatus(204);
+      }
+      next();
+    });
+
     // دعم RAW BODY
     app.use(
       express.json({

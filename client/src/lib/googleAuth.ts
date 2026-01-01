@@ -1,7 +1,8 @@
-import { Capacitor } from '@capacitor/core';
-import { apiRequest } from './queryClient';
-import { buildApiUrl } from './apiConfig';
-import { clearAuthTokens } from './authStorage';
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
+import { apiRequest } from "./queryClient";
+import { buildApiUrl } from "./apiConfig";
+import { clearAuthTokens, persistAuthTokens } from "./authStorage";
 
 export interface GoogleAuthUser {
   id: string;
@@ -11,17 +12,50 @@ export interface GoogleAuthUser {
   accessToken: string;
 }
 
+const isNative = Capacitor.isNativePlatform();
+
 export async function signInWithGoogle(): Promise<GoogleAuthUser | null> {
-  try {
-    // Single web-based flow for Web + Android/iOS WebView
-    console.log('[GoogleAuth] Redirecting to OAuth (in-app WebView)');
-    const redirectTo = encodeURIComponent('/');
-    window.location.href = `/api/auth/google?redirectTo=${redirectTo}`;
+  // Always come back to the root after callback to avoid loops on /auth/callback
+  const redirectTo = "/";
+
+  // Web: keep existing redirect-based OAuth inside the WebView/browser
+  if (!isNative) {
+    window.location.href = `/api/auth/google?redirectTo=${encodeURIComponent(redirectTo)}`;
     return null;
-  } catch (error: any) {
-    console.error('[GoogleAuth] Sign-in error:', error);
-    throw new Error(error.message || 'Google Sign-In failed');
   }
+
+  // Native: open the pure web flow in Capacitor Browser and capture the callback URL
+  let handled = false;
+  const targetUrl = `${buildApiUrl("/api/auth/google")}?redirectTo=${encodeURIComponent(redirectTo)}`;
+
+  const pageLoaded = await Browser.addListener("browserPageLoaded", async ({ url }) => {
+    if (handled) return;
+    if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.includes("/auth/callback")) {
+        const token = parsed.searchParams.get("token");
+        if (token) {
+          handled = true;
+          await persistAuthTokens({ authToken: token });
+          await Browser.close();
+          pageLoaded.remove();
+          finished.remove();
+          window.location.href = "/";
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  });
+
+  const finished = await Browser.addListener("browserFinished", () => {
+    pageLoaded.remove();
+    finished.remove();
+  });
+
+  await Browser.open({ url: targetUrl, windowName: "google-login" });
+  return null;
 }
 
 export async function signInWithApple(): Promise<GoogleAuthUser | null> {

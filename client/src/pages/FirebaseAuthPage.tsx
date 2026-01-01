@@ -25,11 +25,7 @@ import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
-import { 
-  checkBiometricAvailability, 
-  authenticateWithBiometric,
-  type BiometricStatus 
-} from "@/lib/biometricAuth";
+import { type BiometricStatus } from "@/lib/biometricAuth";
 import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 import { persistAuthTokens } from "@/lib/authStorage";
@@ -51,49 +47,20 @@ export default function FirebaseAuthPage() {
   const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null); // Backup: keeps legacy API fallback untouched
   const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
-  
+  const ENABLE_BIOMETRIC = false; // Fully disable biometric auth on web/mobile
   const isNative = Capacitor.isNativePlatform();
 
   useEffect(() => {
+    if (!ENABLE_BIOMETRIC) return;
     if (isNative) {
-      checkBiometricAvailability().then(status => {
-        console.log('[Biometric] Status:', status);
-        setBiometricStatus(status);
-      });
+      // Biometric disabled; no-op
+      setBiometricStatus({ isAvailable: false, biometryType: 'none', hasCredentials: false });
     }
   }, [isNative]);
 
   const handleBiometricSignIn = async () => {
-    try {
-      setIsLoading(true);
-      setError("");
-      
-      const token = await authenticateWithBiometric();
-      if (!token) {
-        setError(lang === 'ar' ? 'فشل التحقق من البصمة' : 'Biometric verification failed');
-        return;
-      }
-      
-      const response = await fetch(buildApiUrl('/api/auth/session'), {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        await persistAuthTokens({ authToken: token });
-        console.log('[Biometric] Token validated and stored');
-        window.location.href = '/';
-      } else {
-        console.error('[Biometric] Token validation failed');
-        const { clearBiometricCredentials } = await import('@/lib/biometricAuth');
-        await clearBiometricCredentials();
-        setError(lang === 'ar' ? 'انتهت صلاحية الجلسة، سجل مرة أخرى' : 'Session expired, please sign in again');
-      }
-    } catch (err: any) {
-      console.error('[Biometric] Error:', err);
-      setError(err.message || (lang === 'ar' ? 'حدث خطأ' : 'An error occurred'));
-    } finally {
-      setIsLoading(false);
-    }
+    // Biometric disabled
+    return;
   };
 
   const handleAuthCallback = useCallback(async (params: URLSearchParams) => {
@@ -727,7 +694,7 @@ export default function FirebaseAuthPage() {
           {!showPhoneForm && !showEmailForm && (
             <>
               {/* Biometric Sign-in - Face ID / Touch ID */}
-              {biometricStatus?.isAvailable && biometricStatus?.hasCredentials && (
+              {ENABLE_BIOMETRIC && biometricStatus?.isAvailable && biometricStatus?.hasCredentials && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}

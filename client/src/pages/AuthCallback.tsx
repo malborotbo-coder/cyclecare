@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
-import { saveCredentialsWithBiometric } from "@/lib/biometricAuth";
 import { persistAuthTokens } from "@/lib/authStorage";
 
 const AUTH_TOKEN_KEY = "auth_token";
@@ -13,7 +12,12 @@ export default function AuthCallback() {
     const processAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
-      const redirectTo = params.get("redirectTo") || "/";
+      const redirectToRaw = params.get("redirectTo") || "/";
+      // Prevent redirect loops back to the callback page
+      const redirectTo =
+        redirectToRaw === "/auth/callback" || redirectToRaw === "auth/callback"
+          ? "/"
+          : redirectToRaw;
 
       console.log("[AuthCallback] token:", token);
 
@@ -28,13 +32,6 @@ export default function AuthCallback() {
       await persistAuthTokens({ authToken: token });
 
       console.log("[AuthCallback] Token saved to localStorage");
-
-      // ✅ بصمة (للتطبيق فقط)
-      if (Capacitor.isNativePlatform()) {
-        saveCredentialsWithBiometric(token, "google")
-          .then(() => console.log("[AuthCallback] Biometric saved"))
-          .catch(() => {});
-      }
 
       // ✅ تحويل مباشر بدون تحقق
       setLocation(redirectTo);

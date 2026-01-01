@@ -3,38 +3,44 @@ PODS:
     - CapacitorCordova
   - CapacitorApp (7.1.0):
     - Capacitor
+  - CapacitorBrowser (7.0.0):
+    - Capacitor
   - CapacitorCamera (7.0.2):
     - Capacitor
   - CapacitorCordova (7.4.4)
-  - CapgoCapacitorNativeBiometric (7.1.13):
+  - CapacitorPreferences (7.0.0):
     - Capacitor
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorBrowser (from `../../node_modules/@capacitor/browser`)"
   - "CapacitorCamera (from `../../node_modules/@capacitor/camera`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
-  - "CapgoCapacitorNativeBiometric (from `../../node_modules/@capgo/capacitor-native-biometric`)"
+  - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
 
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorApp:
     :path: "../../node_modules/@capacitor/app"
+  CapacitorBrowser:
+    :path: "../../node_modules/@capacitor/browser"
   CapacitorCamera:
     :path: "../../node_modules/@capacitor/camera"
   CapacitorCordova:
     :path: "../../node_modules/@capacitor/ios"
-  CapgoCapacitorNativeBiometric:
-    :path: "../../node_modules/@capgo/capacitor-native-biometric"
+  CapacitorPreferences:
+    :path: "../../node_modules/@capacitor/preferences"
 
 SPEC CHECKSUMS:
   Capacitor: 358dd1c3fdd71d969547b17e159fd8a7736cb45f
   CapacitorApp: 26587c2ce485d88ddb39adb21cac64f8e481afe3
+  CapacitorBrowser: 55c21db47416dcc8fc3b623e18fd7d09acb26081
   CapacitorCamera: f9e54db0a18bb218a8dc360907d63aaefe9209ff
   CapacitorCordova: bf648a636f3c153f652d312ae145fb508b6ffced
-  CapgoCapacitorNativeBiometric: ede2c497c810fcad523b4e3d1895f989d33fe72b
+  CapacitorPreferences: 8e4bef1f937fc991a19d7ea99330c36a62edd24b
 
-PODFILE CHECKSUM: 680df94216f495389b2a00c40205fa4eb67d5380
+PODFILE CHECKSUM: 127c4f5451fb37e489d12143f9279ef02a1cb56c
 
 COCOAPODS: 1.16.2
