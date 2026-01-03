@@ -2,6 +2,7 @@ import AppHeader from "./AppHeader";
 import { Capacitor } from "@capacitor/core";
 import { useNativeAuth } from "@/contexts/NativeAuthContext";
 import { queryClient } from "@/lib/queryClient";
+import { clearAuthTokens } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
 
 interface AppLayoutProps {
@@ -18,7 +19,8 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
     
     if (isNative) {
       console.log('[Logout] iOS - clearing native auth state...');
-      nativeAuth.logout();
+      await nativeAuth.logout();
+      await clearAuthTokens();
       console.log('[Logout] iOS - reloading app');
       window.location.reload();
       return;
@@ -38,7 +40,8 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
     console.log('[Logout] Step 2: Clearing all local data...');
     queryClient.clear();
     queryClient.removeQueries();
-    nativeAuth.logout();
+    await nativeAuth.logout();
+    await clearAuthTokens();
     sessionStorage.clear();
     localStorage.clear();
     

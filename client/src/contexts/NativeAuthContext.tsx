@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, ReactNode, useState, useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
+import { clearAuthTokens } from "@/lib/authStorage";
 
 interface NativeUser {
   id: string;
@@ -16,7 +17,7 @@ interface NativeAuthContextType {
   user: NativeUser | null;
   setUser: (user: NativeUser | null) => void;
   updateUser: (user: Partial<NativeUser>) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const NativeUserContext = createContext<NativeAuthContextType | null>(null);
@@ -112,8 +113,10 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
     console.log('[NativeAuthProvider] ✅ User updated:', updatedUser);
   };
 
-  const logout = () => {
+  const logout = async () => {
     // Clear all auth data (works for both web and native)
+    sessionStorage.setItem('nativeAuthLogout', 'true');
+    await clearAuthTokens();
     localStorage.clear();
     sessionStorage.clear();
     document.cookie.split(";").forEach((c) => {

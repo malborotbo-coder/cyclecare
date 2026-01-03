@@ -15,45 +15,18 @@ export interface GoogleAuthUser {
 const isNative = Capacitor.isNativePlatform();
 
 export async function signInWithGoogle(): Promise<GoogleAuthUser | null> {
-  // Always come back to the root after callback to avoid loops on /auth/callback
-  const redirectTo = "/";
+  // Web: normal SPA redirect
+  const redirectTo = isNative ? "cyclecare://auth/callback" : "/auth/callback";
+  const targetUrl = `${buildApiUrl("/api/auth/google")}?redirectTo=${encodeURIComponent(redirectTo)}`;
 
-  // Web: keep existing redirect-based OAuth inside the WebView/browser
   if (!isNative) {
-    window.location.href = `/api/auth/google?redirectTo=${encodeURIComponent(redirectTo)}`;
+    console.log("[GoogleAuth] Web OAuth redirect ->", targetUrl);
+    window.location.href = targetUrl;
     return null;
   }
 
-  // Native: open the pure web flow in Capacitor Browser and capture the callback URL
-  let handled = false;
-  const targetUrl = `${buildApiUrl("/api/auth/google")}?redirectTo=${encodeURIComponent(redirectTo)}`;
-
-  const pageLoaded = await Browser.addListener("browserPageLoaded", async ({ url }) => {
-    if (handled) return;
-    if (!url) return;
-    try {
-      const parsed = new URL(url);
-      if (parsed.pathname.includes("/auth/callback")) {
-        const token = parsed.searchParams.get("token");
-        if (token) {
-          handled = true;
-          await persistAuthTokens({ authToken: token });
-          await Browser.close();
-          pageLoaded.remove();
-          finished.remove();
-          window.location.href = "/";
-        }
-      }
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  const finished = await Browser.addListener("browserFinished", () => {
-    pageLoaded.remove();
-    finished.remove();
-  });
-
+  console.log("[GoogleAuth] Native OAuth via Browser ->", targetUrl);
+  // Native: open in Safari View/Custom Tabs; deep link will return to the app via appUrlOpen listener
   await Browser.open({ url: targetUrl, windowName: "google-login" });
   return null;
 }

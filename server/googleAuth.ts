@@ -111,11 +111,22 @@ export function setupGoogleAuth(app: Express) {
         isAdmin,
       });
 
-      return res.redirect(
-        `/auth/callback?token=${encodeURIComponent(jwt)}&redirectTo=${encodeURIComponent(
-          parsedState.redirectTo || "/",
-        )}`,
-      );
+      const redirectTarget = parsedState.redirectTo || "/";
+      const tokenParam = `token=${encodeURIComponent(jwt)}`;
+      const redirectParam = `redirectTo=${encodeURIComponent(redirectTarget)}`;
+
+      // If redirect target is an absolute/deep-link URL, send the token directly there
+      if (
+        redirectTarget.startsWith("http://") ||
+        redirectTarget.startsWith("https://") ||
+        redirectTarget.includes("://")
+      ) {
+        const separator = redirectTarget.includes("?") ? "&" : "?";
+        return res.redirect(`${redirectTarget}${separator}${tokenParam}`);
+      }
+
+      // Default: send back to SPA callback with token
+      return res.redirect(`/auth/callback?${tokenParam}&${redirectParam}`);
     } catch (err: any) {
       console.error("[GoogleAuth] Callback error", {
         message: err?.message,

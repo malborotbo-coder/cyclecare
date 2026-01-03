@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import workshopBg from "@assets/generated_images/bike_repair_workshop_background
 import { motion } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
 import { type BiometricStatus } from "@/lib/biometricAuth";
@@ -49,6 +50,16 @@ export default function FirebaseAuthPage() {
   const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
   const ENABLE_BIOMETRIC = false; // Fully disable biometric auth on web/mobile
   const isNative = Capacitor.isNativePlatform();
+  const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (googleTimeoutRef.current) {
+        clearTimeout(googleTimeoutRef.current);
+        googleTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!ENABLE_BIOMETRIC) return;
@@ -66,16 +77,33 @@ export default function FirebaseAuthPage() {
   const handleAuthCallback = useCallback(async (params: URLSearchParams) => {
     const sessionToken = params.get('session') || params.get('token');
     if (sessionToken) {
+      if (googleTimeoutRef.current) {
+        clearTimeout(googleTimeoutRef.current);
+        googleTimeoutRef.current = null;
+      }
+      if (isNative) {
+        try {
+          await Browser.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
       await persistAuthTokens({ authToken: sessionToken, phoneSession: sessionToken });
+      setIsLoading(false);
       window.location.href = '/';
     }
-  }, []);
+  }, [isNative]);
 
   useEffect(() => {
     if (!isNative) return;
 
-    const handleAppUrlOpen = (data: { url: string }) => {
+    const handleAppUrlOpen = async (data: { url: string }) => {
       console.log('[DeepLink] URL opened:', data.url);
+      try {
+        await Browser.close();
+      } catch {
+        // Ignore close errors
+      }
       try {
         const url = new URL(data.url);
         handleAuthCallback(new URLSearchParams(url.search));
@@ -165,6 +193,17 @@ export default function FirebaseAuthPage() {
     try {
       setIsLoading(true);
       setError("");
+      if (googleTimeoutRef.current) {
+        clearTimeout(googleTimeoutRef.current);
+      }
+      if (isNative) {
+        googleTimeoutRef.current = setTimeout(() => {
+          console.warn("[GoogleAuth] Mobile OAuth timeout");
+          setError(labels.error || "Google sign-in timed out. Please try again.");
+          setIsLoading(false);
+          Browser.close().catch(() => undefined);
+        }, 25000);
+      }
 
       // Single web-based OAuth flow (runs inside WebView on all platforms)
       const user = await signInWithGoogle();
@@ -178,6 +217,10 @@ export default function FirebaseAuthPage() {
       console.error("[Auth] Google sign-in error:", err);
       setError(err.message || labels.error);
       setIsLoading(false);
+      if (googleTimeoutRef.current) {
+        clearTimeout(googleTimeoutRef.current);
+        googleTimeoutRef.current = null;
+      }
     }
   };
 

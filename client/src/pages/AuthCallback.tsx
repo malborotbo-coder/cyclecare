@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { persistAuthTokens } from "@/lib/authStorage";
 
 const AUTH_TOKEN_KEY = "auth_token";
@@ -32,6 +33,15 @@ export default function AuthCallback() {
       await persistAuthTokens({ authToken: token });
 
       console.log("[AuthCallback] Token saved to localStorage");
+
+      // ✅ اغلق المتصفح المدمج في الهاتف بعد العودة
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await Browser.close();
+        } catch {
+          // ignore close failures
+        }
+      }
 
       // ✅ تحويل مباشر بدون تحقق
       setLocation(redirectTo);

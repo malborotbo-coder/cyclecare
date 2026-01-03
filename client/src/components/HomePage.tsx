@@ -12,6 +12,7 @@ import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
 import type { Technician, User as UserType } from "@shared/schema";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { clearAuthTokens } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useState, useRef } from "react";
@@ -150,7 +151,8 @@ export default function HomePage() {
     
     if (isNative) {
       console.log('[Logout] iOS - clearing native auth state...');
-      nativeAuth.logout();
+      await nativeAuth.logout();
+      await clearAuthTokens();
       console.log('[Logout] iOS - reloading app');
       window.location.reload();
       return;
@@ -177,7 +179,8 @@ export default function HomePage() {
     queryClient.removeQueries();
     
     // مسح NativeAuth state
-    nativeAuth.logout();
+    await nativeAuth.logout();
+    await clearAuthTokens();
     
     // مسح التخزين المحلي
     sessionStorage.clear();

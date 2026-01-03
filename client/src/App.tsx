@@ -30,6 +30,7 @@ import {
 import { NativeAuthProvider } from "@/contexts/NativeAuthContext";
 import { FullScreenLoader } from "@/components/LogoLoader";
 import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import { App as CapApp } from "@capacitor/app";
 import { CartProvider } from "@/contexts/CartContext";
 import Cart from "@/components/Cart";
@@ -46,6 +47,12 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     
     const handleDeepLink = async (event: { url: string }) => {
       console.log('[Deep Link] URL opened:', event.url);
+      // Ensure the in-app browser is closed once we get a deep link back
+      try {
+        await Browser.close();
+      } catch {
+        // Ignore close failures
+      }
       
       try {
         const url = new URL(event.url);
