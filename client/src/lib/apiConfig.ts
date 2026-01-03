@@ -1,18 +1,47 @@
 import { Capacitor } from '@capacitor/core';
 
+const DEFAULT_PROD_API_BASE = 'https://cyclecaretec.com/api';
 const platform = Capacitor.getPlatform();
 const isNative = platform === 'android' || platform === 'ios';
-const PROD_API_BASE =
+const rawProdBase =
   import.meta.env.VITE_PROD_API_BASE ||
   import.meta.env.VITE_API_BASE ||
-  'https://cyclecaretec.com/api'; // Render production URL (WebView must hit remote backend)
+  DEFAULT_PROD_API_BASE;
+
+const debugApi =
+  typeof window !== 'undefined' &&
+  (import.meta.env.DEV || localStorage.getItem('debug_api') === 'true');
+
+function normalizeBase(base: string | undefined) {
+  if (!base) return DEFAULT_PROD_API_BASE;
+  const trimmed = base.trim();
+  if (!trimmed) return DEFAULT_PROD_API_BASE;
+  return trimmed.replace(/\/+$/, '');
+}
 
 export const getApiBaseUrl = () => {
-  const returnedBaseUrl = isNative ? PROD_API_BASE : '/api';
-  if (typeof console !== 'undefined') {
-    console.log('[API BASE]', platform, returnedBaseUrl);
+  let resolvedBase = normalizeBase(rawProdBase);
+
+  // Native builds must hit the deployed API, not capacitor://localhost or localhost
+  if (
+    isNative &&
+    (!resolvedBase.startsWith('http') ||
+      resolvedBase.includes('localhost') ||
+      resolvedBase.includes('127.0.0.1'))
+  ) {
+    resolvedBase = DEFAULT_PROD_API_BASE;
   }
-  return returnedBaseUrl;
+
+  if (debugApi) {
+    console.log('[API BASE]', {
+      platform,
+      rawProdBase,
+      resolvedBase,
+      origin: typeof window !== 'undefined' ? window.location.origin : 'ssr',
+    });
+  }
+
+  return isNative ? resolvedBase : '/api';
 };
 
 export const buildApiUrl = (path: string) => {

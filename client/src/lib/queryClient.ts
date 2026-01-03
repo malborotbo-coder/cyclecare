@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { auth } from "@/lib/firebase";
 import { buildApiError, ensureApiError } from "@/lib/apiError";
-import { buildApiUrl } from "@/lib/apiConfig";
+import { buildApiUrl, getApiBaseUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
 import { Capacitor } from "@capacitor/core";
 import { getBestAuthToken } from "./authStorage";
@@ -18,6 +18,11 @@ const mockTechnicians = [
   { id: 3, name: "فني #3", rating: "4.9", reviewCount: 58, isAvailable: false },
 ];
 
+const debugApi =
+  typeof window !== "undefined" &&
+  (import.meta.env.DEV || localStorage.getItem("debug_api") === "true");
+const seenDebugTargets = new Set<string>();
+
 function getLanguagePreference(): Language {
   if (typeof localStorage !== "undefined") {
     const saved = localStorage.getItem("language");
@@ -28,6 +33,11 @@ function getLanguagePreference(): Language {
 
 // Helper to get auth token - supports JWT, phone session, and Firebase tokens
 async function getAuthToken(): Promise<string | null> {
+  const storedAuthToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const storedFirebaseToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("firebase_token") : null;
+
   const bestToken = await getBestAuthToken();
   if (bestToken) return bestToken;
 
@@ -103,6 +113,24 @@ export async function apiRequest(
   const lang = getLanguagePreference();
   const headers = await getAuthHeadersAsync(!!data, lang);
   const targetUrl = buildApiUrl(url);
+  if (debugApi && !seenDebugTargets.has(targetUrl)) {
+    seenDebugTargets.add(targetUrl);
+    const authHeader =
+      headers instanceof Headers
+        ? headers.get("Authorization")
+        : (headers as any)?.Authorization;
+    console.log("[API][request]", {
+      targetUrl,
+      credentials: isNative ? "omit" : "include",
+      hasAuthHeader: !!authHeader,
+      authPreview: authHeader ? `${authHeader.slice(0, 12)}...` : null,
+      cookies:
+        typeof document !== "undefined"
+          ? document.cookie.split(";").filter(Boolean).length
+          : 0,
+      apiBase: getApiBaseUrl(),
+    });
+  }
   try {
     const res = await fetch(targetUrl, {
       method,
@@ -147,6 +175,24 @@ export const getQueryFn: <T>(options: {
     try {
       const headers = await getAuthHeadersAsync(false, lang);
       const targetUrl = buildApiUrl(path);
+      if (debugApi && !seenDebugTargets.has(targetUrl)) {
+        seenDebugTargets.add(targetUrl);
+        const authHeader =
+          headers instanceof Headers
+            ? headers.get("Authorization")
+            : (headers as any)?.Authorization;
+        console.log("[API][query]", {
+          targetUrl,
+          credentials: isNative ? "omit" : "include",
+          hasAuthHeader: !!authHeader,
+          authPreview: authHeader ? `${authHeader.slice(0, 12)}...` : null,
+          cookies:
+            typeof document !== "undefined"
+              ? document.cookie.split(";").filter(Boolean).length
+              : 0,
+          apiBase: getApiBaseUrl(),
+        });
+      }
       const res = await fetch(targetUrl, {
         headers,
         credentials: isNative ? "omit" : "include",

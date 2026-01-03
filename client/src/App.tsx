@@ -20,6 +20,7 @@ import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsOfService";
 import PaymentPage from "@/pages/PaymentPage";
 import AppLayout from "@/components/layout/AppLayout";
+import { buildApiUrl } from "@/lib/apiConfig";
 import { InstallPWA } from "@/components/InstallPWA";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -64,7 +65,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
           setLocation(`/auth/callback?token=${token}`);
         } else if (code) {
           console.log('[Deep Link] OAuth code received, exchanging for token');
-          const callbackPath = `/api/login/callback?code=${code}`;
+          const callbackPath = buildApiUrl(`/api/login/callback?code=${code}`);
           try {
             const response = await fetch(callbackPath, { 
               credentials: 'include',
