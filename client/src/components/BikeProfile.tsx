@@ -62,6 +62,7 @@ const BikeFormFields = memo(function BikeFormFields({
   labels,
   disabled,
   testIdPrefix,
+  showDistance = false,
 }: {
   form: UseFormReturn<any>;
   labels: BikeFormLabels;

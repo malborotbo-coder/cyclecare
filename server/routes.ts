@@ -21,7 +21,11 @@ import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
 
 const upload = multer({
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB to accommodate mobile photos
+  limits: {
+    fileSize: 20 * 1024 * 1024, // 20MB to accommodate large mobile photos/HEIC
+    fieldSize: 20 * 1024 * 1024,
+    files: 1,
+  },
   storage: multer.memoryStorage(),
 });
 
@@ -29,7 +33,7 @@ const bikePhotoUpload = (req: any, res: any, next: any) => {
   upload.single("photo")(req, res, (err: any) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ code: "PHOTO_TOO_LARGE", message: "Image too large (max 10MB)" });
+        return res.status(400).json({ code: "PHOTO_TOO_LARGE", message: "Image too large (max 20MB)" });
       }
       return res.status(400).json({ code: "PHOTO_UPLOAD_INVALID", message: err.message || "Invalid photo upload" });
     }
