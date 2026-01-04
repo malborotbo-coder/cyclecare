@@ -1,5 +1,5 @@
-const supabaseUrl = process.env.SUPABASE_URL!;
-const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.SUPABASE_URL;
+const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DEFAULT_BUCKET = "technician-docs";
 
 export async function uploadToStorageRest(params: {
@@ -7,6 +7,9 @@ export async function uploadToStorageRest(params: {
   path: string;
   bucket?: string;
 }) {
+  if (!supabaseUrl || !serviceRole) {
+    throw new Error("STORAGE_CONFIG_MISSING");
+  }
   const { file, path, bucket = DEFAULT_BUCKET } = params;
   const url = `${supabaseUrl}/storage/v1/object/${bucket}/${path}`;
 
