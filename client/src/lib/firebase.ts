@@ -13,6 +13,8 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
+const platform = Capacitor.getPlatform();
+const isNative = platform === "android" || platform === "ios";
 
 // Detect iOS/Safari for special handling
 const isIOS = () => {
@@ -29,10 +31,15 @@ const isSafari = () => {
 
 export const isIOSOrSafari = () => isIOS() || isSafari();
 
-// Use indexedDB persistence for iOS/Safari to avoid sessionStorage issues
+// Use indexedDB persistence for Safari/iOS web only. Native WebViews struggle with IndexedDB,
+// so we fall back to local storage there and persist API tokens via Capacitor Preferences.
 let auth: ReturnType<typeof getAuth>;
 try {
-  if (isIOSOrSafari()) {
+  if (isNative) {
+    auth = initializeAuth(app, {
+      persistence: [browserLocalPersistence]
+    });
+  } else if (isIOSOrSafari()) {
     auth = initializeAuth(app, {
       persistence: [indexedDBLocalPersistence, browserLocalPersistence]
     });

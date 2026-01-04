@@ -9,6 +9,16 @@ const FIREBASE_TOKEN_KEY = "firebase_token";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
+const readPreference = async (key: string): Promise<string | null> => {
+  if (!isNative) return null;
+  try {
+    const { value } = await Preferences.get({ key });
+    return value ?? null;
+  } catch (err) {
+    console.warn("[AuthStorage] Failed to read preference", key, err);
+    return null;
+  }
+};
 
 const setPreference = async (key: string, value: string) => {
   if (!isNative) return;
@@ -96,12 +106,12 @@ export async function syncAuthTokensFromPreferences() {
     let syncedAuthToken: string | null = null;
 
     for (const key of keys) {
-      const { value } = await Preferences.get({ key });
-      if (value) {
-        localStorage.setItem(key, value);
-        if (key === AUTH_TOKEN_KEY) {
-          syncedAuthToken = value;
-        }
+      const value = await readPreference(key);
+      if (!value) continue;
+
+      localStorage.setItem(key, value);
+      if (key === AUTH_TOKEN_KEY) {
+        syncedAuthToken = value;
       }
     }
 
@@ -113,16 +123,15 @@ export async function syncAuthTokensFromPreferences() {
 }
 
 export async function getBestAuthToken(): Promise<string | null> {
-  // Native: prefer preference, fallback to localStorage
+  // Native: prefer Capacitor Preferences, fallback to in-memory/localStorage
   if (isNative) {
-    try {
-      const { value } = await Preferences.get({ key: AUTH_TOKEN_KEY });
+    const keys = [AUTH_TOKEN_KEY, PHONE_SESSION_KEY, FIREBASE_TOKEN_KEY];
+    for (const key of keys) {
+      const value = await readPreference(key);
       if (value) {
-        localStorage.setItem(AUTH_TOKEN_KEY, value);
+        localStorage.setItem(key, value);
         return value;
       }
-    } catch (err) {
-      console.warn("[AuthStorage] Failed to read native auth token", err);
     }
   }
 

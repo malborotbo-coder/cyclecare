@@ -3,13 +3,13 @@ import App from "./App";
 import "./index.css";
 import { resolveApiUrl } from "./lib/apiConfig";
 import { Capacitor } from "@capacitor/core";
-import { syncAuthTokensFromPreferences } from "./lib/authStorage";
+import { getBestAuthToken, syncAuthTokensFromPreferences } from "./lib/authStorage";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
 
 // Sync native-stored tokens into localStorage on startup for unified access
-syncAuthTokensFromPreferences();
+const tokenSyncPromise = syncAuthTokensFromPreferences();
 
 // Attach Authorization header to all /api requests when a token exists
 const originalFetch = window.fetch.bind(window);
@@ -24,12 +24,11 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (isApiCall) {
       const headers = new Headers(request.headers);
       if (!headers.has("Authorization")) {
-        const authToken = localStorage.getItem("auth_token");
-        const firebaseToken = localStorage.getItem("firebase_token");
-        const phoneSession = localStorage.getItem("phone_session");
-
-        const bearerToken = authToken || phoneSession || firebaseToken;
-        if (bearerToken) headers.set("Authorization", `Bearer ${bearerToken}`);
+        await tokenSyncPromise.catch(() => null);
+        const bearerToken = await getBestAuthToken();
+        if (bearerToken) {
+          headers.set("Authorization", `Bearer ${bearerToken}`);
+        }
       }
 
       const resolvedUrl = resolveApiUrl(url);
