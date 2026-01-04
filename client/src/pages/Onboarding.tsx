@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { motion, AnimatePresence } from "framer-motion";
 import cycleCareLogo from "@assets/1_1764502393151.png";
 import { Capacitor } from "@capacitor/core";
+import { requestNativePermissionsOnce } from "@/lib/nativePermissions";
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -50,10 +51,15 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const isLastSlide = currentSlide === slides.length - 1;
   const isArabic = lang === "ar";
 
-  const handleNext = () => {
+  const completeOnboarding = async () => {
+    localStorage.setItem("onboarding_completed", "true");
+    await requestNativePermissionsOnce();
+    onComplete();
+  };
+
+  const handleNext = async () => {
     if (isLastSlide) {
-      localStorage.setItem("onboarding_completed", "true");
-      onComplete();
+      await completeOnboarding();
     } else {
       setCurrentSlide(currentSlide + 1);
     }
@@ -65,9 +71,8 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     }
   };
 
-  const handleSkip = () => {
-    localStorage.setItem("onboarding_completed", "true");
-    onComplete();
+  const handleSkip = async () => {
+    await completeOnboarding();
   };
 
   const slideVariants = {

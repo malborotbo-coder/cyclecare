@@ -57,5 +57,15 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Cycle Care uses your camera to capture bike photos and service documentation.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Cycle Care needs photo library access to pick images for bikes, profiles, and receipts.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This lets Cycle Care save the photos you capture when adding or updating bikes.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Cycle Care uses your location while the app is open to show nearby technicians.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Allow location access to improve technician arrival estimates when you return to the app.</string>
 </dict>
 </plist>

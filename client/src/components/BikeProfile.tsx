@@ -13,12 +13,13 @@ import { insertBikeSchema } from "@shared/schema";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
 import { Capacitor } from "@capacitor/core";
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
+import type { UseFormReturn } from "react-hook-form";
 
 interface MaintenanceRecordProps {
   date: string;
@@ -48,6 +49,205 @@ function MaintenanceRecordComponent({ date, service, technician, cost }: Mainten
   );
 }
 
+type BikeFormLabels = {
+  brand: string;
+  model: string;
+  year: string;
+  totalDistance: string;
+  km: string;
+};
+
+const BikeFormFields = memo(function BikeFormFields({
+  form,
+  labels,
+  disabled,
+  testIdPrefix,
+}: {
+  form: UseFormReturn<any>;
+  labels: BikeFormLabels;
+  disabled?: boolean;
+  testIdPrefix: string;
+  showDistance?: boolean;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField
+          control={form.control}
+          name="brand"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-sm">{labels.brand}</FormLabel>
+              <FormControl>
+                <Input
+                  data-testid={`input-${testIdPrefix}-brand`}
+                  placeholder="Trek"
+                  {...field}
+                  className="h-10"
+                  disabled={disabled}
+                />
+              </FormControl>
+              <FormMessage className="text-xs" />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="model"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-sm">{labels.model}</FormLabel>
+              <FormControl>
+                <Input
+                  data-testid={`input-${testIdPrefix}-model`}
+                  placeholder="FX 2"
+                  {...field}
+                  className="h-10"
+                  disabled={disabled}
+                />
+              </FormControl>
+              <FormMessage className="text-xs" />
+            </FormItem>
+          )}
+        />
+      </div>
+
+      <FormField
+        control={form.control}
+        name="year"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{labels.year}</FormLabel>
+            <FormControl>
+              <Input
+                data-testid={`input-${testIdPrefix}-year`}
+                type="number"
+                {...field}
+                onChange={(e) => field.onChange(parseInt(e.target.value))}
+                className="h-10"
+                disabled={disabled}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      {showDistance && (
+        <FormField
+          control={form.control as any}
+          name="totalDistance"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                {labels.totalDistance} ({labels.km})
+              </FormLabel>
+              <FormControl>
+                <Input
+                  data-testid={`input-${testIdPrefix}-distance`}
+                  type="number"
+                  min="0"
+                  {...field}
+                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                  disabled={disabled}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
+    </>
+  );
+});
+
+const BikeImagePicker = memo(function BikeImagePicker({
+  initialPreview,
+  uploadLabel,
+  changeLabel,
+  removeLabel,
+  onFileSelect,
+  disabled,
+  testIdPrefix,
+}: {
+  initialPreview?: string | null;
+  uploadLabel: string;
+  changeLabel: string;
+  removeLabel: string;
+  onFileSelect: (file: File | null) => void;
+  disabled?: boolean;
+  testIdPrefix: string;
+}) {
+  const [preview, setPreview] = useState<string | null>(initialPreview || null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPreview(initialPreview || null);
+  }, [initialPreview]);
+
+  const handleSelect = useCallback((file: File | null) => {
+    onFileSelect(file);
+    if (!file) {
+      setPreview(initialPreview || null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setPreview(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  }, [onFileSelect, initialPreview]);
+
+  return (
+    <div
+      className="relative w-full h-40 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 overflow-hidden group hover-elevate cursor-pointer transition-all"
+      onClick={() => !disabled && inputRef.current?.click()}
+    >
+      {preview ? (
+        <>
+          <img src={preview} alt="preview" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <Button type="button" variant="ghost" size="sm" className="gap-2 text-white">
+              <Camera className="w-4 h-4" />
+              {changeLabel}
+            </Button>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSelect(null);
+            }}
+            className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
+            data-testid={`button-remove-${testIdPrefix}-image`}
+            disabled={disabled}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+          <Camera className="w-12 h-12 text-primary/40" />
+          <p className="text-sm text-muted-foreground font-medium">{uploadLabel}</p>
+          <p className="text-xs text-muted-foreground">{removeLabel}</p>
+        </div>
+      )}
+      <input
+        type="file"
+        ref={inputRef}
+        className="hidden"
+        accept="image/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0] || null;
+          handleSelect(file);
+        }}
+        data-testid={`input-${testIdPrefix}-image`}
+        disabled={disabled}
+      />
+    </div>
+  );
+});
+
 export default function BikeProfile() {
   const { lang: language } = useLanguage();
   const { toast } = useToast();
@@ -58,9 +258,14 @@ export default function BikeProfile() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [newBikeImage, setNewBikeImage] = useState<File | null>(null);
-  const [newBikeImagePreview, setNewBikeImagePreview] = useState<string | null>(null);
+  const [editBikeImage, setEditBikeImage] = useState<File | null>(null);
+  const [dialogImageUploading, setDialogImageUploading] = useState(false);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [editDialogImageUploading, setEditDialogImageUploading] = useState(false);
+  const [editFormSubmitting, setEditFormSubmitting] = useState(false);
+  const [addPickerKey, setAddPickerKey] = useState(0);
+  const [editPickerKey, setEditPickerKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const newBikeImageInputRef = useRef<HTMLInputElement>(null);
   
   const isNative = Capacitor.isNativePlatform();
 
@@ -156,6 +361,14 @@ export default function BikeProfile() {
       photoOptions: "Add Bike Photo",
     },
   };
+  const labels = useMemo(() => t[language], [language]);
+  const getTotalDistance = useCallback((bike: any) => {
+    return typeof bike?.totalDistance === "number"
+      ? bike.totalDistance
+      : typeof bike?.total_distance === "number"
+      ? bike.total_distance
+      : 0;
+  }, []);
 
   const handleNativeCamera = async (bikeId: string, source: CameraSource) => {
     try {
@@ -336,10 +549,12 @@ export default function BikeProfile() {
         brand: editingBike.brand,
         model: editingBike.model,
         year: editingBike.year,
-        totalDistance: editingBike.totalDistance || 0,
+        totalDistance: getTotalDistance(editingBike),
       });
+      setEditBikeImage(null);
+      setEditPickerKey((k) => k + 1);
     }
-  }, [editingBike, editForm]);
+  }, [editingBike, editForm, getTotalDistance]);
 
   const updateBikeMutation = useMutation({
     mutationFn: async (data: z.infer<typeof updateBikeSchema>) => {
@@ -363,13 +578,45 @@ export default function BikeProfile() {
     },
   });
 
-  const onSubmit = (data: z.infer<typeof bikeFormSchema>) => {
-    createBikeMutation.mutate(data);
-  };
+  const onSubmit = useCallback(async (data: z.infer<typeof bikeFormSchema>) => {
+    try {
+      setFormSubmitting(true);
+      const created = await createBikeMutation.mutateAsync(data);
+      if (created?.id && newBikeImage) {
+        setDialogImageUploading(true);
+        await handlePhotoUpload(created.id, newBikeImage);
+      }
+      setIsDialogOpen(false);
+      setNewBikeImage(null);
+      setAddPickerKey((k) => k + 1);
+      form.reset(bikeFormDefaults.current);
+    } catch (err) {
+      // errors handled by mutation
+    } finally {
+      setDialogImageUploading(false);
+      setFormSubmitting(false);
+    }
+  }, [createBikeMutation, newBikeImage, form]);
 
-  const onEditSubmit = (data: z.infer<typeof updateBikeSchema>) => {
-    updateBikeMutation.mutate(data);
-  };
+  const onEditSubmit = useCallback(async (data: z.infer<typeof updateBikeSchema>) => {
+    try {
+      setEditFormSubmitting(true);
+      const updated = await updateBikeMutation.mutateAsync(data);
+      if (updated?.id && editBikeImage) {
+        setEditDialogImageUploading(true);
+        await handlePhotoUpload(updated.id, editBikeImage);
+      }
+      setIsEditDialogOpen(false);
+      setEditingBike(null);
+      setEditBikeImage(null);
+      setEditPickerKey((k) => k + 1);
+    } catch (err) {
+      // errors handled by mutation
+    } finally {
+      setEditDialogImageUploading(false);
+      setEditFormSubmitting(false);
+    }
+  }, [updateBikeMutation, editBikeImage]);
 
   const handleEditClick = (bike: BikeType) => {
     setEditingBike(bike);
@@ -396,7 +643,7 @@ export default function BikeProfile() {
       setIsDialogOpen(open);
       if (!open) {
         setNewBikeImage(null);
-        setNewBikeImagePreview(null);
+        setAddPickerKey((k) => k + 1);
       }
     }}>
       <DialogTrigger asChild>
@@ -411,116 +658,23 @@ export default function BikeProfile() {
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-            
-            <div className="relative w-full h-40 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 overflow-hidden group hover-elevate cursor-pointer transition-all"
-              onClick={() => newBikeImageInputRef.current?.click()}
-            >
-              {newBikeImagePreview ? (
-                <>
-                  <img src={newBikeImagePreview} alt="preview" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <Button type="button" variant="ghost" size="sm" className="gap-2 text-white">
-                      <Camera className="w-4 h-4" />
-                      {t[language].changePhoto}
-                    </Button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setNewBikeImage(null);
-                      setNewBikeImagePreview(null);
-                    }}
-                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600"
-                    data-testid="button-remove-bike-image"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                  <Camera className="w-12 h-12 text-primary/40" />
-                  <p className="text-sm text-muted-foreground font-medium">{t[language].uploadPhoto}</p>
-                  <p className="text-xs text-muted-foreground">{language === 'ar' ? 'اضغط لاختيار صورة' : 'Click to select image'}</p>
-                </div>
-              )}
-              <input
-                type="file"
-                ref={newBikeImageInputRef}
-                className="hidden"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setNewBikeImage(file);
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                      setNewBikeImagePreview(event.target?.result as string);
-                    };
-                    reader.readAsDataURL(file);
-                  }
-                }}
-                data-testid="input-add-bike-image"
-              />
-            </div>
+            <BikeImagePicker
+              key={addPickerKey}
+              initialPreview={null}
+              uploadLabel={t[language].uploadPhoto}
+              changeLabel={t[language].changePhoto}
+              removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
+              onFileSelect={setNewBikeImage}
+              disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
+              testIdPrefix="add-bike"
+            />
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField
-                control={form.control}
-                name="brand"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">{t[language].brand}</FormLabel>
-                    <FormControl>
-                      <Input 
-                        data-testid="input-brand" 
-                        placeholder="Trek" 
-                        {...field}
-                        className="h-10"
-                      />
-                    </FormControl>
-                    <FormMessage className="text-xs" />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="model"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm">{t[language].model}</FormLabel>
-                    <FormControl>
-                      <Input 
-                        data-testid="input-model" 
-                        placeholder="FX 2" 
-                        {...field}
-                        className="h-10"
-                      />
-                    </FormControl>
-                    <FormMessage className="text-xs" />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <FormField
-              control={form.control}
-              name="year"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t[language].year}</FormLabel>
-                  <FormControl>
-                    <Input 
-                      data-testid="input-year" 
-                      type="number" 
-                      {...field}
-                      onChange={(e) => field.onChange(parseInt(e.target.value))}
-                      className="h-10"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+            <BikeFormFields
+              form={form}
+              labels={labels}
+              disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
+              testIdPrefix="add"
+              showDistance={false}
             />
 
             <div className="flex gap-2 justify-end pt-4">
@@ -534,14 +688,19 @@ export default function BikeProfile() {
               </Button>
               <Button 
                 type="submit" 
-                disabled={createBikeMutation.isPending}
+                disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
                 data-testid="button-submit-bike"
                 className="gap-2"
               >
-                {createBikeMutation.isPending ? (
+                {formSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     {t[language].loading}
+                  </>
+                ) : dialogImageUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t[language].uploading}
                   </>
                 ) : (
                   <>
@@ -725,7 +884,7 @@ export default function BikeProfile() {
                 </div>
                 <div>
                   <div className="text-sm text-muted-foreground">{t[language].totalDistance}</div>
-                  <div className="font-semibold mt-1">{firstBike.totalDistance || 0} {t[language].km}</div>
+                  <div className="font-semibold mt-1">{getTotalDistance(firstBike)} {t[language].km}</div>
                 </div>
                 <div>
                   <div className="text-sm text-muted-foreground">{t[language].dateAdded}</div>
@@ -804,68 +963,23 @@ export default function BikeProfile() {
             </DialogHeader>
             <Form {...editForm}>
               <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
-                <FormField
-                  control={editForm.control}
-                  name="brand"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t[language].brand}</FormLabel>
-                      <FormControl>
-                        <Input data-testid="input-edit-brand" placeholder="Trek" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                <BikeImagePicker
+                  key={editPickerKey}
+                  initialPreview={editingBike?.imageUrl || editingBike?.image_url || null}
+                  uploadLabel={t[language].uploadPhoto}
+                  changeLabel={t[language].changePhoto}
+                  removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
+                  onFileSelect={setEditBikeImage}
+                  disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
+                  testIdPrefix="edit-bike"
                 />
-                <FormField
-                  control={editForm.control}
-                  name="model"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t[language].model}</FormLabel>
-                      <FormControl>
-                        <Input data-testid="input-edit-model" placeholder="FX 2" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editForm.control}
-                  name="year"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t[language].year}</FormLabel>
-                      <FormControl>
-                        <Input 
-                          data-testid="input-edit-year" 
-                          type="number" 
-                          {...field} 
-                          onChange={(e) => field.onChange(parseInt(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={editForm.control}
-                  name="totalDistance"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t[language].totalDistance} ({t[language].km})</FormLabel>
-                      <FormControl>
-                        <Input 
-                          data-testid="input-edit-distance" 
-                          type="number"
-                          min="0"
-                          {...field} 
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+
+                <BikeFormFields
+                  form={editForm}
+                  labels={labels}
+                  disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
+                  testIdPrefix="edit"
+                  showDistance={true}
                 />
                 <div className="flex gap-2 justify-end">
                   <Button 
@@ -881,10 +995,10 @@ export default function BikeProfile() {
                   </Button>
                   <Button 
                     type="submit" 
-                    disabled={updateBikeMutation.isPending}
+                    disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
                     data-testid="button-submit-edit"
                   >
-                    {updateBikeMutation.isPending ? t[language].loading : t[language].update}
+                    {editFormSubmitting ? t[language].loading : editDialogImageUploading ? t[language].uploading : t[language].update}
                   </Button>
                 </div>
               </form>

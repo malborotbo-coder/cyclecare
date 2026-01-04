@@ -163,7 +163,7 @@ export default function TechnicianDashboard() {
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
-      return apiRequest('PATCH', '/api/technicians/me/availability', { is_available: next });
+      return apiRequest('/api/technicians/me/availability', 'PATCH', { is_available: next });
     },
     onSuccess: (updated: any) => {
       setIsOnline(!!updated?.is_available);
@@ -186,7 +186,7 @@ export default function TechnicianDashboard() {
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest('PATCH', `/api/service-requests/${id}`, { status });
+      return apiRequest(`/api/service-requests/${id}`, 'PATCH', { status });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/service-requests/technician'] });

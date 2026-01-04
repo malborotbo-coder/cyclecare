@@ -21,9 +21,28 @@ import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
 
 const upload = multer({
-  limits: { fileSize: 5 * 1024 * 1024 }, // حجم 5MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB to accommodate mobile photos
   storage: multer.memoryStorage(),
 });
+
+const bikePhotoUpload = (req: any, res: any, next: any) => {
+  upload.single("photo")(req, res, (err: any) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ code: "PHOTO_TOO_LARGE", message: "Image too large (max 10MB)" });
+      }
+      return res.status(400).json({ code: "PHOTO_UPLOAD_INVALID", message: err.message || "Invalid photo upload" });
+    }
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ message: "No photo uploaded" });
+    }
+    if (!file.mimetype?.startsWith("image/")) {
+      return res.status(400).json({ message: "Invalid image type" });
+    }
+    next();
+  });
+};
 
 type AuthContext = {
   userId: string;
@@ -568,7 +587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/bikes/:id/photo",
     isAuthenticated,
-    upload.single("photo"),
+    bikePhotoUpload,
     async (req: any, res) => {
       try {
         const auth = getAuthContext(req);
