@@ -57,19 +57,22 @@ type BikeFormLabels = {
   km: string;
 };
 
-const BikeFormFields = memo(function BikeFormFields({
-  form,
-  labels,
-  disabled,
-  testIdPrefix,
-  showDistance = false,
-}: {
+type BikeFormFieldsProps = {
   form: UseFormReturn<any>;
   labels: BikeFormLabels;
   disabled?: boolean;
   testIdPrefix: string;
   showDistance?: boolean;
-}) {
+};
+
+const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) {
+  const {
+    form,
+    labels,
+    disabled,
+    testIdPrefix,
+    showDistance = false,
+  } = props;
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
