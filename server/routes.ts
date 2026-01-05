@@ -19,6 +19,9 @@ import multer from "multer";
 import { supabase, supabaseAdmin, getUploadClient, BUCKET_NAME, uploadBufferToStorage } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
+import type { Role } from "@shared/schema";
+import { computePricing } from "./pricingEngine";
+import { insertOrderSchema } from "@shared/schema";
 
 const upload = multer({
   limits: {
@@ -67,12 +70,93 @@ const profilePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371; // km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 type AuthContext = {
   userId: string;
   isAdmin: boolean;
   email?: string;
   phoneNumber?: string;
 };
+
+// Role helpers (primary source: roles + user_roles)
+let roleCache: { byName: Record<string, Role>; lastFetched?: number } = {
+  byName: {},
+};
+
+async function getRoleByName(name: string): Promise<Role | undefined> {
+  const now = Date.now();
+  const cacheHit =
+    roleCache.byName[name] && roleCache.lastFetched && now - roleCache.lastFetched < 5 * 60 * 1000;
+  if (cacheHit) return roleCache.byName[name];
+
+  const roles = await storage.getAllRoles();
+  roleCache = {
+    byName: roles.reduce((acc, r) => {
+      acc[r.name] = r;
+      return acc;
+    }, {} as Record<string, Role>),
+    lastFetched: now,
+  };
+  return roleCache.byName[name];
+}
+
+async function ensureRoleAssignment(userUuid: string, roleName: string, assignerId: string) {
+  let role = await getRoleByName(roleName);
+  if (!role) {
+    role = await storage.createRole({ name: roleName as any, description: `${roleName} role` });
+    // refresh cache
+    roleCache.byName[roleName] = role;
+    roleCache.lastFetched = Date.now();
+  }
+  try {
+    await storage.assignUserRole(userUuid, role.id, assignerId);
+  } catch (err: any) {
+    if (err?.message?.includes("already has this role")) {
+      return;
+    }
+    throw err;
+  }
+}
+
+async function userHasRole(userUuid: string, roleName: string): Promise<boolean> {
+  const role = await getRoleByName(roleName);
+  if (!role) return false;
+  const userRoles = await storage.getUserRoles(userUuid);
+  return userRoles.some((ur) => ur.roleId === role.id);
+}
+
+async function requireRoleOrAdmin(
+  req: any,
+  res: any,
+  roleName: string,
+): Promise<{ ok: true; userUuid: string; auth: AuthContext }> {
+  const auth = getAuthContext(req);
+  if (!auth) {
+    res.status(401).json({ message: "Unauthorized" });
+    return { ok: false, userUuid: "", auth: null as any };
+  }
+  const userUuid = await ensureUserUuid(auth);
+  if (auth.isAdmin) {
+    return { ok: true, userUuid, auth };
+  }
+  const has = await userHasRole(userUuid, roleName);
+  if (!has) {
+    res.status(403).json({ message: "Forbidden" });
+    return { ok: false, userUuid, auth };
+  }
+  return { ok: true, userUuid, auth };
+}
 
 function getAuthContext(req: any): AuthContext | null {
   const jwtUser = (req as any).jwtUser;
@@ -987,9 +1071,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAuthenticated,
     async (req: any, res) => {
       try {
-        const auth = getAuthContext(req);
-        if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const userUuid = await ensureUserUuid(auth);
+        const guard = await requireRoleOrAdmin(req, res, "technician");
+        if (!guard.ok) return;
+        const { userUuid } = guard;
         const desired = req.body.is_available;
         if (typeof desired !== "boolean") {
           return res.status(400).json({ fieldErrors: { is_available: "Required boolean" } });
@@ -1006,7 +1090,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const { resp: updResp, data: updData } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
           method: "PATCH",
-          body: { is_available: desired },
+          body: { is_available: desired, status: desired ? "online" : "offline" },
           headers: { Prefer: "return=representation" },
         });
         if (!updResp.ok) {
@@ -1021,6 +1105,282 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  // Online/Offline status toggle (mirrors availability, technician role only)
+  app.patch(
+    "/api/technicians/me/status",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const guard = await requireRoleOrAdmin(req, res, "technician");
+        if (!guard.ok) return;
+        const { userUuid } = guard;
+        const online = req.body.online;
+        if (typeof online !== "boolean") {
+          return res.status(400).json({ fieldErrors: { online: "Required boolean" } });
+        }
+        const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (!resp.ok) {
+          console.log("[TECH][STATUS][FETCH][FAILED]", { status: resp.status, body: data });
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(data) ? data[0] : data?.[0];
+        if (!technician) return res.status(404).json({ message: "Technician not found" });
+        if (technician.status !== "approved" && !guard.auth.isAdmin) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(technician.id)}`,
+          {
+            method: "PATCH",
+            body: { status: online ? "online" : "offline", is_available: online },
+            headers: { Prefer: "return=representation" },
+          },
+        );
+        if (!updResp.ok) {
+          console.log("[TECH][STATUS][UPDATE][FAILED]", { status: updResp.status, body: updData });
+          return res.status(500).json({ message: "Failed to update status" });
+        }
+        if (!online) {
+          // Remove live location when offline
+          await pgFetch(`/technician_locations?technician_id=eq.${encodeURIComponent(technician.id)}`, {
+            method: "DELETE",
+          });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        res.json(updated);
+      } catch (error) {
+        console.error("[TECH][STATUS] Error:", error);
+        res.status(500).json({ message: "Failed to update status" });
+      }
+    },
+  );
+
+  // Technician live location update (online only)
+  app.post("/api/technicians/location", isAuthenticated, async (req: any, res) => {
+    try {
+      const guard = await requireRoleOrAdmin(req, res, "technician");
+      if (!guard.ok) return;
+      const { userUuid } = guard;
+      const { lat, lng } = req.body;
+      const latitude = Number(lat);
+      const longitude = Number(lng);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return res.status(400).json({ message: "lat and lng are required numbers" });
+      }
+      const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
+      if (!resp.ok) {
+        console.log("[TECH][LOC][FETCH][FAILED]", { status: resp.status, body: data });
+        return res.status(404).json({ message: "Technician not found" });
+      }
+      const technician = Array.isArray(data) ? data[0] : data?.[0];
+      if (!technician) return res.status(404).json({ message: "Technician not found" });
+      if (technician.status !== "online") {
+        return res.status(403).json({ message: "Technician is offline" });
+      }
+      // Upsert location
+      const upsertBody = {
+        technician_id: technician.id,
+        latitude,
+        longitude,
+        last_updated: new Date().toISOString(),
+      };
+      const { resp: updResp, data: updData } = await pgFetch(
+        `/technician_locations?technician_id=eq.${encodeURIComponent(technician.id)}`,
+        {
+          method: "PATCH",
+          body: upsertBody,
+          headers: { Prefer: "return=representation" },
+        },
+      );
+      if (updResp.status === 404 || updResp.status === 0 || updResp.status === 204) {
+        // If not existing, insert
+        await pgFetch("/technician_locations", {
+          method: "POST",
+          body: upsertBody,
+          headers: { Prefer: "return=representation" },
+        });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[TECH][LOC] Error:", error);
+      res.status(500).json({ message: "Failed to update location" });
+    }
+  });
+
+  // Nearby technicians endpoint (online only)
+  app.get("/api/technicians/nearby", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const lat = Number(req.query.lat);
+      const lng = Number(req.query.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return res.status(400).json({ message: "lat and lng are required numbers" });
+      }
+
+      const { resp: techResp, data: techData } = await pgFetch(`/technicians?status=eq.online&is_available=eq.true`);
+      if (!techResp.ok) {
+        console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
+        return res.json([]);
+      }
+      const onlineTechs = Array.isArray(techData) ? techData : [];
+      if (onlineTechs.length === 0) {
+        return res.json([]);
+      }
+
+      const { resp: locResp, data: locData } = await pgFetch(`/technician_locations`);
+      if (!locResp.ok) {
+        console.log("[TECH][NEARBY][LOC_FETCH][FAILED]", { status: locResp.status, body: locData });
+        return res.json([]);
+      }
+      const locations = Array.isArray(locData) ? locData : [];
+      const locMap = new Map<string, any>();
+      locations.forEach((l) => {
+        if (l?.technician_id) locMap.set(l.technician_id, l);
+      });
+
+      const enriched = onlineTechs
+        .map((tech: any) => {
+          const loc = locMap.get(tech.id);
+          if (!loc) return null;
+          const distanceKm = haversineKm(lat, lng, Number(loc.latitude), Number(loc.longitude));
+          const etaMinutes = Math.round((distanceKm / 30) * 60); // assume 30km/h
+          const pricePreview = computePricing({
+            distanceKm,
+            serviceBase: 150, // periodic maintenance default
+            serviceName: "Maintenance",
+          });
+          return {
+            ...tech,
+            distanceKm: Number(distanceKm.toFixed(2)),
+            etaMinutes,
+            lastUpdated: loc.last_updated,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            pricePreview,
+          };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0));
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("[TECH][NEARBY] Error:", error);
+      res.status(500).json({ message: "Failed to fetch nearby technicians" });
+    }
+  });
+
+  // Pricing quote (centralized engine)
+  app.post("/api/pricing/quote", isAuthenticated, async (req: any, res) => {
+    try {
+      const { serviceBase, serviceId, serviceName, distanceKm, parts, installAccessory, installSpare } = req.body || {};
+      const breakdown = computePricing({
+        serviceBase: serviceBase ? Number(serviceBase) : undefined,
+        serviceId,
+        serviceName,
+        distanceKm: distanceKm !== undefined ? Number(distanceKm) : undefined,
+        parts: Array.isArray(parts)
+          ? parts.map((p) => ({
+              id: p.id,
+              name: p.name,
+              quantity: Number(p.quantity) || 0,
+              unitPrice: Number(p.unitPrice) || 0,
+            }))
+          : [],
+        installAccessory: !!installAccessory,
+        installSpare: !!installSpare,
+      });
+      res.json(breakdown);
+    } catch (error) {
+      console.error("[PRICING][QUOTE] Error:", error);
+      res.status(500).json({ message: "Failed to compute pricing" });
+    }
+  });
+
+  // Mock payment + order creation (Phase D)
+  app.post("/api/orders/mock-checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const { serviceRequestId, technicianId, breakdown, paymentMethod } = req.body || {};
+      if (!serviceRequestId || !technicianId || !breakdown) {
+        return res.status(400).json({ message: "serviceRequestId, technicianId, and breakdown are required" });
+      }
+
+      // Verify service request ownership
+      const { resp: srResp, data: srData } = await pgFetch(
+        `/service_requests?id=eq.${encodeURIComponent(serviceRequestId)}`,
+      );
+      if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+        return res.status(404).json({ message: "Service request not found" });
+      }
+      const sr = srData[0];
+      if (sr.user_id !== userUuid && !auth.isAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const subtotal = Number(breakdown?.subtotal || 0);
+      const taxRate = Number(breakdown?.vatRate || 15);
+      const taxAmount = Number(breakdown?.vat || (subtotal * taxRate) / 100);
+      const total = Number(breakdown?.total || subtotal + taxAmount);
+
+      const commissionRate = 25;
+      const appCommissionAmount = Number((total * (commissionRate / 100)).toFixed(2));
+      const technicianNetAmount = Number((total - appCommissionAmount).toFixed(2));
+
+      const orderPayload = {
+        userId: userUuid,
+        orderNumber: `ORD-${Date.now()}`,
+        subtotal: subtotal.toString(),
+        taxRate: taxRate.toString(),
+        taxAmount: taxAmount.toString(),
+        total: total.toString(),
+        deliveryType: "delivery",
+        paymentMethod: paymentMethod || "mock",
+        paymentStatus: "completed",
+        status: "confirmed",
+        items: breakdown?.parts?.items || [],
+        serviceRequestId,
+        technicianId,
+        commissionRate: commissionRate.toString(),
+        appCommissionAmount: appCommissionAmount.toString(),
+        technicianNetAmount: technicianNetAmount.toString(),
+        breakdownJson: breakdown,
+      };
+
+      // Validate and create
+      const validated = validateSchema(insertOrderSchema, orderPayload as any, req);
+      const order = await storage.createOrder(validated as any);
+
+      // Optional: mark payment as mock succeeded
+      await pgFetch("/payments", {
+        method: "POST",
+        body: {
+          service_request_id: serviceRequestId,
+          amount: total,
+          currency: "SAR",
+          method: "mock",
+          status: "succeeded",
+          provider_reference: "mock-payment",
+          metadata: { mock: true },
+          initiated_by: userUuid,
+          is_mock: true,
+        },
+        headers: { Prefer: "return=representation" },
+      }).catch(() => {});
+
+      res.status(201).json({ order, commissionRate, appCommissionAmount, technicianNetAmount });
+    } catch (error) {
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
+      console.error("[ORDERS][MOCK_CHECKOUT] Error:", error);
+      res.status(500).json({ message: "Failed to complete mock checkout" });
+    }
+  });
 
 
   // Transactional technician registration with documents
@@ -2049,6 +2409,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         console.error("[ADMIN][USER_ROLES][DELETE] Error:", error);
         res.status(500).json({ message: "Failed to remove user role" });
+      }
+    },
+  );
+
+  // Admin-only: enable mock technician mode (assign technician role)
+  app.post(
+    "/api/admin/enable-technician-mode",
+    isAuthenticated,
+    isAdmin,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const assignerId = await ensureUserUuid(auth);
+        const { userId } = req.body;
+        if (!userId) {
+          return res.status(400).json({ message: "userId is required" });
+        }
+        await ensureRoleAssignment(userId, "technician", assignerId);
+        // Backward compatibility flag
+        await pgFetch(`/users?id=eq.${encodeURIComponent(userId)}`, {
+          method: "PATCH",
+          body: { is_technician: true },
+          headers: { Prefer: "return=representation" },
+        });
+        res.json({ message: "Technician mode enabled", userId });
+      } catch (error) {
+        console.error("[ADMIN][MOCK_TECH] Error:", error);
+        res.status(500).json({ message: "Failed to enable technician mode" });
       }
     },
   );

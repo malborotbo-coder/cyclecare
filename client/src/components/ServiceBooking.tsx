@@ -14,6 +14,7 @@ import type { Technician, User as UserType, Bike as BikeType, PaymentMethod } fr
 import PaymentOptions from "./PaymentOptions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import BookingBackgroundLayout from "@/components/layout/BookingBackgroundLayout";
+import type { PricingBreakdown } from "@shared/bookingTypes";
 
 export default function ServiceBooking() {
   const { lang: language } = useLanguage();
@@ -27,6 +28,9 @@ export default function ServiceBooking() {
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [userSetLocation, setUserSetLocation] = useState(false);
   const [mapUrl, setMapUrl] = useState("https://maps.google.com/?q=24.7136,46.6753");
+  const [costBreakdown, setCostBreakdown] = useState<PricingBreakdown | null>(null);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   useEffect(() => {
     if (!userSetLocation) {
@@ -43,7 +47,7 @@ export default function ServiceBooking() {
         serviceType: "نوع الخدمة",
         location: "الموقع",
         technician: "الفني",
-        confirmation: "التأكيد",
+        breakdown: "التكلفة",
         payment: "الدفع",
       },
       services: {
@@ -130,7 +134,7 @@ export default function ServiceBooking() {
         serviceType: "Service Type",
         location: "Location",
         technician: "Technician",
-        confirmation: "Confirmation",
+        breakdown: "Cost Breakdown",
         payment: "Payment",
       },
       services: {
@@ -217,14 +221,14 @@ export default function ServiceBooking() {
     t[language].steps.serviceType,
     t[language].steps.location,
     t[language].steps.technician,
-    t[language].steps.confirmation,
+    t[language].steps.breakdown,
     t[language].steps.payment,
   ];
 
   const services = [
-    { id: "maintenance", name: t[language].services.maintenance, icon: <Settings className="w-5 h-5" />, price: t[language].prices.maintenance },
-    { id: "repair", name: t[language].services.repair, icon: <Wrench className="w-5 h-5" />, price: t[language].prices.repair },
-    { id: "parts", name: t[language].services.parts, icon: <Package className="w-5 h-5" />, price: t[language].prices.parts },
+    { id: "maintenance", name: t[language].services.maintenance, icon: <Settings className="w-5 h-5" />, price: t[language].prices.maintenance, base: 150 },
+    { id: "repair", name: t[language].services.repair, icon: <Wrench className="w-5 h-5" />, price: t[language].prices.repair, base: 100 },
+    { id: "parts", name: t[language].services.parts, icon: <Package className="w-5 h-5" />, price: t[language].prices.parts, base: 0 },
   ];
 
   // Fetch user bikes
@@ -234,7 +238,11 @@ export default function ServiceBooking() {
 
   // Fetch available technicians
   const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
-    queryKey: ["/api/technicians"],
+    queryKey: ["/api/technicians/nearby", location.lat, location.lng],
+    enabled: !!location.lat && !!location.lng,
+    queryFn: async () => {
+      return apiRequest(`/api/technicians/nearby?lat=${location.lat}&lng=${location.lng}`, "GET");
+    }
   });
 
   // Get current location from GPS
@@ -337,6 +345,15 @@ export default function ServiceBooking() {
   };
 
   const handleConfirmBooking = () => {
+    if (!selectedService || !selectedTechnicianId || !costBreakdown) {
+      toast({
+        title: t[language].toast.error,
+        description: t[language].toast.requestFailed,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const selectedBike = bikes?.[0]; // Use first bike for now
     
     const requestData: any = {
@@ -349,6 +366,10 @@ export default function ServiceBooking() {
       status: "pending",
     };
 
+    requestData.price_breakdown = costBreakdown;
+    requestData.breakdown_version = costBreakdown.breakdownVersion;
+    requestData.distance_km = costBreakdown.delivery?.distanceKm;
+
     // Only include bikeId if a bike exists
     if (selectedBike?.id) {
       requestData.bikeId = selectedBike.id;
@@ -358,10 +379,19 @@ export default function ServiceBooking() {
     createServiceRequest.mutate(requestData);
   };
 
+  const resetBooking = () => {
+    setCurrentStep(0);
+    setSelectedService("");
+    setSelectedTechnicianId("");
+    setCostBreakdown(null);
+    setNotes("");
+    setCreatedServiceRequestId(null);
+    setSelectedPaymentMethod(null);
+  };
+
   const handlePaymentMethodSelect = async (method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
-    
-    if (!createdServiceRequestId) {
+    if (!createdServiceRequestId || !costBreakdown || !selectedTechnicianId) {
       toast({
         title: t[language].toast.error,
         description: t[language].toast.serviceRequestNotFound,
@@ -369,43 +399,30 @@ export default function ServiceBooking() {
       });
       return;
     }
-    
+    setProcessingPayment(true);
     try {
-      // Update service request with payment method (store as note for now)
-      await apiRequest(`/api/service-requests/${createdServiceRequestId}`, "PATCH", {
-        notes: `${notes}\n\n${t[language].payment.preferredMethod} ${getPaymentMethodName(method)}`
+      await apiRequest("/api/orders/mock-checkout", "POST", {
+        serviceRequestId: createdServiceRequestId,
+        technicianId: selectedTechnicianId,
+        breakdown: costBreakdown,
+        paymentMethod: "mock",
       });
-      
-      // Show success with instructions
       toast({
-        title: t[language].toast.paymentMethodSelected,
-        description: getPaymentInstructions(method),
+        title: t[language].toast.bookingSuccess,
+        description: t[language].toast.technicianWillContact,
       });
-
-      // Wait a bit then complete booking
-      setTimeout(() => {
-        toast({
-          title: t[language].toast.bookingSuccess,
-          description: t[language].toast.technicianWillContact,
-        });
-        
-        queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-        
-        // Reset form
-        setCurrentStep(0);
-        setSelectedService("");
-        setSelectedTechnicianId("");
-        setNotes("");
-        setCreatedServiceRequestId(null);
-        setSelectedPaymentMethod(null);
-      }, 2000);
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      resetBooking();
     } catch (error) {
-      console.error("Failed to update payment method:", error);
+      console.error("Mock payment failed:", error);
       toast({
         title: t[language].toast.error,
         description: t[language].toast.paymentSaveFailed,
         variant: "destructive",
       });
+    } finally {
+      setProcessingPayment(false);
     }
   };
 
@@ -441,6 +458,34 @@ export default function ServiceBooking() {
 
   const selectedServiceData = services.find((s) => s.id === selectedService);
   const selectedTechnician = technicians?.find((t) => t.id === selectedTechnicianId);
+
+  // Compute cost breakdown once technician is selected
+  useEffect(() => {
+    const fetchBreakdown = async () => {
+      if (!selectedTechnicianId || !selectedServiceData) return;
+      const distanceKm = (selectedTechnician as any)?.distanceKm || 0;
+      setLoadingBreakdown(true);
+      try {
+        const breakdown = await apiRequest("/api/pricing/quote", "POST", {
+          serviceBase: selectedServiceData.base,
+          serviceId: selectedServiceData.id,
+          serviceName: selectedServiceData.name,
+          distanceKm,
+        });
+        setCostBreakdown(breakdown);
+      } catch (error) {
+        console.error("Failed to fetch pricing", error);
+        toast({
+          title: t[language].toast.error,
+          description: t[language].toast.requestFailed,
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingBreakdown(false);
+      }
+    };
+    fetchBreakdown();
+  }, [selectedTechnicianId, selectedServiceData, selectedTechnician, t, language, toast]);
 
   return (
     <BookingBackgroundLayout>
@@ -608,35 +653,58 @@ export default function ServiceBooking() {
             {currentStep === 3 && (
               <div className="space-y-4">
                 <div className="bg-muted p-4 rounded-md space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{t[language].confirmation.serviceType}</span>
-                    <span className="font-semibold">{selectedServiceData?.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{t[language].confirmation.technician}</span>
-                    <span className="font-semibold">
-                      {selectedTechnician ? t[language].technician.certifiedTechnician : t[language].technician.notSelected}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{t[language].confirmation.location}</span>
-                    <span className="font-semibold">{locationText}</span>
-                  </div>
-                  <div className="border-t border-border pt-3 flex justify-between">
-                    <span className="text-muted-foreground">{t[language].confirmation.estimatedCost}</span>
-                    <span className="text-xl font-bold text-primary">{selectedServiceData?.price}</span>
-                  </div>
+                  {loadingBreakdown && (
+                    <div className="text-muted-foreground">{t[language].technician.loading}</div>
+                  )}
+                  {costBreakdown && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">{t[language].confirmation.serviceType}</span>
+                        <span className="font-semibold">{costBreakdown.service?.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">{t[language].confirmation.technician}</span>
+                        <span className="font-semibold">
+                          {selectedTechnician ? t[language].technician.certifiedTechnician : t[language].technician.notSelected}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Distance</span>
+                        <span className="font-semibold">{(selectedTechnician as any)?.distanceKm ?? "—"} km</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Delivery</span>
+                        <span className="font-semibold">{costBreakdown.delivery?.total ?? "--"} SAR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Installation</span>
+                        <span className="font-semibold">{costBreakdown.install?.total ?? 0} SAR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Subtotal</span>
+                        <span className="font-semibold">{costBreakdown.subtotal ?? "--"} SAR</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">VAT (15%)</span>
+                        <span className="font-semibold">{costBreakdown.vat ?? "--"} SAR</span>
+                      </div>
+                      <div className="border-t border-border pt-3 flex justify-between">
+                        <span className="text-muted-foreground">Total</span>
+                        <span className="text-xl font-bold text-primary">{costBreakdown.total ?? "--"} SAR</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
 
-            {currentStep === 4 && createdServiceRequestId && (
+            {currentStep === 4 && createdServiceRequestId && costBreakdown && (
               <PaymentOptions
-                amount={150}
+                amount={costBreakdown.total || 0}
                 serviceRequestId={createdServiceRequestId}
                 onSelectMethod={handlePaymentMethodSelect}
                 onCancel={prevStep}
-                isProcessing={false}
+                isProcessing={processingPayment}
               />
             )}
 
@@ -665,7 +733,7 @@ export default function ServiceBooking() {
                   <Button 
                     onClick={handleConfirmBooking}
                     className="flex-1"
-                    disabled={createServiceRequest.isPending || !selectedTechnicianId || !selectedService}
+                    disabled={createServiceRequest.isPending || !selectedTechnicianId || !selectedService || !costBreakdown}
                     data-testid="button-confirm"
                   >
                     {createServiceRequest.isPending ? t[language].buttons.confirming : t[language].buttons.confirm}
