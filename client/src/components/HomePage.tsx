@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Bell, Wrench, Package, History, UserCircle, MapPin, Star, UserPlus, CheckCircle2, LogOut, Plus, User, Edit } from "lucide-react";
-import heroImage from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png";
+import heroImage from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png"; // desktop/tablet original
+import heroImageMobile from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png"; // reuse original until mobile asset provided
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -98,6 +99,7 @@ export default function HomePage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [heroLoaded, setHeroLoaded] = useState(false);
+  const [isMobileHero, setIsMobileHero] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
 
   // Fix for safe area on native apps
@@ -109,9 +111,15 @@ export default function HomePage() {
   }, [isNative]);
 
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => setHeroLoaded(true);
-    img.src = heroImage;
+    const imgDesktop = new Image();
+    imgDesktop.onload = () => setHeroLoaded(true);
+    imgDesktop.src = heroImage;
+
+    const mq = window.matchMedia("(max-width: 768px)");
+    const updateHeroVariant = () => setIsMobileHero(mq.matches);
+    updateHeroVariant();
+    mq.addEventListener("change", updateHeroVariant);
+    return () => mq.removeEventListener("change", updateHeroVariant);
   }, []);
 
   // Skip API calls on iOS - just show mock data
@@ -260,10 +268,10 @@ export default function HomePage() {
       >
         <section className="relative w-full" style={{ minHeight: "52vh" }}>
           <img
-            src={heroImage}
+            src={isMobileHero ? heroImageMobile : heroImage}
             alt="Cyclist hero"
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: "70% 20%" }}
+            style={{ objectPosition: isMobileHero ? "50% 20%" : "70% 20%" }}
             loading="lazy"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/45 to-black/65" />

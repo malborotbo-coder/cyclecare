@@ -249,13 +249,9 @@ export default function FirebaseAuthPage() {
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Shared checks (login + signup)
     if (!email) return setError(labels.noEmail);
     if (!password) return setError(labels.noPassword);
-    if (isSignUp && !confirmPassword) return setError(isArabic ? "أكّد كلمة المرور" : "Confirm your password");
-    if (isSignUp && password !== confirmPassword) return setError(isArabic ? "كلمتا المرور غير متطابقتين" : "Passwords do not match");
-    if (!firstName.trim()) return setError(isArabic ? "الاسم الأول مطلوب" : "First name is required");
-    if (!lastName.trim()) return setError(isArabic ? "الاسم الأخير مطلوب" : "Last name is required");
-    if (!phone.trim()) return setError(labels.noPhone);
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -265,6 +261,15 @@ export default function FirebaseAuthPage() {
 
     if (password.length < 6) return setError(isArabic ? "كلمة المرور يجب أن تكون 6 أحرف على الأقل" : "Password must be at least 6 characters");
     if (password.length > 64) return setError(isArabic ? "كلمة المرور طويلة جداً" : "Password is too long");
+
+    // Registration-only checks
+    if (isSignUp) {
+      if (!confirmPassword) return setError(isArabic ? "أكّد كلمة المرور" : "Confirm your password");
+      if (password !== confirmPassword) return setError(isArabic ? "كلمتا المرور غير متطابقتين" : "Passwords do not match");
+      if (!firstName.trim()) return setError(isArabic ? "الاسم الأول مطلوب" : "First name is required");
+      if (!lastName.trim()) return setError(isArabic ? "الاسم الأخير مطلوب" : "Last name is required");
+      if (!phone.trim()) return setError(labels.noPhone);
+    }
 
     try {
       setError("");
