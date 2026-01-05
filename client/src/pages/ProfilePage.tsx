@@ -147,13 +147,10 @@ export default function ProfilePage() {
       <div className="absolute inset-0">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${bikeProfileBg})`, opacity: 0.35 }}
+          style={{ backgroundImage: `url(${bikeProfileBg})` }}
           aria-hidden="true"
         />
-        <div
-          className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/60 to-background"
-          aria-hidden="true"
-        />
+        <div className="absolute inset-0 bg-black/30" aria-hidden="true" />
       </div>
       <div className="relative z-10">{children}</div>
     </div>
