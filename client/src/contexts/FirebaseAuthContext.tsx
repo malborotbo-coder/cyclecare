@@ -68,6 +68,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       
       // Build headers with Authorization - prefer app JWT, then Firebase, then phone
       const headers = new Headers();
+      const authMethod = authToken
+        ? "jwt"
+        : firebaseToken
+        ? "firebase"
+        : phoneSession
+        ? "phone"
+        : "none";
       if (authToken) {
         headers.set("Authorization", `Bearer ${authToken}`);
         console.log("[Auth] Using JWT token for session check");
@@ -84,6 +91,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         authToken: !!authToken,
         firebaseToken: !!firebaseToken,
         phoneSession: !!phoneSession,
+        method: authMethod,
       });
       
       const response = await fetch(buildApiUrl("/api/auth/session"), { headers });
@@ -112,7 +120,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         return;
       }
       
-      // Fallback to localStorage phone session
+      // Fallback to localStorage phone session only when phoneSession exists
       if (phoneSession && phoneUserId) {
         console.log("[Auth] Using local phone session:", phoneNumber);
         setUser({
@@ -127,7 +135,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         return;
       }
       
-      console.log("[Auth] No active session");
+      console.log("[Auth] No active session (method:", authMethod, ")");
       setUser(null);
     } catch (error) {
       console.error("[Auth] Error checking session:", error);
