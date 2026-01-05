@@ -747,9 +747,9 @@ export default function BikeProfile() {
               <p className="text-muted-foreground mt-1">{t[language].addFirstBike}</p>
             </div>
 
-            <Card>
-              <CardContent className="p-8 text-center">
-                <Bike className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+        <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
+          <CardContent className="p-8 text-center">
+            <Bike className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                 <h3 className="font-semibold text-lg mb-2">{t[language].noBikesRegistered}</h3>
                 <p className="text-muted-foreground mb-4">
                   {t[language].registerBikePrompt}
@@ -783,7 +783,7 @@ export default function BikeProfile() {
           <p className="text-muted-foreground mt-1">{t[language].subtitle}</p>
         </div>
 
-        <Card>
+        <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
           <CardContent className="p-0">
             <div className="relative">
               <div 
@@ -919,7 +919,7 @@ export default function BikeProfile() {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-primary">
+        <Card className="border-l-4 border-l-primary bg-black/50 backdrop-blur-md border border-white/10 text-white">
           <CardHeader>
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-primary" />
@@ -936,7 +936,7 @@ export default function BikeProfile() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
           <CardHeader>
             <CardTitle>{t[language].maintenanceLog}</CardTitle>
           </CardHeader>
@@ -961,7 +961,7 @@ export default function BikeProfile() {
           </CardContent>
         </Card>
 
-        <Card className="bg-muted">
+        <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
               <Bike className="w-12 h-12 text-primary" />

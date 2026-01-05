@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { ServiceRequest, Technician } from "@shared/schema";
+import technicianBg from "@assets/stock_images/bicycle_mechanic_tec_e306465b.jpg";
 
 interface ServiceRequestCardProps extends ServiceRequest {
   onAccept?: (id: string) => void;
@@ -116,6 +117,22 @@ export default function TechnicianDashboard() {
   const { lang } = useLanguage();
   const { toast } = useToast();
   const [isOnline, setIsOnline] = useState(true);
+  const PageBackground = ({ children }: { children: React.ReactNode }) => (
+    <div className="relative min-h-screen" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div
+        className="fixed inset-0 z-0"
+        style={{
+          backgroundImage: `url(${technicianBg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundAttachment: "fixed",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/30" />
+      </div>
+      <div className="relative z-10">{children}</div>
+    </div>
+  );
 
   const labels = {
     ar: {
@@ -207,43 +224,49 @@ export default function TechnicianDashboard() {
 
   if (techLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
+      <PageBackground>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </PageBackground>
     );
   }
 
   if (!technician) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <Wrench className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-            <CardTitle>{t.notRegistered}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => window.location.href = '/technician/register'} data-testid="button-register-technician">
-              {t.registerNow}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <PageBackground>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <Card className="w-full max-w-md text-center bg-black/50 backdrop-blur-md border border-white/10 shadow-2xl">
+            <CardHeader>
+              <Wrench className="w-16 h-16 mx-auto text-primary mb-4" />
+              <CardTitle className="text-white">{t.notRegistered}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => window.location.href = '/technician/register'} data-testid="button-register-technician">
+                {t.registerNow}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </PageBackground>
     );
   }
 
   if (status === 'pending') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <Clock className="w-16 h-16 mx-auto text-primary mb-4" />
-            <CardTitle>{t.pendingApproval}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">{t.waitingApproval}</p>
-          </CardContent>
-        </Card>
-      </div>
+      <PageBackground>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <Card className="w-full max-w-md text-center bg-black/50 backdrop-blur-md border border-white/10 shadow-2xl">
+            <CardHeader>
+              <Clock className="w-16 h-16 mx-auto text-primary mb-4" />
+              <CardTitle className="text-white">{t.pendingApproval}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-white/80">{t.waitingApproval}</p>
+            </CardContent>
+          </Card>
+        </div>
+      </PageBackground>
     );
   }
 
@@ -284,7 +307,7 @@ export default function TechnicianDashboard() {
   const completedRequests = safeRequests.filter(r => r.status === 'completed');
 
   return (
-    <div className="min-h-screen bg-background">
+    <PageBackground>
       <main className="p-4">
         <div className="max-w-5xl mx-auto space-y-4">
           <div className="flex items-center justify-between gap-3 bg-muted/60 border rounded-md px-4 py-3">
@@ -367,6 +390,6 @@ export default function TechnicianDashboard() {
           </Tabs>
         </div>
       </main>
-    </div>
+    </PageBackground>
   );
 }

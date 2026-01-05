@@ -201,7 +201,7 @@ export default function ProfilePage() {
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
         dir={isRTL ? "rtl" : "ltr"}
       >
-        <Card className="shadow-lg">
+        <Card className="shadow-lg bg-black/50 backdrop-blur-md border border-white/10 text-white">
           <CardHeader className="text-center">
             <div className="mx-auto w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mb-4 overflow-hidden border border-primary/20 relative">
               {profileImageUrl ? (
@@ -224,8 +224,8 @@ export default function ProfilePage() {
                 />
               </label>
             </div>
-            <CardTitle className="text-2xl">{l.title}</CardTitle>
-            <CardDescription>{l.description}</CardDescription>
+            <CardTitle className="text-2xl text-white">{l.title}</CardTitle>
+            <CardDescription className="text-white/80">{l.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {isLoading ? (

@@ -227,9 +227,9 @@ export default function TechnicianRegistration() {
 
           <form onSubmit={handleSubmit}>
             {/* Personal Information Card */}
-            <Card className="mb-4 bg-white/95 dark:bg-card/95 backdrop-blur-sm">
+            <Card className="mb-4 bg-black/50 backdrop-blur-md border border-white/10 text-white">
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
+                <CardTitle className="text-lg flex items-center gap-2 text-white">
                   <Wrench className="w-5 h-5 text-primary" />
                   {t("personalInfo")}
                 </CardTitle>
@@ -355,13 +355,13 @@ export default function TechnicianRegistration() {
             </Card>
 
             {/* Attachments Card */}
-            <Card className="mb-6 bg-white/95 dark:bg-card/95 backdrop-blur-sm">
+            <Card className="mb-6 bg-black/50 backdrop-blur-md border border-white/10 text-white">
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
+                <CardTitle className="text-lg flex items-center gap-2 text-white">
                   <Upload className="w-5 h-5 text-secondary" />
                   {lang === "ar" ? "المستندات مطلوبة" : "Documents are required"}
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-white/80">
                   {lang === "ar"
                     ? "يرجى رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
                     : "Please upload ID or certificates (PDF or image), max 5MB each"}
