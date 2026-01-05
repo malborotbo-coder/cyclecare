@@ -119,9 +119,16 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       if (sessionResolved) {
         return;
       }
-      
+
+      // If we have a JWT/Firebase token but the session endpoint didn’t return, keep user null but avoid mis-logging
+      if (authMethod === "jwt" || authMethod === "firebase") {
+        console.warn("[Auth] Token present but session not resolved; keeping user null");
+        setUser(null);
+        return;
+      }
+
       // Fallback to localStorage phone session only when phoneSession exists
-      if (phoneSession && phoneUserId) {
+      if (authMethod === "phone" && phoneSession && phoneUserId) {
         console.log("[Auth] Using local phone session:", phoneNumber);
         setUser({
           id: phoneUserId,
