@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient"
 import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
 import { buildApiUrl } from "@/lib/apiConfig";
+import bikeProfileBg from "@assets/images/bike page backgraound.jpg";
 
 export default function ProfilePage() {
   const { t, lang, toggleLanguage } = useLanguage();
@@ -109,7 +110,7 @@ export default function ProfilePage() {
         method: "POST",
         headers,
         body: form,
-        credentials: isNative ? "omit" : "include",
+        credentials: "include", // allow either JWT or cookie-based sessions
       });
       if (!res.ok) {
         throw new Error("Failed to upload photo");
@@ -140,6 +141,23 @@ export default function ProfilePage() {
       handleProfilePhotoUpload(file);
     }
   };
+
+  const PageBackground = ({ children }: { children: ReactNode }) => (
+    <div className="relative min-h-screen bg-background">
+      <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url(${bikeProfileBg})`, opacity: 0.35 }}
+          aria-hidden="true"
+        />
+        <div
+          className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/60 to-background"
+          aria-hidden="true"
+        />
+      </div>
+      <div className="relative z-10">{children}</div>
+    </div>
+  );
 
   const labels = {
     ar: {
@@ -180,10 +198,11 @@ export default function ProfilePage() {
   const isRTL = lang === "ar";
 
   return (
-    <div className="min-h-screen bg-background" dir={isRTL ? "rtl" : "ltr"}>
+    <PageBackground>
       <main
         className="container mx-auto px-4 pb-10 max-w-lg"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
+        dir={isRTL ? "rtl" : "ltr"}
       >
         <Card className="shadow-lg">
           <CardHeader className="text-center">
@@ -361,6 +380,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </main>
-    </div>
+    </PageBackground>
   );
 }
