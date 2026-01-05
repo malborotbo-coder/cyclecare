@@ -22,6 +22,7 @@ type AuthUser = SessionUser | null;
 interface FirebaseAuthContextType {
   user: AuthUser;
   isLoading: boolean;
+  authReady: boolean;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
 }
@@ -46,8 +47,11 @@ export function clearAuthToken(): void {
 export function FirebaseAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
 
   const checkSession = useCallback(async () => {
+    setAuthReady(false);
+    setIsLoading(true);
     try {
       // Ensure native-stored tokens are available in localStorage for API calls
       await syncAuthTokensFromPreferences();
@@ -76,6 +80,11 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       } else {
         console.log("[Auth] No token found for session check");
       }
+      console.log("[Auth] Session check - tokens present:", {
+        authToken: !!authToken,
+        firebaseToken: !!firebaseToken,
+        phoneSession: !!phoneSession,
+      });
       
       const response = await fetch(buildApiUrl("/api/auth/session"), { headers });
       
@@ -144,6 +153,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       }
     } finally {
       setIsLoading(false);
+      setAuthReady(true);
     }
   }, []);
 
@@ -197,7 +207,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   };
 
   return (
-    <FirebaseAuthContext.Provider value={{ user, isLoading, logout, getIdToken }}>
+    <FirebaseAuthContext.Provider value={{ user, isLoading, authReady, logout, getIdToken }}>
       {children}
     </FirebaseAuthContext.Provider>
   );

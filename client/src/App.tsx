@@ -40,7 +40,7 @@ import Checkout from "@/components/Checkout";
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useFirebaseAuth();
+  const { user, isLoading, authReady } = useFirebaseAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -130,7 +130,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || !authReady) {
     return <FullScreenLoader />;
   }
 
