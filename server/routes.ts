@@ -1226,16 +1226,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { resp: techResp, data: techData } = await pgFetch(`/technicians?status=eq.online&is_available=eq.true`);
       if (!techResp.ok) {
         console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
+        if (ENABLE_MOCK_TECHNICIAN) {
+          const mockDistance = 1.2;
+          const pricePreview = computePricing({
+            distanceKm: mockDistance,
+            serviceBase: 150,
+            serviceName: "Maintenance",
+          });
+          const mockTech = {
+            id: "mock-tech-1",
+            name: "فني تجريبي",
+            photo_url: "/assets/mock-tech.png",
+            rating: 4.8,
+            reviewCount: 120,
+            is_available: true,
+            status: "online",
+            distanceKm: mockDistance,
+            etaMinutes: 10,
+            isMock: true,
+            pricePreview,
+            lastUpdated: new Date().toISOString(),
+            latitude: lat,
+            longitude: lng,
+          };
+          return res.json([mockTech]);
+        }
         return res.json([]);
       }
       const onlineTechs = Array.isArray(techData) ? techData : [];
-      if (onlineTechs.length === 0) {
-        return res.json([]);
-      }
 
       const { resp: locResp, data: locData } = await pgFetch(`/technician_locations`);
       if (!locResp.ok) {
         console.log("[TECH][NEARBY][LOC_FETCH][FAILED]", { status: locResp.status, body: locData });
+        if (ENABLE_MOCK_TECHNICIAN) {
+          const mockDistance = 1.2;
+          const pricePreview = computePricing({
+            distanceKm: mockDistance,
+            serviceBase: 150,
+            serviceName: "Maintenance",
+          });
+          const mockTech = {
+            id: "mock-tech-1",
+            name: "فني تجريبي",
+            photo_url: "/assets/mock-tech.png",
+            rating: 4.8,
+            reviewCount: 120,
+            is_available: true,
+            status: "online",
+            distanceKm: mockDistance,
+            etaMinutes: 10,
+            isMock: true,
+            pricePreview,
+            lastUpdated: new Date().toISOString(),
+            latitude: lat,
+            longitude: lng,
+          };
+          return res.json([mockTech]);
+        }
         return res.json([]);
       }
       const locations = Array.isArray(locData) ? locData : [];
