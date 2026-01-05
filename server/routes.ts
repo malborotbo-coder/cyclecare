@@ -1845,13 +1845,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? undefined
           : body.technicianId;
 
+      const latitude =
+        body.latitude !== undefined && body.latitude !== null && body.latitude !== ""
+          ? Number(body.latitude)
+          : undefined;
+      const longitude =
+        body.longitude !== undefined && body.longitude !== null && body.longitude !== ""
+          ? Number(body.longitude)
+          : undefined;
+
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
         serviceType: body.serviceType,
         technicianId,
         notes: body.notes,
-        latitude: body.latitude,
-        longitude: body.longitude,
+        latitude: Number.isFinite(latitude) ? latitude : undefined,
+        longitude: Number.isFinite(longitude) ? longitude : undefined,
         location: body.location,
         status: body.status || "pending",
       };
