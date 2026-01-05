@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Bike, Calendar, Wrench, AlertCircle, Plus, Pencil, Camera, Loader2, ImagePlus, X } from "lucide-react";
 import bikeImage from "@assets/generated_images/Modern_bike_in_Riyadh_2027f785.png";
+import bikePageBg from "@assets/images/bike page backgraound.jpg";
 import type { Bike as BikeType, MaintenanceRecord, InsertBike } from "@shared/schema";
 import { insertBikeSchema } from "@shared/schema";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo, ReactNode } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { z } from "zod";
@@ -251,6 +252,23 @@ const BikeImagePicker = memo(function BikeImagePicker({
     </div>
   );
 });
+
+const BikePageBackground = ({ children }: { children: ReactNode }) => (
+  <div className="relative min-h-screen bg-background">
+    <div className="absolute inset-0">
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${bikePageBg})`, opacity: 0.35 }}
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-0 bg-gradient-to-b from-background/85 via-background/80 to-background"
+        aria-hidden="true"
+      />
+    </div>
+    <div className="relative z-10">{children}</div>
+  </div>
+);
 
 export default function BikeProfile() {
   const { lang: language } = useLanguage();
@@ -636,9 +654,11 @@ export default function BikeProfile() {
 
   if (loadingBikes) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted-foreground">{t[language].loading}</div>
-      </div>
+      <BikePageBackground>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-muted-foreground">{t[language].loading}</div>
+        </div>
+      </BikePageBackground>
     );
   }
 
@@ -722,25 +742,27 @@ export default function BikeProfile() {
 
   if (!firstBike) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">{t[language].title}</h1>
-            <p className="text-muted-foreground mt-1">{t[language].addFirstBike}</p>
-          </div>
+      <BikePageBackground>
+        <div className="p-4">
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div>
+              <h1 className="text-3xl font-bold">{t[language].title}</h1>
+              <p className="text-muted-foreground mt-1">{t[language].addFirstBike}</p>
+            </div>
 
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Bike className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-semibold text-lg mb-2">{t[language].noBikesRegistered}</h3>
-              <p className="text-muted-foreground mb-4">
-                {t[language].registerBikePrompt}
-              </p>
-              <BikeFormDialog />
-            </CardContent>
-          </Card>
+            <Card>
+              <CardContent className="p-8 text-center">
+                <Bike className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h3 className="font-semibold text-lg mb-2">{t[language].noBikesRegistered}</h3>
+                <p className="text-muted-foreground mb-4">
+                  {t[language].registerBikePrompt}
+                </p>
+                <BikeFormDialog />
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
+      </BikePageBackground>
     );
   }
 
@@ -756,8 +778,9 @@ export default function BikeProfile() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <BikePageBackground>
+      <div className="p-4">
+        <div className="max-w-2xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl font-bold">{t[language].title}</h1>
           <p className="text-muted-foreground mt-1">{t[language].subtitle}</p>
@@ -1010,6 +1033,7 @@ export default function BikeProfile() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+      </div>
+    </BikePageBackground>
   );
 }

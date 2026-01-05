@@ -10,6 +10,7 @@ import {
   Shield,
   LogOut,
   User,
+  Bike,
   X
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -57,6 +58,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
     { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
+    { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
   ];
 
   const handleNavigate = (path: string) => {
@@ -155,17 +157,6 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
         {user && (
           <div className="absolute bottom-6 left-4 right-4 space-y-2">
-            <Button
-              variant={isActive("/profile") ? "default" : "ghost"}
-              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
-                isActive("/profile") ? "bg-primary text-white" : ""
-              }`}
-              onClick={() => handleNavigate("/profile")}
-              data-testid="menu-profile"
-            >
-              <User className="h-5 w-5" />
-              {t[lang].profile}
-            </Button>
             <Button
               variant={isActive("/my-profile") ? "default" : "ghost"}
               className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
