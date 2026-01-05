@@ -37,6 +37,9 @@ export default function FirebaseAuthPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [otp, setOtp] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -246,14 +249,13 @@ export default function FirebaseAuthPage() {
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      setError(labels.noEmail);
-      return;
-    }
-    if (!password) {
-      setError(labels.noPassword);
-      return;
-    }
+    if (!email) return setError(labels.noEmail);
+    if (!password) return setError(labels.noPassword);
+    if (isSignUp && !confirmPassword) return setError(isArabic ? "أكّد كلمة المرور" : "Confirm your password");
+    if (isSignUp && password !== confirmPassword) return setError(isArabic ? "كلمتا المرور غير متطابقتين" : "Passwords do not match");
+    if (!firstName.trim()) return setError(isArabic ? "الاسم الأول مطلوب" : "First name is required");
+    if (!lastName.trim()) return setError(isArabic ? "الاسم الأخير مطلوب" : "Last name is required");
+    if (!phone.trim()) return setError(labels.noPhone);
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -261,10 +263,8 @@ export default function FirebaseAuthPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setError(isArabic ? "كلمة المرور يجب أن تكون 6 أحرف على الأقل" : "Password must be at least 6 characters");
-      return;
-    }
+    if (password.length < 6) return setError(isArabic ? "كلمة المرور يجب أن تكون 6 أحرف على الأقل" : "Password must be at least 6 characters");
+    if (password.length > 64) return setError(isArabic ? "كلمة المرور طويلة جداً" : "Password is too long");
 
     try {
       setError("");
@@ -291,6 +291,30 @@ export default function FirebaseAuthPage() {
       await persistAuthTokens({ authToken: idToken, firebaseToken: idToken });
       console.log("[EmailAuth] Tokens persisted. auth_token in localStorage:", !!localStorage.getItem("auth_token"));
 
+      // Best-effort profile sync to backend
+      if (isSignUp) {
+        try {
+          await fetch(buildApiUrl("/api/users/upsert"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              firebaseUid: userCredential.user.uid,
+              firstName,
+              lastName,
+              email,
+              phone,
+              authMethod: "email",
+            }),
+          });
+          console.log("[EmailAuth] Profile upserted");
+        } catch (profileErr) {
+          console.warn("[EmailAuth] Profile upsert failed (non-blocking):", profileErr);
+        }
+      }
+
       // Clear cache to ensure fresh auth state
       sessionStorage.clear();
 
@@ -302,11 +326,13 @@ export default function FirebaseAuthPage() {
       if (err.code === "auth/user-not-found" && !isSignUp) {
         setError(isArabic ? "لا يوجد حساب بهذا البريد" : "No account found with this email");
       } else if (err.code === "auth/wrong-password") {
-        setError(isArabic ? "كلمة المرور غير صحيحة" : "Wrong password");
+        setError(isArabic ? "كلمة المرور غير صحيحة" : "Incorrect password");
       } else if (err.code === "auth/email-already-in-use") {
         setError(isArabic ? "البريد مسجل بالفعل" : "Email already in use");
       } else if (err.code === "auth/weak-password") {
         setError(isArabic ? "كلمة المرور ضعيفة جداً" : "Password is too weak");
+      } else if (err.code === "auth/invalid-email") {
+        setError(isArabic ? "البريد الإلكتروني غير صحيح" : "Invalid email address");
       } else {
         setError(err.message || labels.error);
       }

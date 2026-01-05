@@ -120,10 +120,18 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      // If we have a JWT/Firebase token but the session endpoint didn’t return, keep user null but avoid mis-logging
+      // If we have a JWT/Firebase token but the session endpoint didn’t return, trust the token to keep user authenticated
       if (authMethod === "jwt" || authMethod === "firebase") {
-        console.warn("[Auth] Token present but session not resolved; keeping user null");
-        setUser(null);
+        console.warn("[Auth] Token present but session not resolved; treating as authenticated");
+        setUser({
+          id: authToken || firebaseToken || "firebase_user",
+          email: null,
+          firstName: null,
+          lastName: null,
+          phone: null,
+          isAdmin: false,
+          source: "firebase_auth",
+        });
         return;
       }
 
