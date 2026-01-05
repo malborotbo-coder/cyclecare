@@ -24,6 +24,8 @@ import { computePricing } from "./pricingEngine";
 import { insertOrderSchema } from "@shared/schema";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
+const DEFAULT_LAT = 24.7136;
+const DEFAULT_LNG = 46.6753;
 
 const upload = multer({
   limits: {
@@ -76,6 +78,37 @@ function buildMockTech(lat: number, lng: number) {
     latitude: lat,
     longitude: lng,
   };
+}
+
+async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?: number) {
+  const latitude = Number.isFinite(lat) ? Number(lat) : DEFAULT_LAT;
+  const longitude = Number.isFinite(lng) ? Number(lng) : DEFAULT_LNG;
+  const payload = {
+    technician_id: technicianId,
+    latitude,
+    longitude,
+    last_updated: new Date().toISOString(),
+  };
+  try {
+    const { resp } = await pgFetch(
+      `/technician_locations?technician_id=eq.${encodeURIComponent(technicianId)}`,
+      {
+        method: "PATCH",
+        body: payload,
+        headers: { Prefer: "return=representation" },
+      },
+    );
+    if (resp.status === 404 || resp.status === 0) {
+      await pgFetch("/technician_locations", {
+        method: "POST",
+        body: payload,
+        headers: { Prefer: "return=representation" },
+      });
+    }
+  } catch (err) {
+    console.log("[TECH][LOC][UPSERT][WARN]", err);
+  }
+  return { latitude, longitude };
 }
 
 const profilePhotoUpload = (req: any, res: any, next: any) => {
@@ -1177,6 +1210,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
+        if (online) {
+          await upsertTechnicianLocation(
+            technician.id,
+            Number(technician.latitude) || DEFAULT_LAT,
+            Number(technician.longitude) || DEFAULT_LNG,
+          );
+        }
         res.json(updated);
       } catch (error) {
         console.error("[TECH][STATUS] Error:", error);
@@ -1284,42 +1324,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { resp: locResp, data: locData } = await pgFetch(`/technician_locations`);
-      if (!locResp.ok) {
-        console.log("[TECH][NEARBY][LOC_FETCH][FAILED]", { status: locResp.status, body: locData });
-        // Fallback: use technician latitude/longitude if available
-        const enrichedFallback = onlineTechs
-          .map((tech: any) => {
-            if (!tech.latitude || !tech.longitude) return null;
-            const distanceKm = haversineKm(lat, lng, Number(tech.latitude), Number(tech.longitude));
-            const etaMinutes = Math.round((distanceKm / 30) * 60);
-            const pricePreview = computePricing({
-              distanceKm,
-              serviceBase: 150,
-              serviceName: "Maintenance",
-            });
-            return {
-              ...tech,
-              distanceKm: Number(distanceKm.toFixed(2)),
-              etaMinutes,
-              pricePreview,
-            };
-          })
-          .filter(Boolean)
-          .sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0));
-        if (enrichedFallback.length > 0) {
-          return res.json(enrichedFallback);
-        }
-        if (ENABLE_MOCK_TECHNICIAN) {
-          return res.json([buildMockTech(lat, lng)]);
-        }
-        return res.json([]);
-      }
-      const locations = Array.isArray(locData) ? locData : [];
+      const locations = locResp.ok && Array.isArray(locData) ? locData : [];
       const locMap = new Map<string, any>();
-      locations.forEach((l) => {
+      locations.forEach((l: any) => {
         if (l?.technician_id) locMap.set(l.technician_id, l);
       });
 
+      // Auto-heal: ensure every online technician has a location row
+      const ensured: any[] = [];
+      for (const tech of onlineTechs) {
+        if (!locMap.has(tech.id)) {
+          const { latitude, longitude } = await upsertTechnicianLocation(
+            tech.id,
+            Number(tech.latitude) || DEFAULT_LAT,
+            Number(tech.longitude) || DEFAULT_LNG,
+          );
+          const stub = {
+            technician_id: tech.id,
+            latitude,
+            longitude,
+            last_updated: new Date().toISOString(),
+          };
+          locMap.set(tech.id, stub);
+          ensured.push(stub);
+        }
+      }
       const enriched = onlineTechs
         .map((tech: any) => {
           const loc = locMap.get(tech.id);
@@ -1871,6 +1900,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         safePayload,
         req,
       );
+
+      // Ensure technician location if technicianId provided and not mock
+      if (requestData.technicianId) {
+        await upsertTechnicianLocation(requestData.technicianId, latitude, longitude);
+      }
       const request = await storage.createServiceRequest({
         ...requestData,
         userId,
