@@ -45,7 +45,8 @@ export default function FirebaseAuthPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showPhoneForm, setShowPhoneForm] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const isSignUp = mode === "signup";
   const [phoneStep, setPhoneStep] = useState<"input" | "verify">("input");
   const [error, setError] = useState("");
   const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
@@ -465,9 +466,13 @@ export default function FirebaseAuthPage() {
 
   const resetEmailForm = () => {
     setShowEmailForm(false);
-    setIsSignUp(false);
+    setMode("login");
     setEmail("");
     setPassword("");
+    setConfirmPassword("");
+    setFirstName("");
+    setLastName("");
+    setPhone("");
     setError("");
   };
 
@@ -582,6 +587,49 @@ export default function FirebaseAuthPage() {
                 </button>
               </div>
               <form onSubmit={handleEmailSignIn} className="space-y-3">
+                {isSignUp && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        type="text"
+                        placeholder={isArabic ? "الاسم الأول" : "First name"}
+                        value={firstName}
+                        onChange={(e) => {
+                          setFirstName(e.target.value);
+                          setError("");
+                        }}
+                        disabled={isLoading}
+                        className="h-10 border border-white/10 bg-white/5 text-white placeholder:text-gray-500 rounded-lg"
+                        data-testid="input-first-name"
+                      />
+                      <Input
+                        type="text"
+                        placeholder={isArabic ? "الاسم الأخير" : "Last name"}
+                        value={lastName}
+                        onChange={(e) => {
+                          setLastName(e.target.value);
+                          setError("");
+                        }}
+                        disabled={isLoading}
+                        className="h-10 border border-white/10 bg-white/5 text-white placeholder:text-gray-500 rounded-lg"
+                        data-testid="input-last-name"
+                      />
+                    </div>
+                    <Input
+                      type="tel"
+                      placeholder={isArabic ? "رقم الجوال" : "Phone number"}
+                      value={phone}
+                      onChange={(e) => {
+                        setPhone(e.target.value);
+                        setError("");
+                      }}
+                      disabled={isLoading}
+                      className="h-10 border border-white/10 bg-white/5 text-white placeholder:text-gray-500 rounded-lg"
+                      data-testid="input-phone"
+                    />
+                  </>
+                )}
+
                 <Input
                   type="email"
                   placeholder="name@example.com"
@@ -619,6 +667,20 @@ export default function FirebaseAuthPage() {
                     )}
                   </button>
                 </div>
+                {isSignUp && (
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder={isArabic ? "تأكيد كلمة المرور" : "Confirm password"}
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setError("");
+                    }}
+                    disabled={isLoading}
+                    className="h-10 border border-white/10 bg-white/5 text-white placeholder:text-gray-500 rounded-lg"
+                    data-testid="input-confirm-password"
+                  />
+                )}
                 <Button
                   type="submit"
                   className="w-full h-10 bg-gradient-to-r from-primary to-secondary text-white text-sm font-semibold rounded-lg"
@@ -637,7 +699,7 @@ export default function FirebaseAuthPage() {
                   {isSignUp ? labels.haveAccount : labels.noAccount}
                   <button
                     type="button"
-                    onClick={() => setIsSignUp(!isSignUp)}
+                    onClick={() => setMode(isSignUp ? "login" : "signup")}
                     className="ml-2 text-primary hover:text-secondary font-semibold"
                     data-testid="button-toggle-signup"
                   >
