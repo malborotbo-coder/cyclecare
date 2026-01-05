@@ -1838,9 +1838,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
+      const body = req.body || {};
+      // Remove mock technician id to pass validation and avoid FK issues
+      const technicianId =
+        typeof body.technicianId === "string" && body.technicianId.startsWith("mock-")
+          ? undefined
+          : body.technicianId;
+
+      // Only pass known fields to schema to avoid validation errors
+      const safePayload: any = {
+        serviceType: body.serviceType,
+        technicianId,
+        notes: body.notes,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        location: body.location,
+        status: body.status || "pending",
+      };
+      if (body.bikeId) safePayload.bikeId = body.bikeId;
+
       const requestData = validateSchema(
         insertServiceRequestSchema.omit({ userId: true }),
-        req.body,
+        safePayload,
         req,
       );
       const request = await storage.createServiceRequest({
