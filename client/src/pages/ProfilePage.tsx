@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,24 +6,23 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
-import { ArrowLeft, Save, User, Mail, Phone, Loader2 } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Save, User, Mail, Phone, Loader2, Camera } from "lucide-react";
+import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient";
 import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
-import Logo from "@/components/Logo";
-import ThemeToggle from "@/components/ThemeToggle";
-import LanguageToggle from "@/components/LanguageToggle";
+import { buildApiUrl } from "@/lib/apiConfig";
 
 export default function ProfilePage() {
   const { t, lang, toggleLanguage } = useLanguage();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const nativeUser = useNativeUser();
   const nativeAuth = useNativeAuth();
   const isNative = Capacitor.isNativePlatform();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -48,6 +46,7 @@ export default function ProfilePage() {
           email: response.email || "",
           phone: response.phone || nativeUser?.phone || "",
         });
+        setProfileImageUrl(response.profileImageUrl || nativeUser?.profileImageUrl || null);
       } catch (error) {
         console.error("Failed to load profile:", error);
         if (nativeUser) {
@@ -57,6 +56,7 @@ export default function ProfilePage() {
             email: nativeUser.email || "",
             phone: nativeUser.phone || "",
           });
+          setProfileImageUrl(nativeUser.profileImageUrl || null);
         }
       } finally {
         setIsLoading(false);
@@ -69,7 +69,7 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await apiRequest("/api/user/profile", "POST", formData);
+      await apiRequest("/api/user/profile", "POST", { ...formData, profileImageUrl });
       
       if (nativeAuth && nativeUser) {
         nativeAuth.updateUser({
@@ -77,6 +77,7 @@ export default function ProfilePage() {
           lastName: formData.lastName,
           email: formData.email,
           phone: formData.phone,
+          profileImageUrl: profileImageUrl || undefined,
         });
       }
 
@@ -95,6 +96,48 @@ export default function ProfilePage() {
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleProfilePhotoUpload = async (file: File) => {
+    setIsUploadingPhoto(true);
+    try {
+      const headers = await getAuthHeadersAsync(false, lang);
+      const form = new FormData();
+      form.append("photo", file);
+      const res = await fetch(buildApiUrl("/api/user/profile/photo"), {
+        method: "POST",
+        headers,
+        body: form,
+        credentials: isNative ? "omit" : "include",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to upload photo");
+      }
+      const data = await res.json();
+      setProfileImageUrl(data.imageUrl || null);
+      if (nativeAuth && nativeUser) {
+        nativeAuth.updateUser({ profileImageUrl: data.imageUrl });
+      }
+      toast({
+        title: lang === "ar" ? "تم رفع الصورة" : "Photo uploaded",
+      });
+    } catch (error: any) {
+      console.error("Profile photo upload failed:", error);
+      toast({
+        title: lang === "ar" ? "فشل رفع الصورة" : "Failed to upload photo",
+        description: lang === "ar" ? "تحقق من الملف وحاول مرة أخرى" : "Please check the file and try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleProfilePhotoUpload(file);
     }
   };
 
@@ -138,31 +181,32 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background" dir={isRTL ? "rtl" : "ltr"}>
-      <header className="sticky top-0 z-40 bg-primary backdrop-blur-md border-b border-primary/20 shadow-md">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setLocation("/")}
-              data-testid="button-back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <Logo size="sm" />
-          </div>
-          <div className="flex items-center gap-1">
-            <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 max-w-lg">
+      <main
+        className="container mx-auto px-4 pb-10 max-w-lg"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
+      >
         <Card className="shadow-lg">
           <CardHeader className="text-center">
-            <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-              <User className="w-10 h-10 text-primary" />
+            <div className="mx-auto w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mb-4 overflow-hidden border border-primary/20 relative">
+              {profileImageUrl ? (
+                <img src={profileImageUrl} alt="profile" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-10 h-10 text-primary" />
+              )}
+              <label className="absolute bottom-1 right-1 bg-primary text-white rounded-full p-2 cursor-pointer shadow">
+                {isUploadingPhoto ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Camera className="w-4 h-4" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoSelect}
+                  disabled={isUploadingPhoto}
+                />
+              </label>
             </div>
             <CardTitle className="text-2xl">{l.title}</CardTitle>
             <CardDescription>{l.description}</CardDescription>

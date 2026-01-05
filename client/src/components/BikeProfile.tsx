@@ -258,11 +258,11 @@ const BikePageBackground = ({ children }: { children: ReactNode }) => (
     <div className="absolute inset-0">
       <div
         className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${bikePageBg})`, opacity: 0.35 }}
+        style={{ backgroundImage: `url(${bikePageBg})`, opacity: 0.25 }}
         aria-hidden="true"
       />
       <div
-        className="absolute inset-0 bg-gradient-to-b from-background/85 via-background/80 to-background"
+        className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/65 to-background"
         aria-hidden="true"
       />
     </div>

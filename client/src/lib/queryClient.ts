@@ -74,7 +74,7 @@ async function getAuthToken(): Promise<string | null> {
 }
 
   // Build headers with auth token if available (async version)
-async function getAuthHeadersAsync(includeContentType: boolean = false, lang?: Language): Promise<HeadersInit> {
+export async function getAuthHeadersAsync(includeContentType: boolean = false, lang?: Language): Promise<HeadersInit> {
   const headers: HeadersInit = {};
   const resolvedLang = lang || getLanguagePreference();
   

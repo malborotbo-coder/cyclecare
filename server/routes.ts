@@ -48,6 +48,25 @@ const bikePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+const profilePhotoUpload = (req: any, res: any, next: any) => {
+  upload.single("photo")(req, res, (err: any) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ code: "PHOTO_TOO_LARGE", message: "Image too large (max 20MB)" });
+      }
+      return res.status(400).json({ code: "PHOTO_UPLOAD_INVALID", message: err.message || "Invalid photo upload" });
+    }
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ message: "No photo uploaded" });
+    }
+    if (!file.mimetype?.startsWith("image/")) {
+      return res.status(400).json({ message: "Invalid image type" });
+    }
+    next();
+  });
+};
+
 type AuthContext = {
   userId: string;
   isAdmin: boolean;
@@ -329,6 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastName: user.lastName,
           email: user.email,
           phone: phoneNumber || null,
+          profileImageUrl: user.profileImageUrl || null,
         });
       } else {
         res.json({
@@ -336,6 +356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastName: null,
           email: null,
           phone: phoneNumber || null,
+          profileImageUrl: null,
         });
       }
     } catch (error) {
@@ -352,7 +373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { userId, phoneNumber, isAdmin } = auth;
 
-      const { firstName, lastName, email } = req.body;
+      const { firstName, lastName, email, profileImageUrl } = req.body;
 
       // Check if user exists
       let user = await storage.getUser(userId);
@@ -364,6 +385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: firstName || user.firstName,
           lastName: lastName || user.lastName,
           email: email || user.email,
+          profileImageUrl: profileImageUrl ?? user.profileImageUrl,
         });
       } else {
         // Create new user
@@ -373,6 +395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastName,
           email: email || `${userId}@phone.user`,
           isAdmin,
+          profileImageUrl: profileImageUrl || null,
         });
       }
 
@@ -383,11 +406,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastName: user?.lastName,
           email: user?.email,
           phone: phoneNumber || null,
+          profileImageUrl: user?.profileImageUrl || null,
         },
       });
     } catch (error) {
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        return res.status(400).json({ message: "No photo uploaded" });
+      }
+
+      const ext = file.originalname.split(".").pop() || "jpg";
+      const path = `profile/${auth.userId}-${Date.now()}.${ext}`;
+      const publicUrl = await uploadBufferToStorage({ file, path });
+      if (!publicUrl) {
+        return res.status(500).json({ code: "PROFILE_UPLOAD_FAILED", message: "Failed to upload profile image" });
+      }
+
+      const user = await storage.upsertUser({
+        id: auth.userId,
+        profileImageUrl: publicUrl,
+      });
+
+      res.json({ imageUrl: user.profileImageUrl || publicUrl });
+    } catch (error) {
+      console.error("Error uploading profile photo:", error);
+      res.status(500).json({ message: "Failed to upload profile photo" });
     }
   });
 
