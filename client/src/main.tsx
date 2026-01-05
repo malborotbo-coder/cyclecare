@@ -4,12 +4,16 @@ import "./index.css";
 import { resolveApiUrl } from "./lib/apiConfig";
 import { Capacitor } from "@capacitor/core";
 import { getBestAuthToken, syncAuthTokensFromPreferences } from "./lib/authStorage";
+import { restoreBiometricSession } from "./lib/biometricSession";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
 
 // Sync native-stored tokens into localStorage on startup for unified access
-const tokenSyncPromise = syncAuthTokensFromPreferences();
+const tokenSyncPromise = Promise.all([
+  restoreBiometricSession(),
+  syncAuthTokensFromPreferences(),
+]);
 
 // Attach Authorization header to all /api requests when a token exists
 const originalFetch = window.fetch.bind(window);

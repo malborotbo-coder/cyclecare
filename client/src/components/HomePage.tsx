@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Bell, Wrench, Package, History, UserCircle, MapPin, Star, UserPlus, CheckCircle2, LogOut, Plus, User, Edit } from "lucide-react";
 import heroImage from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png"; // desktop/tablet original
-import heroImageMobile from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png"; // reuse original until mobile asset provided
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -99,7 +98,6 @@ export default function HomePage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [heroLoaded, setHeroLoaded] = useState(false);
-  const [isMobileHero, setIsMobileHero] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
 
   // Fix for safe area on native apps
@@ -111,15 +109,9 @@ export default function HomePage() {
   }, [isNative]);
 
   useEffect(() => {
-    const imgDesktop = new Image();
-    imgDesktop.onload = () => setHeroLoaded(true);
-    imgDesktop.src = heroImage;
-
-    const mq = window.matchMedia("(max-width: 768px)");
-    const updateHeroVariant = () => setIsMobileHero(mq.matches);
-    updateHeroVariant();
-    mq.addEventListener("change", updateHeroVariant);
-    return () => mq.removeEventListener("change", updateHeroVariant);
+    const img = new Image();
+    img.onload = () => setHeroLoaded(true);
+    img.src = heroImage;
   }, []);
 
   // Skip API calls on iOS - just show mock data
@@ -260,33 +252,27 @@ export default function HomePage() {
     <div className="min-h-screen bg-background">
       <main 
         ref={heroRef}
-        className="pb-20 relative"
+        className="pb-20 relative min-h-screen bg-cover bg-center bg-fixed" 
         style={{ 
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
+          backgroundImage: heroLoaded ? `url(${heroImage})` : undefined,
+          backgroundPosition: "center top",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
           minHeight: "max(100vh, 100dvh)",
         }}
       >
-        <section className="relative w-full" style={{ minHeight: "52vh" }}>
-          <img
-            src={isMobileHero ? heroImageMobile : heroImage}
-            alt="Cyclist hero"
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: isMobileHero ? "50% 20%" : "70% 20%" }}
-            loading="lazy"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/45 to-black/65" />
-          <div className="relative container mx-auto px-4 flex flex-col justify-center items-start h-full py-12">
-            <div className="space-y-4 max-w-2xl">
-              <h1 className="text-4xl md:text-6xl font-bold text-white drop-shadow-lg">
+        <div className={`absolute inset-0 transition-all duration-500 ${heroLoaded ? 'bg-black/30' : 'bg-gradient-to-b from-primary/40 to-secondary/40'}`}></div>
+        
+        <div className="relative">
+          <div className="container mx-auto px-4 flex flex-col justify-center items-start min-h-screen">
+            <div className="space-y-6">
+              <h1 className="text-5xl md:text-6xl font-bold text-white drop-shadow-lg">
                 {t('welcome')} {(user as any)?.firstName || (user as any)?.email || ''}
               </h1>
-              <p className="text-white/95 text-lg md:text-2xl drop-shadow-md leading-relaxed">
-                {t('howCanHelp')}
-              </p>
+              <p className="text-white/95 text-2xl drop-shadow-md max-w-2xl leading-relaxed">{t('howCanHelp')}</p>
               <Button 
                 onClick={navigateToBooking}
                 size="lg"
-                className="w-fit bg-primary hover:bg-primary/90 text-white font-semibold shadow-lg text-lg px-7 py-5"
+                className="w-fit bg-primary hover:bg-primary/90 text-white font-semibold shadow-lg text-lg px-8 py-6"
                 data-testid="button-quick-booking"
               >
                 <Wrench className="w-6 h-6 mr-2" />
@@ -294,94 +280,94 @@ export default function HomePage() {
               </Button>
             </div>
           </div>
-        </section>
 
-        <div className="relative z-10 bg-white/40 dark:bg-black/40 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-8">
-            <div className="mb-6">
-              <Button 
-                onClick={navigateToBikes}
-                className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold"
-                data-testid="button-add-my-bike"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                {lang === 'ar' ? '+ إضافة دراجتي' : '+ Add My Bike'}
-              </Button>
+          <div className="relative z-10 bg-white/40 dark:bg-black/40 backdrop-blur-sm">
+            <div className="container mx-auto px-4 py-8">
+              <div className="mb-6">
+                <Button
+                  onClick={navigateToBikes}
+                  className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold"
+                  data-testid="button-add-my-bike"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  {lang === 'ar' ? '+ إضافة دراجتي' : '+ Add My Bike'}
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <ServiceCard
+                  icon={<Wrench className="w-6 h-6" />}
+                  title={t('maintenanceService')}
+                  description={t('maintenanceDesc')}
+                  onClick={navigateToBooking}
+                />
+                <ServiceCard
+                  icon={<Wrench className="w-6 h-6" />}
+                  title={t('repairService')}
+                  description={t('repairDesc')}
+                  onClick={navigateToBooking}
+                />
+                <ServiceCard
+                  icon={<Package className="w-6 h-6" />}
+                  title={t('partsService')}
+                  description={t('partsDesc')}
+                  onClick={navigateToParts}
+                />
+                <ServiceCard
+                  icon={<History className="w-6 h-6" />}
+                  title={t('historyService')}
+                  description={t('historyDesc')}
+                  onClick={navigateToHistory}
+                />
+              </div>
+
+              <Card className="mb-6 bg-primary/5 border-primary/20 hover-elevate cursor-pointer" data-testid="card-register-technician" onClick={navigateToTechnicianRegistration}>
+                <CardContent className="p-6 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                    <UserPlus className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg mb-1">{t('registerTechnician')}</h3>
+                    <p className="text-sm text-muted-foreground">{t('registerTechnicianDesc')}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {visibleTechnicians.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold">{t('nearbyTechnicians')}</h2>
+                  </div>
+                  <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4">
+                    {visibleTechnicians.map((tech, idx) => (
+                      <TechnicianCard
+                        key={tech.id}
+                        name={`${lang === 'ar' ? 'فني' : 'Technician'} #${idx + 1}`}
+                        rating={(tech.rating as any) || "0.0"}
+                        reviewCount={tech.review_count || tech.reviewCount || 0}
+                        available={tech.is_available || tech.isAvailable || false}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <Card className="bg-gradient-to-r from-primary/10 to-primary/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-primary" />
+                    {t('nextMaintenance')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground mb-4">{t('bikeNeedsMaintenance')}</p>
+                  <Button data-testid="button-book-now" onClick={navigateToBooking}>{t('bookNow')}</Button>
+                </CardContent>
+              </Card>
             </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <ServiceCard
-              icon={<Wrench className="w-6 h-6" />}
-              title={t('maintenanceService')}
-              description={t('maintenanceDesc')}
-              onClick={navigateToBooking}
-            />
-            <ServiceCard
-              icon={<Wrench className="w-6 h-6" />}
-              title={t('repairService')}
-              description={t('repairDesc')}
-              onClick={navigateToBooking}
-            />
-            <ServiceCard
-              icon={<Package className="w-6 h-6" />}
-              title={t('partsService')}
-              description={t('partsDesc')}
-              onClick={navigateToParts}
-            />
-            <ServiceCard
-              icon={<History className="w-6 h-6" />}
-              title={t('historyService')}
-              description={t('historyDesc')}
-              onClick={navigateToHistory}
-            />
-          </div>
-
-          <Card className="mb-6 bg-primary/5 border-primary/20 hover-elevate cursor-pointer" data-testid="card-register-technician" onClick={navigateToTechnicianRegistration}>
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                <UserPlus className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg mb-1">{t('registerTechnician')}</h3>
-                <p className="text-sm text-muted-foreground">{t('registerTechnicianDesc')}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {visibleTechnicians.length > 0 && (
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold">{t('nearbyTechnicians')}</h2>
-              </div>
-              <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4">
-                {visibleTechnicians.map((tech, idx) => (
-                  <TechnicianCard
-                    key={tech.id}
-                    name={`${lang === 'ar' ? 'فني' : 'Technician'} #${idx + 1}`}
-                    rating={(tech.rating as any) || "0.0"}
-                    reviewCount={tech.review_count || tech.reviewCount || 0}
-                    available={tech.is_available || tech.isAvailable || false}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          <Card className="bg-gradient-to-r from-primary/10 to-primary/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="w-5 h-5 text-primary" />
-                {t('nextMaintenance')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground mb-4">{t('bikeNeedsMaintenance')}</p>
-              <Button data-testid="button-book-now" onClick={navigateToBooking}>{t('bookNow')}</Button>
-          </CardContent>
-        </Card>
           </div>
         </div>
-      </main>
-    </div>
-  );
+    </main>
+  </div>
+);
 }

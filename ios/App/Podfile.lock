@@ -10,6 +10,8 @@ PODS:
   - CapacitorCordova (7.4.4)
   - CapacitorGeolocation (7.0.0):
     - Capacitor
+  - CapacitorNativeBiometric (0.0.1):
+    - Capacitor
   - CapacitorPreferences (7.0.0):
     - Capacitor
   - CapgoCapacitorNativeBiometric (7.1.13):
@@ -22,6 +24,7 @@ DEPENDENCIES:
   - "CapacitorCamera (from `../../node_modules/@capacitor/camera`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
+  - CapacitorNativeBiometric (from `../../node_modules/capacitor-native-biometric`)
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
   - "CapgoCapacitorNativeBiometric (from `../../node_modules/@capgo/capacitor-native-biometric`)"
 
@@ -38,6 +41,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorGeolocation:
     :path: "../../node_modules/@capacitor/geolocation"
+  CapacitorNativeBiometric:
+    :path: "../../node_modules/capacitor-native-biometric"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
   CapgoCapacitorNativeBiometric:
@@ -50,9 +55,10 @@ SPEC CHECKSUMS:
   CapacitorCamera: f9e54db0a18bb218a8dc360907d63aaefe9209ff
   CapacitorCordova: bf648a636f3c153f652d312ae145fb508b6ffced
   CapacitorGeolocation: 8c81945cc5da62974d94699c347e7d88888745c0
+  CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
   CapacitorPreferences: 8e4bef1f937fc991a19d7ea99330c36a62edd24b
   CapgoCapacitorNativeBiometric: ede2c497c810fcad523b4e3d1895f989d33fe72b
 
-PODFILE CHECKSUM: 8409fd840ba9769f85f4fbafe01fe7c6a63fcbec
+PODFILE CHECKSUM: 7be226a7038db06c2dc07c33f542b2efcd327042
 
 COCOAPODS: 1.16.2

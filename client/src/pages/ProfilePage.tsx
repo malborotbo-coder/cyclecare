@@ -9,6 +9,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
 import { ArrowLeft, Save, User, Mail, Phone, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Capacitor } from "@capacitor/core";
+import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
 import Logo from "@/components/Logo";
 import ThemeToggle from "@/components/ThemeToggle";
 import LanguageToggle from "@/components/LanguageToggle";
@@ -19,8 +21,10 @@ export default function ProfilePage() {
   const [, setLocation] = useLocation();
   const nativeUser = useNativeUser();
   const nativeAuth = useNativeAuth();
+  const isNative = Capacitor.isNativePlatform();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -32,6 +36,10 @@ export default function ProfilePage() {
   useEffect(() => {
     const loadUserData = async () => {
       setIsLoading(true);
+      if (isNative) {
+        const enabled = await isBiometricEnabled();
+        setBiometricEnabled(enabled);
+      }
       try {
         const response = await apiRequest("/api/user/profile", "GET");
         setFormData({
@@ -56,7 +64,7 @@ export default function ProfilePage() {
     };
 
     loadUserData();
-  }, [nativeUser]);
+  }, [nativeUser, isNative]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -229,6 +237,62 @@ export default function ProfilePage() {
                     {lang === "ar" ? "رقم الجوال غير قابل للتعديل" : "Phone number cannot be changed"}
                   </p>
                 </div>
+
+                {isNative && (
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-muted">
+                    <div>
+                      <p className="font-semibold text-sm">{lang === "ar" ? "البصمة / Face ID" : "Biometrics"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {biometricEnabled
+                          ? lang === "ar" ? "مفعّل حالياً. يمكنك إيقافه هنا." : "Enabled. You can disable it here."
+                          : lang === "ar" ? "غير مفعّل حالياً." : "Not enabled currently."}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        await disableBiometricSession();
+                        setBiometricEnabled(false);
+                        toast({
+                          title: lang === "ar" ? "تم الإيقاف" : "Disabled",
+                          description: lang === "ar" ? "تم إيقاف الدخول بالبصمة" : "Biometric unlock disabled",
+                        });
+                      }}
+                      disabled={!biometricEnabled}
+                    >
+                      {biometricEnabled ? (lang === "ar" ? "إيقاف" : "Disable") : (lang === "ar" ? "غير مفعّل" : "Disabled")}
+                    </Button>
+                  </div>
+                )}
+
+                {isNative && (
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-muted">
+                    <div>
+                      <p className="font-semibold text-sm">{lang === "ar" ? "البصمة / Face ID" : "Biometrics"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {biometricEnabled
+                          ? lang === "ar" ? "مفعّل حالياً. يمكنك إيقافه هنا." : "Enabled. You can disable it here."
+                          : lang === "ar" ? "غير مفعّل حالياً." : "Not enabled currently."}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        await disableBiometricSession();
+                        setBiometricEnabled(false);
+                        toast({
+                          title: lang === "ar" ? "تم الإيقاف" : "Disabled",
+                          description: lang === "ar" ? "تم إيقاف الدخول بالبصمة" : "Biometric unlock disabled",
+                        });
+                      }}
+                      disabled={!biometricEnabled}
+                    >
+                      {biometricEnabled ? (lang === "ar" ? "إيقاف" : "Disable") : (lang === "ar" ? "غير مفعّل" : "Disabled")}
+                    </Button>
+                  </div>
+                )}
 
                 <Button 
                   onClick={handleSave} 

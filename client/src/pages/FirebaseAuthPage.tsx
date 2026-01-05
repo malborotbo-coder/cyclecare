@@ -30,6 +30,8 @@ import { type BiometricStatus } from "@/lib/biometricAuth";
 import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 import { persistAuthTokens } from "@/lib/authStorage";
+import { Capacitor } from "@capacitor/core";
+import { promptBiometricEnrollment } from "@/lib/biometricSession";
 
 export default function FirebaseAuthPage() {
   const [, setLocation] = useLocation();
@@ -55,6 +57,7 @@ export default function FirebaseAuthPage() {
   const ENABLE_BIOMETRIC = false; // Fully disable biometric auth on web/mobile
   const isNative = Capacitor.isNativePlatform();
   const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 
   useEffect(() => {
     return () => {
@@ -297,6 +300,8 @@ export default function FirebaseAuthPage() {
       await persistAuthTokens({ authToken: idToken, firebaseToken: idToken });
       console.log("[EmailAuth] Tokens persisted. auth_token in localStorage:", !!localStorage.getItem("auth_token"));
 
+      await promptBiometricEnrollment(idToken, isArabic);
+
       // Best-effort profile sync to backend
       if (isSignUp) {
         try {
@@ -415,6 +420,7 @@ export default function FirebaseAuthPage() {
           phoneUserId: credential.user.uid,
           phoneNumber: credential.user.phoneNumber || "",
         });
+        await promptBiometricEnrollment(idToken, isArabic);
         window.location.href = "/";
         return;
       }
@@ -447,6 +453,7 @@ export default function FirebaseAuthPage() {
         phoneUserId: data.user?.id || data.userId || "",
         phoneNumber: data.user?.phone || data.phoneNumber || fullPhone,
       });
+      await promptBiometricEnrollment(authToken, isArabic);
       window.location.href = "/";
     } catch (error: any) {
       console.error("OTP verification error:", error);

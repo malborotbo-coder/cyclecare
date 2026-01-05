@@ -37,7 +37,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       parts: "القطع",
       technician: "الفني",
       admin: "المسؤول",
-      profile: "الملف الشخصي",
+      profile: "دراجتي",
       logout: "تسجيل الخروج",
     },
     en: {
@@ -47,7 +47,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       parts: "Parts",
       technician: "Technician",
       admin: "Admin",
-      profile: "Profile",
+      profile: "My Bike",
       logout: "Logout",
     },
   };
@@ -144,16 +144,6 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         <div className="flex flex-col gap-1">
           <Button
             variant="ghost"
-            className="justify-start gap-3 min-h-[52px] py-3 text-lg"
-            onClick={() => handleNavigate("/profile")}
-            data-testid="menu-profile"
-          >
-            <User className="h-5 w-5" />
-            {t[lang].profile}
-          </Button>
-
-          <Button
-            variant="ghost"
             className="justify-start gap-3 min-h-[52px] py-3 text-lg text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={handleLogout}
             data-testid="menu-logout"
@@ -164,17 +154,29 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         </div>
 
         {user && (
-          <div className="absolute bottom-6 left-4 right-4">
-            <div className="p-3 rounded-lg bg-muted/50">
-              <p className="text-sm font-medium truncate">
-                {user.email || user.phone || "User"}
-              </p>
-              {user.isAdmin === true && (
-                <p className="text-xs text-primary mt-1">
-                  {lang === "ar" ? "مسؤول" : "Admin"}
-                </p>
-              )}
-            </div>
+          <div className="absolute bottom-6 left-4 right-4 space-y-2">
+            <Button
+              variant={isActive("/profile") ? "default" : "ghost"}
+              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
+                isActive("/profile") ? "bg-primary text-white" : ""
+              }`}
+              onClick={() => handleNavigate("/profile")}
+              data-testid="menu-profile"
+            >
+              <User className="h-5 w-5" />
+              {t[lang].profile}
+            </Button>
+            <Button
+              variant={isActive("/my-profile") ? "default" : "ghost"}
+              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
+                isActive("/my-profile") ? "bg-primary text-white" : ""
+              }`}
+              onClick={() => handleNavigate("/my-profile")}
+              data-testid="menu-user-profile"
+            >
+              <User className="h-5 w-5" />
+              {user.firstName || user.lastName ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : (user.email || user.phone || "بياناتي")}
+            </Button>
           </div>
         )}
       </SheetContent>

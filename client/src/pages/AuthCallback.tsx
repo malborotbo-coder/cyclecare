@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { persistAuthTokens } from "@/lib/authStorage";
+import { promptBiometricEnrollment } from "@/lib/biometricSession";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -33,6 +34,8 @@ export default function AuthCallback() {
       await persistAuthTokens({ authToken: token });
 
       console.log("[AuthCallback] Token saved to localStorage");
+
+      await promptBiometricEnrollment(token);
 
       // ✅ اغلق المتصفح المدمج في الهاتف بعد العودة
       if (Capacitor.isNativePlatform()) {
