@@ -403,7 +403,7 @@ export default function ServiceBooking() {
     try {
       await apiRequest("/api/orders/mock-checkout", "POST", {
         serviceRequestId: createdServiceRequestId,
-        technicianId: selectedTechnicianId,
+        technicianId: (selectedTechnician as any)?.isMock ? null : selectedTechnicianId,
         breakdown: costBreakdown,
         paymentMethod: "mock",
       });

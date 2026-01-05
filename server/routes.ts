@@ -23,6 +23,8 @@ import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { insertOrderSchema } from "@shared/schema";
 
+const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
+
 const upload = multer({
   limits: {
     fileSize: 20 * 1024 * 1024, // 20MB to accommodate large mobile photos/HEIC
@@ -1266,7 +1268,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(Boolean)
         .sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0));
 
-      res.json(enriched);
+      if (enriched.length > 0 || !ENABLE_MOCK_TECHNICIAN) {
+        return res.json(enriched);
+      }
+
+      // Mock technician fallback
+      const mockDistance = 1.2;
+      const pricePreview = computePricing({
+        distanceKm: mockDistance,
+        serviceBase: 150,
+        serviceName: "Maintenance",
+      });
+      const mockTech = {
+        id: "mock-tech-1",
+        name: "فني تجريبي",
+        photo_url: "/assets/mock-tech.png",
+        rating: 4.8,
+        reviewCount: 120,
+        is_available: true,
+        status: "online",
+        distanceKm: mockDistance,
+        etaMinutes: 10,
+        isMock: true,
+        pricePreview,
+        lastUpdated: new Date().toISOString(),
+        latitude: lat,
+        longitude: lng,
+      };
+
+      res.json([mockTech]);
     } catch (error) {
       console.error("[TECH][NEARBY] Error:", error);
       res.status(500).json({ message: "Failed to fetch nearby technicians" });
