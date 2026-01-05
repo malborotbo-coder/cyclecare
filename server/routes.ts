@@ -53,6 +53,31 @@ const bikePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+function buildMockTech(lat: number, lng: number) {
+  const mockDistance = 1.2;
+  const pricePreview = computePricing({
+    distanceKm: mockDistance,
+    serviceBase: 150,
+    serviceName: "Maintenance",
+  });
+  return {
+    id: "mock-tech-1",
+    name: "فني تجريبي",
+    photo_url: "/assets/mock-tech.png",
+    rating: 4.8,
+    reviewCount: 120,
+    is_available: true,
+    status: "online",
+    distanceKm: mockDistance,
+    etaMinutes: 10,
+    isMock: true,
+    pricePreview,
+    lastUpdated: new Date().toISOString(),
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
 const profilePhotoUpload = (req: any, res: any, next: any) => {
   upload.single("photo")(req, res, (err: any) => {
     if (err) {
@@ -1254,34 +1279,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
       const onlineTechs = Array.isArray(techData) ? techData : [];
+      if (onlineTechs.length === 0 && ENABLE_MOCK_TECHNICIAN) {
+        return res.json([buildMockTech(lat, lng)]);
+      }
 
       const { resp: locResp, data: locData } = await pgFetch(`/technician_locations`);
       if (!locResp.ok) {
         console.log("[TECH][NEARBY][LOC_FETCH][FAILED]", { status: locResp.status, body: locData });
+        // Fallback: use technician latitude/longitude if available
+        const enrichedFallback = onlineTechs
+          .map((tech: any) => {
+            if (!tech.latitude || !tech.longitude) return null;
+            const distanceKm = haversineKm(lat, lng, Number(tech.latitude), Number(tech.longitude));
+            const etaMinutes = Math.round((distanceKm / 30) * 60);
+            const pricePreview = computePricing({
+              distanceKm,
+              serviceBase: 150,
+              serviceName: "Maintenance",
+            });
+            return {
+              ...tech,
+              distanceKm: Number(distanceKm.toFixed(2)),
+              etaMinutes,
+              pricePreview,
+            };
+          })
+          .filter(Boolean)
+          .sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0));
+        if (enrichedFallback.length > 0) {
+          return res.json(enrichedFallback);
+        }
         if (ENABLE_MOCK_TECHNICIAN) {
-          const mockDistance = 1.2;
-          const pricePreview = computePricing({
-            distanceKm: mockDistance,
-            serviceBase: 150,
-            serviceName: "Maintenance",
-          });
-          const mockTech = {
-            id: "mock-tech-1",
-            name: "فني تجريبي",
-            photo_url: "/assets/mock-tech.png",
-            rating: 4.8,
-            reviewCount: 120,
-            is_available: true,
-            status: "online",
-            distanceKm: mockDistance,
-            etaMinutes: 10,
-            isMock: true,
-            pricePreview,
-            lastUpdated: new Date().toISOString(),
-            latitude: lat,
-            longitude: lng,
-          };
-          return res.json([mockTech]);
+          return res.json([buildMockTech(lat, lng)]);
         }
         return res.json([]);
       }
@@ -1823,7 +1852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;
       console.error("Error creating service request:", error);
-      res.status(500).json({ message: "Failed to create service request" });
+      res.status(400).json({ message: "Failed to create service request", detail: (error as any)?.message });
     }
   });
 
