@@ -277,16 +277,23 @@ export default function FirebaseAuthPage() {
         userCredential = await signInWithEmailAndPassword(auth, email, password);
       }
       
+      console.log("[EmailAuth] Firebase user after auth:", {
+        uid: userCredential?.user?.uid,
+        email: userCredential?.user?.email,
+        exists: !!userCredential?.user,
+      });
+
       // Get ID token and store for API authentication
-      const idToken = await userCredential.user.getIdToken();
-      console.log('[EmailAuth] Got Firebase ID token, length:', idToken.length);
-      
+      const idToken = await userCredential.user.getIdToken(true);
+      console.log('[EmailAuth] Got Firebase ID token, length:', idToken?.length || 0);
+
       // Store token for backend authentication (will be used by queryClient)
       await persistAuthTokens({ authToken: idToken, firebaseToken: idToken });
-      
+      console.log("[EmailAuth] Tokens persisted. auth_token in localStorage:", !!localStorage.getItem("auth_token"));
+
       // Clear cache to ensure fresh auth state
       sessionStorage.clear();
-      
+
       console.log('[EmailAuth] Auth tokens stored, redirecting...');
       window.location.href = "/";
     } catch (err: any) {

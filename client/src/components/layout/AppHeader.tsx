@@ -22,16 +22,16 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
 
   return (
     <header 
-      className={`sticky top-0 z-50 border-b ${
+      className={`fixed top-0 left-0 right-0 z-[110] border-b ${
         transparent 
-          ? "bg-gradient-to-b from-black/60 via-black/40 to-transparent border-white/10" 
+          ? "bg-gradient-to-b from-black/70 via-black/50 to-black/30 border-white/10"
           : "bg-primary border-primary/20"
       }`}
       style={{
         paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',
       }}
     >
-      <div className="container mx-auto px-4 py-2 flex items-center justify-between gap-3">
+      <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <SideMenu onLogout={onLogout} />
           <div onClick={handleLogoClick} className="cursor-pointer">

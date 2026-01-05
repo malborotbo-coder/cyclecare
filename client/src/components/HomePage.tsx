@@ -252,22 +252,33 @@ export default function HomePage() {
     <div className="min-h-screen bg-background">
       <main 
         ref={heroRef}
-        className="pb-20 relative min-h-screen bg-cover bg-center bg-fixed" 
-        style={{ backgroundImage: heroLoaded ? `url(${heroImage})` : undefined }}
+        className="pb-20 relative"
+        style={{ 
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
+          minHeight: "max(100vh, 100dvh)",
+        }}
       >
-        <div className={`absolute inset-0 transition-all duration-500 ${heroLoaded ? 'bg-black/30' : 'bg-gradient-to-b from-primary/40 to-secondary/40'}`}></div>
-        
-        <div className="relative">
-          <div className="container mx-auto px-4 flex flex-col justify-center items-start min-h-screen">
-            <div className="space-y-6">
-              <h1 className="text-5xl md:text-6xl font-bold text-white drop-shadow-lg">
+        <section className="relative w-full" style={{ minHeight: "52vh" }}>
+          <img
+            src={heroImage}
+            alt="Cyclist hero"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ objectPosition: "70% 20%" }}
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/45 to-black/65" />
+          <div className="relative container mx-auto px-4 flex flex-col justify-center items-start h-full py-12">
+            <div className="space-y-4 max-w-2xl">
+              <h1 className="text-4xl md:text-6xl font-bold text-white drop-shadow-lg">
                 {t('welcome')} {(user as any)?.firstName || (user as any)?.email || ''}
               </h1>
-              <p className="text-white/95 text-2xl drop-shadow-md max-w-2xl leading-relaxed">{t('howCanHelp')}</p>
+              <p className="text-white/95 text-lg md:text-2xl drop-shadow-md leading-relaxed">
+                {t('howCanHelp')}
+              </p>
               <Button 
                 onClick={navigateToBooking}
                 size="lg"
-                className="w-fit bg-primary hover:bg-primary/90 text-white font-semibold shadow-lg text-lg px-8 py-6"
+                className="w-fit bg-primary hover:bg-primary/90 text-white font-semibold shadow-lg text-lg px-7 py-5"
                 data-testid="button-quick-booking"
               >
                 <Wrench className="w-6 h-6 mr-2" />
@@ -275,19 +286,20 @@ export default function HomePage() {
               </Button>
             </div>
           </div>
+        </section>
 
-          <div className="relative z-10 bg-white/40 dark:bg-black/40 backdrop-blur-sm">
-            <div className="container mx-auto px-4 py-8">
-              <div className="mb-6">
-            <Button 
-              onClick={navigateToBikes}
-              className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold"
-              data-testid="button-add-my-bike"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              {lang === 'ar' ? '+ إضافة دراجتي' : '+ Add My Bike'}
-            </Button>
-          </div>
+        <div className="relative z-10 bg-white/40 dark:bg-black/40 backdrop-blur-sm">
+          <div className="container mx-auto px-4 py-8">
+            <div className="mb-6">
+              <Button 
+                onClick={navigateToBikes}
+                className="w-full bg-secondary hover:bg-secondary/90 text-white font-semibold"
+                data-testid="button-add-my-bike"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                {lang === 'ar' ? '+ إضافة دراجتي' : '+ Add My Bike'}
+              </Button>
+            </div>
 
           <div className="grid grid-cols-2 gap-4 mb-8">
             <ServiceCard
@@ -357,9 +369,8 @@ export default function HomePage() {
             <CardContent>
               <p className="text-muted-foreground mb-4">{t('bikeNeedsMaintenance')}</p>
               <Button data-testid="button-book-now" onClick={navigateToBooking}>{t('bookNow')}</Button>
-            </CardContent>
-          </Card>
-            </div>
+          </CardContent>
+        </Card>
           </div>
         </div>
       </main>

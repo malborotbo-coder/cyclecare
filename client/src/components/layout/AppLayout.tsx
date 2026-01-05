@@ -4,6 +4,7 @@ import { useNativeAuth } from "@/contexts/NativeAuthContext";
 import { queryClient } from "@/lib/queryClient";
 import { clearAuthTokens } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
+import SafeAreaLayout from "./SafeAreaLayout";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -73,16 +74,16 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
   };
 
   return (
-    <div 
-      className="flex flex-col min-h-screen bg-background"
-      style={{
-        minHeight: 'max(100vh, 100dvh)',
-      }}
-    >
+    <SafeAreaLayout className="flex flex-col bg-background">
       <AppHeader onLogout={handleLogout} transparent={transparentHeader} />
-      <main className="flex-1 overflow-y-auto">
+      <main
+        className="flex-1"
+        style={{
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
+        }}
+      >
         {children}
       </main>
-    </div>
+    </SafeAreaLayout>
   );
 }
