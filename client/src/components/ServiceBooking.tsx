@@ -352,7 +352,9 @@ export default function ServiceBooking() {
           : null;
       toast({
         title: t[language].toast.error,
-        description: validationMessage || `${t[language].toast.requestFailed} ${error.message || ""}`,
+        description:
+          validationMessage ||
+          `${t[language].toast.requestFailed} ${error?.message || ""}`,
         variant: "destructive",
       });
     } finally {

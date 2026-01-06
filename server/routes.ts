@@ -1884,6 +1884,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? `${longitudeRaw}`.trim()
           : undefined;
 
+      // Basic field-level validation before Zod to return clear errors
+      const lang = getRequestLang(req);
+      const fieldErrors: { field: string; message: string }[] = [];
+      if (!technicianId || `${technicianId}`.trim() === "") {
+        fieldErrors.push({ field: "technicianId", message: "يجب اختيار فني" });
+      }
+      if (!body.serviceType || `${body.serviceType}`.trim() === "") {
+        fieldErrors.push({ field: "serviceType", message: "يجب اختيار نوع الخدمة" });
+      }
+      if (latitude === undefined || longitude === undefined) {
+        fieldErrors.push({ field: "location", message: "يرجى تحديد الموقع" });
+      }
+      if (fieldErrors.length) {
+        return res
+          .status(400)
+          .json(normalizeErrorBody(400, { code: "VALIDATION_ERROR", errors: fieldErrors }, lang));
+      }
+
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
         serviceType: body.serviceType || "maintenance",
