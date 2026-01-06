@@ -1871,11 +1871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const { userId } = auth;
       const body = req.body || {};
-      // Remove mock technician id to pass validation and avoid FK issues
-      const technicianId =
-        typeof body.technicianId === "string" && body.technicianId.startsWith("mock-")
-          ? undefined
-          : body.technicianId || undefined;
+      const technicianId = body.technicianId;
 
       const latitude =
         body.latitude !== undefined && body.latitude !== null && body.latitude !== ""
@@ -1889,7 +1885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
         serviceType: body.serviceType || "maintenance",
-        technicianId: technicianId ?? null,
+        technicianId: technicianId,
         notes: body.notes,
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
