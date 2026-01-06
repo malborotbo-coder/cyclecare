@@ -69,6 +69,7 @@ function buildMockTech(lat: number, lng: number) {
     rating: 4.8,
     reviewCount: 120,
     is_available: true,
+    isAvailable: true,
     status: "online",
     distanceKm: mockDistance,
     etaMinutes: 10,
@@ -1368,6 +1369,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             latitude: loc.latitude,
             longitude: loc.longitude,
             pricePreview,
+            isAvailable: tech.is_available ?? tech.isAvailable ?? true,
+            is_available: tech.is_available ?? tech.isAvailable ?? true,
           };
         })
         .filter(Boolean)
