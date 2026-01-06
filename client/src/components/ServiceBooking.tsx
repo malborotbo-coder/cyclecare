@@ -315,8 +315,8 @@ export default function ServiceBooking() {
         serviceType: selectedService,
         technicianId: (selectedTechnician as any)?.isMock ? null : selectedTechnicianId,
         notes,
-        latitude: location.lat,
-        longitude: location.lng,
+        latitude: location.lat != null ? String(location.lat) : undefined,
+        longitude: location.lng != null ? String(location.lng) : undefined,
         location: locationText || "Riyadh",
         status: "pending",
       };
