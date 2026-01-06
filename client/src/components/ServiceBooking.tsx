@@ -31,6 +31,7 @@ export default function ServiceBooking() {
   const [costBreakdown, setCostBreakdown] = useState<PricingBreakdown | null>(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [submittingBooking, setSubmittingBooking] = useState(false);
 
   useEffect(() => {
     if (!userSetLocation) {
@@ -298,20 +299,31 @@ export default function ServiceBooking() {
     );
   };
 
-  // Create service request mutation
-  const createServiceRequest = useMutation({
-    mutationFn: async (data: any) => {
-      console.log("Sending request to API:", data);
-      const response = await apiRequest("/api/service-requests", "POST", data);
-      console.log("API response:", response);
-      return response;
-    },
-    onSuccess: (data) => {
-      console.log("Service request created successfully:", data);
-      setCreatedServiceRequestId(data.id);
-      nextStep(); // Move to payment step
-    },
-    onError: (error: Error) => {
+  // Submit booking (service request)
+  const submitBooking = async () => {
+    if (!selectedService || !selectedTechnicianId || !costBreakdown) {
+      toast({
+        title: t[language].toast.error,
+        description: t[language].toast.requestFailed,
+        variant: "destructive",
+      });
+      return;
+    }
+    setSubmittingBooking(true);
+    try {
+      const payload: any = {
+        serviceType: selectedService,
+        technicianId: (selectedTechnician as any)?.isMock ? null : selectedTechnicianId,
+        notes,
+        latitude: location.lat,
+        longitude: location.lng,
+        location: locationText || "Riyadh",
+        status: "pending",
+      };
+      const response = await apiRequest("/api/service-requests", "POST", payload);
+      setCreatedServiceRequestId(response.id);
+      nextStep(); // go to payment
+    } catch (error: any) {
       console.error("Service request creation error:", error);
       if (isUnauthorizedError(error)) {
         toast({
@@ -329,8 +341,10 @@ export default function ServiceBooking() {
         description: `${t[language].toast.requestFailed} ${error.message}`,
         variant: "destructive",
       });
-    },
-  });
+    } finally {
+      setSubmittingBooking(false);
+    }
+  };
 
   const nextStep = () => {
     if (currentStep < steps.length - 1) {
@@ -345,38 +359,7 @@ export default function ServiceBooking() {
   };
 
   const handleConfirmBooking = () => {
-    if (!selectedService || !selectedTechnicianId || !costBreakdown) {
-      toast({
-        title: t[language].toast.error,
-        description: t[language].toast.requestFailed,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const selectedBike = bikes?.[0]; // Use first bike for now
-    
-    const requestData: any = {
-      serviceType: selectedService,
-      technicianId: selectedTechnicianId,
-      notes,
-      latitude: location.lat.toString(),
-      longitude: location.lng.toString(),
-      location: locationText,
-      status: "pending",
-    };
-
-    requestData.price_breakdown = costBreakdown;
-    requestData.breakdown_version = costBreakdown.breakdownVersion;
-    requestData.distance_km = costBreakdown.delivery?.distanceKm;
-
-    // Only include bikeId if a bike exists
-    if (selectedBike?.id) {
-      requestData.bikeId = selectedBike.id;
-    }
-    
-    console.log("Creating service request with data:", requestData);
-    createServiceRequest.mutate(requestData);
+    submitBooking();
   };
 
   const resetBooking = () => {
@@ -733,10 +716,10 @@ export default function ServiceBooking() {
                   <Button 
                     onClick={handleConfirmBooking}
                     className="flex-1"
-                    disabled={createServiceRequest.isPending || !selectedTechnicianId || !selectedService || !costBreakdown}
+                    disabled={submittingBooking || !selectedTechnicianId || !selectedService || !costBreakdown}
                     data-testid="button-confirm"
                   >
-                    {createServiceRequest.isPending ? t[language].buttons.confirming : t[language].buttons.confirm}
+                    {submittingBooking ? t[language].buttons.confirming : t[language].buttons.confirm}
                   </Button>
                 )}
               </div>

@@ -1891,8 +1891,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serviceType: body.serviceType || "maintenance",
         technicianId: technicianId ?? null,
         notes: body.notes,
-        latitude: Number.isFinite(latitude) ? latitude : null,
-        longitude: Number.isFinite(longitude) ? longitude : null,
+        latitude: Number.isFinite(latitude) ? latitude : undefined,
+        longitude: Number.isFinite(longitude) ? longitude : undefined,
         location: body.location || "Riyadh",
         status: body.status || "pending",
       };
