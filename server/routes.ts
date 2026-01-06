@@ -1875,7 +1875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const technicianId =
         typeof body.technicianId === "string" && body.technicianId.startsWith("mock-")
           ? undefined
-          : body.technicianId;
+          : body.technicianId || undefined;
 
       const latitude =
         body.latitude !== undefined && body.latitude !== null && body.latitude !== ""
@@ -1888,12 +1888,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
-        serviceType: body.serviceType,
+        serviceType: body.serviceType || "maintenance",
         technicianId,
         notes: body.notes,
         latitude: Number.isFinite(latitude) ? latitude : undefined,
         longitude: Number.isFinite(longitude) ? longitude : undefined,
-        location: body.location,
+        location: body.location || "Riyadh",
         status: body.status || "pending",
       };
       if (body.bikeId) safePayload.bikeId = body.bikeId;
