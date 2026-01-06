@@ -1914,11 +1914,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       if (body.bikeId) safePayload.bikeId = body.bikeId;
 
-      const requestData = validateSchema(
-        insertServiceRequestSchema.omit({ userId: true }),
+      console.log("[SERVICE_REQUEST][CREATE][PAYLOAD]", {
+        body,
         safePayload,
-        req,
-      );
+        userId,
+      });
+
+      let requestData;
+      try {
+        requestData = validateSchema(
+          insertServiceRequestSchema.omit({ userId: true }),
+          safePayload,
+          req,
+        );
+      } catch (err: any) {
+        console.error("[SERVICE_REQUEST][VALIDATION_FAILED]", {
+          errors: err?.issues || err?.errors || err?.message,
+          safePayload,
+        });
+        throw err;
+      }
 
       // Ensure technician location if technicianId provided and not mock
       if (requestData.technicianId) {

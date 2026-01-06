@@ -330,6 +330,7 @@ export default function ServiceBooking() {
         status: "pending",
         scheduledAt: new Date().toISOString(),
       };
+      console.log("[Booking][Submit][Payload]", payload);
       const response = await apiRequest("/api/service-requests", "POST", payload);
       setCreatedServiceRequestId(response.id);
       nextStep(); // go to payment
