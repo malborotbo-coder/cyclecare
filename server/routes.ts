@@ -1889,10 +1889,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
         serviceType: body.serviceType || "maintenance",
-        technicianId,
+        technicianId: technicianId ?? null,
         notes: body.notes,
-        latitude: Number.isFinite(latitude) ? latitude : undefined,
-        longitude: Number.isFinite(longitude) ? longitude : undefined,
+        latitude: Number.isFinite(latitude) ? latitude : null,
+        longitude: Number.isFinite(longitude) ? longitude : null,
         location: body.location || "Riyadh",
         status: body.status || "pending",
       };
@@ -1917,7 +1917,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;
       console.error("Error creating service request:", error);
-      res.status(400).json({ message: "Failed to create service request", detail: (error as any)?.message });
+      res.status(400).json({
+        message: "Failed to create service request",
+        detail: (error as any)?.message,
+        fieldErrors: (error as any)?.issues || undefined,
+      });
     }
   });
 
