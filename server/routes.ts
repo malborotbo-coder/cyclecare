@@ -1873,13 +1873,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const body = req.body || {};
       const technicianId = body.technicianId;
 
+      const latitudeRaw = body.latitude;
+      const longitudeRaw = body.longitude;
       const latitude =
-        body.latitude !== undefined && body.latitude !== null && body.latitude !== ""
-          ? Number(body.latitude)
+        latitudeRaw !== undefined && latitudeRaw !== null && `${latitudeRaw}`.trim() !== ""
+          ? `${latitudeRaw}`.trim()
           : undefined;
       const longitude =
-        body.longitude !== undefined && body.longitude !== null && body.longitude !== ""
-          ? Number(body.longitude)
+        longitudeRaw !== undefined && longitudeRaw !== null && `${longitudeRaw}`.trim() !== ""
+          ? `${longitudeRaw}`.trim()
           : undefined;
 
       // Only pass known fields to schema to avoid validation errors
@@ -1887,8 +1889,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serviceType: body.serviceType || "maintenance",
         technicianId: technicianId,
         notes: body.notes,
-        latitude: Number.isFinite(latitude) ? latitude : undefined,
-        longitude: Number.isFinite(longitude) ? longitude : undefined,
+        latitude,
+        longitude,
         location: body.location || "Riyadh",
         status: body.status || "pending",
       };

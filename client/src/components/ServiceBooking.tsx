@@ -10,6 +10,7 @@ import { ArrowRight, ArrowLeft, Check, MapPin, Wrench, Package, Settings, User, 
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { ApiError } from "@/lib/apiError";
 import type { Technician, User as UserType, Bike as BikeType, PaymentMethod } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -309,14 +310,22 @@ export default function ServiceBooking() {
       });
       return;
     }
+    if (location.lat == null || location.lng == null) {
+      toast({
+        title: t[language].toast.error,
+        description: t[language].toast.locationError,
+        variant: "destructive",
+      });
+      return;
+    }
     setSubmittingBooking(true);
     try {
       const payload: any = {
         serviceType: selectedService,
         technicianId: selectedTechnicianId,
         notes,
-        latitude: location.lat != null ? String(location.lat) : "",
-        longitude: location.lng != null ? String(location.lng) : "",
+        latitude: `${location.lat}`,
+        longitude: `${location.lng}`,
         location: locationText || "Riyadh",
         status: "pending",
         scheduledAt: new Date().toISOString(),
@@ -337,9 +346,13 @@ export default function ServiceBooking() {
         }, 500);
         return;
       }
+      const validationMessage =
+        error instanceof ApiError && error.errors?.length
+          ? error.errors.map((e) => e.message).join(" / ")
+          : null;
       toast({
         title: t[language].toast.error,
-        description: `${t[language].toast.requestFailed} ${error.message}`,
+        description: validationMessage || `${t[language].toast.requestFailed} ${error.message || ""}`,
         variant: "destructive",
       });
     } finally {
