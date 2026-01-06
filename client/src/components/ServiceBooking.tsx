@@ -313,12 +313,13 @@ export default function ServiceBooking() {
     try {
       const payload: any = {
         serviceType: selectedService,
-        technicianId: (selectedTechnician as any)?.isMock ? null : selectedTechnicianId,
+        technicianId: selectedTechnicianId,
         notes,
-        latitude: location.lat != null ? String(location.lat) : undefined,
-        longitude: location.lng != null ? String(location.lng) : undefined,
+        latitude: location.lat != null ? String(location.lat) : "",
+        longitude: location.lng != null ? String(location.lng) : "",
         location: locationText || "Riyadh",
         status: "pending",
+        scheduledAt: new Date().toISOString(),
       };
       const response = await apiRequest("/api/service-requests", "POST", payload);
       setCreatedServiceRequestId(response.id);
