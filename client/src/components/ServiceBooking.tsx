@@ -469,7 +469,7 @@ export default function ServiceBooking() {
       }
     };
     fetchBreakdown();
-  }, [selectedTechnicianId, selectedServiceData, selectedTechnician, t, language, toast]);
+  }, [selectedTechnicianId, selectedServiceData]);
 
   return (
     <BookingBackgroundLayout>
