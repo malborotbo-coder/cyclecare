@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
-import { validateSchema, handleRouteError, AppError, errorHandler, getRequestLang } from "./errors";
+import { validateSchema, handleRouteError, AppError, errorHandler, getRequestLang, normalizeErrorBody } from "./errors";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
@@ -16,12 +16,11 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
-import { supabase, supabaseAdmin, getUploadClient, BUCKET_NAME, uploadBufferToStorage } from "./supabaseClient";
+import { uploadBufferToStorage } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
 import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
-import { insertOrderSchema } from "@shared/schema";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const DEFAULT_LAT = 24.7136;
