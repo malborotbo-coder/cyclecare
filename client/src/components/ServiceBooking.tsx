@@ -279,9 +279,91 @@ export default function ServiceBooking() {
               </>
             )}
 
-            {currentStep === 3 && costBreakdown && (
-              <div>
-                <p>الإجمالي: {costBreakdown.total} ر.س</p>
+            {currentStep === 3 && (
+              <div className="space-y-4">
+                {loadingBreakdown && (
+                  <div className="text-muted-foreground">جاري حساب التكلفة...</div>
+                )}
+                {costBreakdown && selectedTechnician && (
+                  <Card className="border border-border">
+                    <CardHeader>
+                      <CardTitle className="text-lg">تأكيد الحجز</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-sm text-muted-foreground">الخدمة</h4>
+                        <div className="flex justify-between text-sm">
+                          <span>{services.find((s) => s.id === selectedService)?.name}</span>
+                          <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} ر.س</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-sm text-muted-foreground">الفني</h4>
+                        <div className="flex flex-col gap-1 text-sm">
+                          <span className="font-semibold">
+                            {selectedTechnician.name?.trim()
+                              ? selectedTechnician.name
+                              : `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`}
+                          </span>
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
+                            <span>•</span>
+                            <span>{selectedTechnician.reviewCount ?? 0} تقييم</span>
+                            <span>•</span>
+                            <span>{selectedTechnician.distanceKm ?? 0} كم</span>
+                            <span>•</span>
+                            <span>{selectedTechnician.etaMinutes ?? 0} دقيقة</span>
+                            <span>•</span>
+                            <Badge variant="outline">
+                              {selectedTechnician.isAvailable || (selectedTechnician as any).is_available ? "متاح" : "مشغول"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-sm text-muted-foreground">التوصيل</h4>
+                        <div className="space-y-1 text-sm text-muted-foreground">
+                          <div className="flex justify-between"><span>Base</span><span>{costBreakdown.delivery?.base ?? 0}</span></div>
+                          <div className="flex justify-between"><span>per Km</span><span>{costBreakdown.delivery?.perKm ?? 0}</span></div>
+                          <div className="flex justify-between"><span>Distance (km)</span><span>{costBreakdown.delivery?.distanceKm ?? selectedTechnician.distanceKm ?? 0}</span></div>
+                          <div className="flex justify-between"><span>Min / Max</span><span>{costBreakdown.delivery?.min ?? 0} / {costBreakdown.delivery?.max ?? 0}</span></div>
+                          <div className="flex justify-between font-semibold text-foreground">
+                            <span>إجمالي التوصيل</span>
+                            <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-sm text-muted-foreground">الفاتورة</h4>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Service</span>
+                            <span>{costBreakdown.service?.base ?? 0} ر.س</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Delivery</span>
+                            <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Subtotal</span>
+                            <span>{costBreakdown.subtotal ?? 0} ر.س</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>VAT ({costBreakdown.vatRate ?? 15}%)</span>
+                            <span>{costBreakdown.vat ?? 0} ر.س</span>
+                          </div>
+                          <div className="flex justify-between text-base font-bold text-primary pt-2">
+                            <span>الإجمالي</span>
+                            <span>{costBreakdown.total ?? 0} ر.س</span>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
 
@@ -310,7 +392,7 @@ export default function ServiceBooking() {
                 ) : (
                   <Button
                     onClick={submitBooking}
-                    disabled={submittingBooking || loadingBreakdown}
+                    disabled={submittingBooking || loadingBreakdown || !costBreakdown || !selectedTechnician}
                   >
                     {submittingBooking ? "جارٍ الحجز..." : "تأكيد الحجز"}
                   </Button>
