@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
-import { validateSchema, handleRouteError, AppError, errorHandler } from "./errors";
+import { validateSchema, handleRouteError, AppError, errorHandler, getRequestLang } from "./errors";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
