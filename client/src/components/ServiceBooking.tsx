@@ -120,6 +120,19 @@ export default function ServiceBooking() {
         setCostBreakdown(breakdown);
       } catch (e) {
         console.error("Pricing error", e);
+        const fallbackBase = Number(service.base) || 0;
+        const fallback = {
+          service: { id: service.id, name: service.name, base: fallbackBase },
+          parts: { items: [], total: 0 },
+          install: { accessoryFee: 0, sparePartFee: 0, total: 0 },
+          delivery: { base: 0, perKm: 0, distanceKm, total: 0, min: 0, max: 0 },
+          subtotal: fallbackBase,
+          vatRate: 15,
+          vat: Number((fallbackBase * 0.15).toFixed(2)),
+          total: Number((fallbackBase * 1.15).toFixed(2)),
+          breakdownVersion: "fallback",
+        } as PricingBreakdown;
+        setCostBreakdown(fallback);
         toast({
           title: "خطأ",
           description: "فشل حساب التكلفة",
@@ -191,8 +204,8 @@ export default function ServiceBooking() {
 
   return (
     <BookingBackgroundLayout>
-      <div className="max-w-2xl mx-auto p-4">
-        <Card className="bg-black/70 text-white border-white/10">
+      <div className="max-w-2xl mx-auto p-4 mt-6 md:mt-10">
+        <Card className="bg-white/75 dark:bg-black/70 text-foreground dark:text-white border-border/20 backdrop-blur-sm">
           <CardHeader>
             <CardTitle>حجز خدمة</CardTitle>
           </CardHeader>
