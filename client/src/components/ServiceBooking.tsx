@@ -46,9 +46,9 @@ export default function ServiceBooking() {
   /* ------------------ DATA ------------------ */
 
   const services = [
-    { id: "maintenance", name: "صيانة دورية", base: 150, icon: <Settings /> },
-    { id: "repair", name: "إصلاح عطل", base: 100, icon: <Wrench /> },
-    { id: "parts", name: "استبدال قطع", base: 0, icon: <Package /> },
+    { id: "maintenance", name: "صيانة دورية", base: 150, icon: <Settings />, subtitle: "تبدأ من سعر 150 ريال" },
+    { id: "repair", name: "إصلاح عطل", base: 100, icon: <Wrench />, subtitle: "حدد العطل وخل التصليح علينا" },
+    { id: "parts", name: "استبدال قطع", base: 0, icon: <Package />, subtitle: "قريباً سنوفر كل م يحتاجه الدراج", disabled: true },
   ];
 
   const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
@@ -192,19 +192,30 @@ export default function ServiceBooking() {
   return (
     <BookingBackgroundLayout>
       <div className="max-w-2xl mx-auto p-4">
-        <Card>
+        <Card className="bg-black/70 text-white border-white/10">
           <CardHeader>
             <CardTitle>حجز خدمة</CardTitle>
           </CardHeader>
 
           <CardContent>
             {currentStep === 0 && (
-              <RadioGroup value={selectedService} onValueChange={setSelectedService}>
-                {services.map((s) => (
-                  <Label key={s.id} className="flex gap-3 p-3 border rounded">
-                    <RadioGroupItem value={s.id} />
-                    {s.icon}
-                    {s.name}
+              <RadioGroup value={selectedService} onValueChange={setSelectedService} className="space-y-3">
+                {services.map((s, idx) => (
+                  <Label
+                    key={s.id}
+                    className={`flex gap-3 p-3 border rounded-md bg-white/5 ${
+                      s.disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-white/10"
+                    }`}
+                  >
+                    <RadioGroupItem value={s.id} disabled={s.disabled} />
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        {s.icon}
+                        <span className="font-semibold">{s.name}</span>
+                        {s.disabled && <Badge variant="secondary">قريباً</Badge>}
+                      </div>
+                      {s.subtitle && <span className="text-sm text-muted-foreground text-white/70">{s.subtitle}</span>}
+                    </div>
                   </Label>
                 ))}
               </RadioGroup>
@@ -213,6 +224,15 @@ export default function ServiceBooking() {
             {currentStep === 1 && (
               <>
                 <p>الموقع: {locationText}</p>
+                <div className="h-64 w-full rounded-md overflow-hidden border border-white/10 mb-4">
+                  <iframe
+                    title="client-location"
+                    src={`https://maps.google.com/maps?q=${location.lat},${location.lng}&z=15&output=embed`}
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    allowFullScreen
+                  />
+                </div>
                 <Button
                   onClick={() =>
                     navigator.geolocation.getCurrentPosition((p) => {
@@ -234,6 +254,7 @@ export default function ServiceBooking() {
                   placeholder="ملاحظات"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
+                  className="bg-white/5 border-white/10 text-white placeholder:text-white/50"
                 />
               </>
             )}
@@ -243,13 +264,13 @@ export default function ServiceBooking() {
                 {loadingTechnicians ? (
                   <p>جاري التحميل...</p>
                 ) : (
-                  <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId}>
+                  <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-3">
                     {techniciansList && techniciansList.length > 0 ? (
                       techniciansList.map((tech, idx) => (
                         <Label
                           key={tech.id}
                           htmlFor={tech.id}
-                          className="flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer hover-elevate"
+                          className="flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer hover-elevate bg-white/5 border-white/10"
                           data-testid={`option-technician-${idx}`}
                         >
                           <RadioGroupItem value={tech.id} id={tech.id} />
@@ -285,28 +306,28 @@ export default function ServiceBooking() {
                   <div className="text-muted-foreground">جاري حساب التكلفة...</div>
                 )}
                 {costBreakdown && selectedTechnician && (
-                  <Card className="border border-border">
+                  <Card className="border border-white/10 bg-white/5 text-white">
                     <CardHeader>
                       <CardTitle className="text-lg">تأكيد الحجز</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground">الخدمة</h4>
-                        <div className="flex justify-between text-sm">
+                        <h4 className="font-semibold text-sm text-white/70">الخدمة</h4>
+                        <div className="flex justify-between text-sm text-white">
                           <span>{services.find((s) => s.id === selectedService)?.name}</span>
                           <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} ر.س</span>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground">الفني</h4>
-                        <div className="flex flex-col gap-1 text-sm">
+                        <h4 className="font-semibold text-sm text-white/70">الفني</h4>
+                        <div className="flex flex-col gap-1 text-sm text-white">
                           <span className="font-semibold">
                             {selectedTechnician.name?.trim()
                               ? selectedTechnician.name
                               : `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`}
                           </span>
-                          <div className="flex items-center gap-2 text-muted-foreground">
+                          <div className="flex items-center gap-2 text-white/70">
                             <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
                             <span>•</span>
                             <span>{selectedTechnician.reviewCount ?? 0} تقييم</span>
@@ -323,13 +344,13 @@ export default function ServiceBooking() {
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground">التوصيل</h4>
-                        <div className="space-y-1 text-sm text-muted-foreground">
+                        <h4 className="font-semibold text-sm text-white/70">التوصيل</h4>
+                        <div className="space-y-1 text-sm text-white/70">
                           <div className="flex justify-between"><span>Base</span><span>{costBreakdown.delivery?.base ?? 0}</span></div>
                           <div className="flex justify-between"><span>per Km</span><span>{costBreakdown.delivery?.perKm ?? 0}</span></div>
                           <div className="flex justify-between"><span>Distance (km)</span><span>{costBreakdown.delivery?.distanceKm ?? selectedTechnician.distanceKm ?? 0}</span></div>
                           <div className="flex justify-between"><span>Min / Max</span><span>{costBreakdown.delivery?.min ?? 0} / {costBreakdown.delivery?.max ?? 0}</span></div>
-                          <div className="flex justify-between font-semibold text-foreground">
+                          <div className="flex justify-between font-semibold text-white">
                             <span>إجمالي التوصيل</span>
                             <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
                           </div>
@@ -337,21 +358,21 @@ export default function ServiceBooking() {
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground">الفاتورة</h4>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between text-muted-foreground">
+                        <h4 className="font-semibold text-sm text-white/70">الفاتورة</h4>
+                        <div className="space-y-1 text-sm text-white/80">
+                          <div className="flex justify-between">
                             <span>Service</span>
                             <span>{costBreakdown.service?.base ?? 0} ر.س</span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between">
                             <span>Delivery</span>
                             <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between">
                             <span>Subtotal</span>
                             <span>{costBreakdown.subtotal ?? 0} ر.س</span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between">
                             <span>VAT ({costBreakdown.vatRate ?? 15}%)</span>
                             <span>{costBreakdown.vat ?? 0} ر.س</span>
                           </div>
