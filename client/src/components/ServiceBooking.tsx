@@ -319,28 +319,28 @@ export default function ServiceBooking() {
                   <div className="text-muted-foreground">جاري حساب التكلفة...</div>
                 )}
                 {costBreakdown && selectedTechnician && (
-                  <Card className="border border-white/10 bg-white/5 text-white">
+                  <Card className="border border-white/10 bg-white/80 text-foreground dark:bg-white/5 dark:text-white">
                     <CardHeader>
                       <CardTitle className="text-lg">تأكيد الحجز</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-white/70">الخدمة</h4>
-                        <div className="flex justify-between text-sm text-white">
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الخدمة</h4>
+                        <div className="flex justify-between text-sm text-foreground dark:text-white">
                           <span>{services.find((s) => s.id === selectedService)?.name}</span>
                           <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} ر.س</span>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-white/70">الفني</h4>
-                        <div className="flex flex-col gap-1 text-sm text-white">
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفني</h4>
+                        <div className="flex flex-col gap-1 text-sm text-foreground dark:text-white">
                           <span className="font-semibold">
                             {selectedTechnician.name?.trim()
                               ? selectedTechnician.name
                               : `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`}
                           </span>
-                          <div className="flex items-center gap-2 text-white/70">
+                          <div className="flex items-center gap-2 text-muted-foreground dark:text-white/70">
                             <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
                             <span>•</span>
                             <span>{selectedTechnician.reviewCount ?? 0} تقييم</span>
@@ -357,13 +357,13 @@ export default function ServiceBooking() {
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-white/70">التوصيل</h4>
-                        <div className="space-y-1 text-sm text-white/70">
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">التوصيل</h4>
+                        <div className="space-y-1 text-sm text-muted-foreground dark:text-white/70">
                           <div className="flex justify-between"><span>Base</span><span>{costBreakdown.delivery?.base ?? 0}</span></div>
                           <div className="flex justify-between"><span>per Km</span><span>{costBreakdown.delivery?.perKm ?? 0}</span></div>
                           <div className="flex justify-between"><span>Distance (km)</span><span>{costBreakdown.delivery?.distanceKm ?? selectedTechnician.distanceKm ?? 0}</span></div>
                           <div className="flex justify-between"><span>Min / Max</span><span>{costBreakdown.delivery?.min ?? 0} / {costBreakdown.delivery?.max ?? 0}</span></div>
-                          <div className="flex justify-between font-semibold text-white">
+                          <div className="flex justify-between font-semibold text-foreground dark:text-white">
                             <span>إجمالي التوصيل</span>
                             <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
                           </div>
@@ -371,8 +371,8 @@ export default function ServiceBooking() {
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-white/70">الفاتورة</h4>
-                        <div className="space-y-1 text-sm text-white/80">
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفاتورة</h4>
+                        <div className="space-y-1 text-sm text-foreground dark:text-white/80">
                           <div className="flex justify-between">
                             <span>Service</span>
                             <span>{costBreakdown.service?.base ?? 0} ر.س</span>

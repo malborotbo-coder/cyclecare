@@ -13,9 +13,9 @@ export default function BookingBackgroundLayout({ children, className }: Props) 
         <img
           src={bookingBg}
           alt=""
-          className="absolute inset-0 h-full w-full scale-105 object-cover blur-md"
+          className="absolute inset-0 h-full w-full object-cover object-center"
         />
-        <div className="absolute inset-0 bg-black/70" />
+        <div className="absolute inset-0 bg-black/45 md:bg-black/55" />
       </div>
       <div className="relative z-10">{children}</div>
     </div>
