@@ -1935,9 +1935,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw err;
       }
 
-      // Ensure technician location if technicianId provided and not mock
+      // Ensure technician location if technicianId provided and not mock (non-blocking)
       if (requestData.technicianId) {
-        await upsertTechnicianLocation(requestData.technicianId, latitude, longitude);
+        try {
+          await upsertTechnicianLocation(requestData.technicianId, latitude, longitude);
+        } catch (err) {
+          console.warn("[SERVICE_REQUEST][TECH_LOC][NON_BLOCKING_FAIL]", err);
+          // Ignore Supabase/pgFetch failures to avoid blocking service request creation
+        }
       }
       const request = await storage.createServiceRequest({
         ...requestData,
