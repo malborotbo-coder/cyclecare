@@ -1868,7 +1868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
+      const userId = await ensureUserUuid(auth);
       const body = req.body || {};
       const technicianId = body.technicianId;
 
@@ -1935,41 +1935,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Technicians location update skipped here to keep service request creation fully local/non-blocking
-      let request;
-      try {
-        request = await storage.createServiceRequest({
-          ...requestData,
-          userId,
-        });
-      } catch (err) {
-        console.warn("[SERVICE_REQUEST][DB_INSERT_FAIL][FALLBACK]", err?.message || err);
-        try {
-          const payload = {
-            user_id: userId,
-            technician_id: requestData.technicianId,
-            service_type: requestData.serviceType,
-            status: requestData.status,
-            location: requestData.location,
-            latitude: requestData.latitude,
-            longitude: requestData.longitude,
-            notes: requestData.notes,
-            bike_id: (requestData as any).bikeId || null,
-          };
-          const { resp, data } = await pgFetch("/service_requests", {
-            method: "POST",
-            body: [payload],
-            headers: { Prefer: "return=representation" },
-          });
-          if (!resp.ok) {
-            console.error("[SERVICE_REQUEST][FALLBACK_FAIL]", { status: resp.status, body: data });
-            throw err;
-          }
-          request = Array.isArray(data) ? data[0] : data;
-        } catch (inner) {
-          console.error("[SERVICE_REQUEST][CREATE][FATAL]", inner);
-          throw err;
-        }
-      }
+      const request = await storage.createServiceRequest({
+        ...requestData,
+        userId,
+      });
       res.status(201).json(request);
     } catch (error) {
       const handled = handleRouteError(error, req, res);
