@@ -67,5 +67,7 @@
 	<string>Cycle Care uses your location while the app is open to show nearby technicians.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Allow location access to improve technician arrival estimates when you return to the app.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>نستخدم Face ID لتسجيل الدخول الآمن بسرعة بدل كتابة كلمة المرور.</string>
 </dict>
 </plist>
