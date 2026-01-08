@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { ServiceRequest, Technician } from "@shared/schema";
-import technicianBg from "@assets/stock_images/bicycle_mechanic_tec_e306465b.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 interface ServiceRequestCardProps extends ServiceRequest {
   onAccept?: (id: string) => void;
@@ -118,14 +118,14 @@ export default function TechnicianDashboard() {
   const { toast } = useToast();
   const [isOnline, setIsOnline] = useState(true);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
-    <div className="relative min-h-screen" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="relative min-h-screen bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div
         className="fixed inset-0 z-0"
         style={{
-          backgroundImage: `url(${technicianBg})`,
+          backgroundImage: `url(${workshopBg})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
-          backgroundAttachment: "fixed",
+          backgroundAttachment: "scroll",
         }}
       >
         <div className="absolute inset-0 bg-black/30" />

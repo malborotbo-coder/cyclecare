@@ -164,7 +164,7 @@ export default function TechnicianRegistration() {
     errors[field] ? "border-destructive focus-visible:ring-destructive" : "";
 
   return (
-    <div className="min-h-screen relative" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-screen relative bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Background Image with Overlay */}
       <div
         className="fixed inset-0 z-0"
@@ -185,7 +185,7 @@ export default function TechnicianRegistration() {
           className="bg-primary/95 backdrop-blur-sm text-primary-foreground p-4 sticky top-0 z-50"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
         >
-          <div className="max-w-2xl mx-auto flex items-center justify-between">
+        <div className="max-w-2xl mx-auto flex items-center justify-between text-foreground dark:text-white">
             <Button
               variant="ghost"
               size="sm"
