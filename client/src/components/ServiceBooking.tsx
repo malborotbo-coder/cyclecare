@@ -407,41 +407,13 @@ export default function ServiceBooking() {
                 amount={costBreakdown.total}
                 serviceRequestId={createdServiceRequestId}
                 isProcessing={processingPayment}
-                onSelectMethod={async (method) => {
+                onSelectMethod={(method) => {
                   setSelectedPaymentMethod(method);
-                  if (!createdServiceRequestId || !costBreakdown || !selectedTechnicianId) {
-                    toast({
-                      title: "خطأ",
-                      description: "لم يتم العثور على طلب الخدمة",
-                      variant: "destructive",
-                    });
-                    return;
-                  }
-                  setProcessingPayment(true);
-                  try {
-                    await apiRequest("/api/orders/mock-checkout", "POST", {
-                      serviceRequestId: createdServiceRequestId,
-                      technicianId: (selectedTechnician as any)?.isMock ? null : selectedTechnicianId,
-                      breakdown: costBreakdown,
-                      paymentMethod: "mock",
-                    });
-                    toast({
-                      title: "تم استلام طلبك",
-                      description: "المندوب في الطريق إليك ويمكنك تحميل الفاتورة من طلباتك.",
-                    });
-                    queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-                    queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-                    resetBooking();
-                  } catch (error) {
-                    console.error("Mock payment failed:", error);
-                    toast({
-                      title: "خطأ",
-                      description: "فشل في إتمام الدفع التجريبي",
-                      variant: "destructive",
-                    });
-                  } finally {
-                    setProcessingPayment(false);
-                  }
+                  toast({
+                    title: "تم استلام طلبك",
+                    description: "المندوب في الطريق إليك ويمكنك تحميل الفاتورة من طلباتك.",
+                  });
+                  resetBooking();
                 }}
                 onCancel={() => setCurrentStep(3)}
               />
