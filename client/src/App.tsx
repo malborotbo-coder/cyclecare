@@ -24,6 +24,7 @@ import { buildApiUrl } from "@/lib/apiConfig";
 import { InstallPWA } from "@/components/InstallPWA";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import OrdersPage from "@/pages/OrdersPage";
 import {
   FirebaseAuthProvider,
   useFirebaseAuth,
@@ -198,6 +199,12 @@ function Router() {
               <Route path="/checkout">
                 <AppLayout>
                   <Checkout />
+                </AppLayout>
+              </Route>
+
+              <Route path="/orders">
+                <AppLayout>
+                  <OrdersPage />
                 </AppLayout>
               </Route>
 

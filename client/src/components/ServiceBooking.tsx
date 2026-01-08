@@ -409,6 +409,23 @@ export default function ServiceBooking() {
                 isProcessing={processingPayment}
                 onSelectMethod={(method) => {
                   setSelectedPaymentMethod(method);
+
+                  // حفظ الطلب محلياً ليظهر في صفحة "طلباتي"
+                  const newOrder = {
+                    id: crypto.randomUUID(),
+                    total: costBreakdown.total || 0,
+                    serviceType: services.find((s) => s.id === selectedService)?.name || "خدمة",
+                    technician: selectedTechnician?.name || `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
+                    createdAt: new Date().toISOString(),
+                  };
+                  try {
+                    const raw = localStorage.getItem("mock_orders");
+                    const list = raw ? JSON.parse(raw) : [];
+                    localStorage.setItem("mock_orders", JSON.stringify([newOrder, ...list].slice(0, 20)));
+                  } catch (e) {
+                    console.warn("Failed to save mock order", e);
+                  }
+
                   toast({
                     title: "تم استلام طلبك",
                     description: "المندوب في الطريق إليك ويمكنك تحميل الفاتورة من طلباتك.",

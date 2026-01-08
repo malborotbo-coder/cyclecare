@@ -40,6 +40,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       admin: "المسؤول",
       profile: "دراجتي",
       logout: "تسجيل الخروج",
+      orders: "طلباتي",
     },
     en: {
       menu: "Menu",
@@ -50,6 +51,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       admin: "Admin",
       profile: "My Bike",
       logout: "Logout",
+      orders: "My Orders",
     },
   };
 
@@ -58,6 +60,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
     { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
+    { id: "orders", path: "/orders", icon: Shield, label: t[lang].orders },
     { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
   ];
 
@@ -93,7 +96,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       </SheetTrigger>
       <SheetContent 
         side={lang === "ar" ? "right" : "left"} 
-        className="w-[280px] bg-background/40 dark:bg-background/35 border-border/30 backdrop-blur-2xl"
+        className="w-[280px] bg-background/25 dark:bg-background/25 border-border/30 backdrop-blur-2xl pt-[calc(env(safe-area-inset-top,0px)+12px)]"
       >
         <SheetHeader className="pb-4">
           <div className="flex items-center justify-between">
