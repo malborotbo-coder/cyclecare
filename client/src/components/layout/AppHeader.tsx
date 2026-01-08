@@ -25,7 +25,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
       className={`fixed top-0 left-0 right-0 z-[110] border-b backdrop-blur-xl ${
         transparent 
           ? "bg-black/15 dark:bg-black/25 border-white/10"
-          : "bg-primary/55 dark:bg-primary/50 border-primary/25"
+          : "bg-primary/50 dark:bg-primary/45 border-primary/25"
       }`}
       style={{
         paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',

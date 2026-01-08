@@ -20,6 +20,7 @@ import Logo from "@/components/Logo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/useAuth";
+import bikePageBg from "@assets/images/bike page backgraound.jpg";
 
 interface ServiceCardProps {
   icon: React.ReactNode;
@@ -234,16 +235,20 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f2e8dc] dark:bg-[#0f0f0f]">
+    <div className="min-h-screen">
       <main 
         ref={heroRef}
-        className="pb-20 relative min-h-screen bg-[#f2e8dc] dark:bg-[#0f0f0f]"
+        className="pb-20 relative min-h-screen"
         style={{ 
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
           minHeight: "max(100vh, 100dvh)",
+          backgroundImage: `url(${bikePageBg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundAttachment: "scroll",
         }}
       >
-        <div className="absolute inset-0 bg-black/6 dark:bg-black/25 transition-all duration-500"></div>
+        <div className="absolute inset-0 bg-black/35 transition-all duration-500"></div>
         
         <div className="relative">
           <div className="container mx-auto px-4 flex flex-col justify-center items-start min-h-screen">
