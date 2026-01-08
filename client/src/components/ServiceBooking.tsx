@@ -227,7 +227,7 @@ export default function ServiceBooking() {
                         <span className="font-semibold">{s.name}</span>
                         {s.disabled && <Badge variant="secondary">قريباً</Badge>}
                       </div>
-                      {s.subtitle && <span className="text-sm text-muted-foreground text-white/70">{s.subtitle}</span>}
+                      {s.subtitle && <span className="text-sm text-muted-foreground dark:text-white/70">{s.subtitle}</span>}
                     </div>
                   </Label>
                 ))}
@@ -267,7 +267,7 @@ export default function ServiceBooking() {
                   placeholder="ملاحظات"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="bg-white/5 border-white/10 text-white placeholder:text-white/50"
+                  className="bg-white/75 text-foreground placeholder:text-muted-foreground dark:bg-white/5 dark:text-white dark:placeholder:text-white/50 border border-white/20"
                 />
               </>
             )}

@@ -93,7 +93,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       </SheetTrigger>
       <SheetContent 
         side={lang === "ar" ? "right" : "left"} 
-        className="w-[280px] bg-background/85 dark:bg-background/80 border-border/30 backdrop-blur-lg"
+        className="w-[280px] bg-background/70 dark:bg-background/65 border-border/30 backdrop-blur-xl"
       >
         <SheetHeader className="pb-4">
           <div className="flex items-center justify-between">
