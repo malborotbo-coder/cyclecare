@@ -30,7 +30,6 @@ import { type BiometricStatus } from "@/lib/biometricAuth";
 import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 import { persistAuthTokens } from "@/lib/authStorage";
-import { Capacitor } from "@capacitor/core";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
 
 export default function FirebaseAuthPage() {
@@ -235,14 +234,14 @@ export default function FirebaseAuthPage() {
     try {
       setIsLoading(true);
       setError("");
-      
+
       const user = await signInWithApple();
       if (user) {
         console.log('[Auth] Apple sign-in successful:', user.email);
-        window.location.href = '/';
+        setIsLoading(false);
+        window.location.href = "/";
       } else {
-        // Apple Sign-In redirects to OAuth endpoint
-        console.log('[Auth] Redirecting to Apple OAuth...');
+        setIsLoading(false);
       }
     } catch (err: any) {
       console.error("[Auth] Apple sign-in error:", err);

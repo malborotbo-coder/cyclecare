@@ -22,10 +22,10 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
 
   return (
     <header 
-      className={`fixed top-0 left-0 right-0 z-[110] border-b backdrop-blur-lg ${
+      className={`fixed top-0 left-0 right-0 z-[110] border-b backdrop-blur-xl ${
         transparent 
-          ? "bg-gradient-to-b from-black/40 via-black/25 to-black/15 border-white/10"
-          : "bg-primary/80 dark:bg-primary/75 border-primary/20"
+          ? "bg-black/15 dark:bg-black/25 border-white/10"
+          : "bg-primary/55 dark:bg-primary/50 border-primary/25"
       }`}
       style={{
         paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',

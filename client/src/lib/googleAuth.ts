@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { SignInWithApple } from "@capacitor-community/apple-sign-in";
 import { Browser } from "@capacitor/browser";
 import { apiRequest } from "./queryClient";
 import { buildApiUrl } from "./apiConfig";
@@ -10,6 +11,7 @@ export interface GoogleAuthUser {
   name: string;
   image?: string;
   accessToken: string;
+  token?: string;
 }
 
 const isNative = Capacitor.isNativePlatform();
@@ -33,17 +35,42 @@ export async function signInWithGoogle(): Promise<GoogleAuthUser | null> {
 
 export async function signInWithApple(): Promise<GoogleAuthUser | null> {
   try {
-    if (Capacitor.isNativePlatform()) {
-      console.log('[AppleAuth] Signing in via Apple');
-      
-      // Note: Apple Sign-In needs a separate plugin @capacitor-community/apple-sign-in
-      // For now, redirect to OAuth endpoint
-      window.location.href = `/api/login?provider=apple&redirectTo=/`;
-      return null;
-    } else {
-      window.location.href = `/api/login?provider=apple&redirectTo=/`;
-      return null;
+    if (!Capacitor.isNativePlatform()) {
+      throw new Error("Apple Sign-In متاح عبر التطبيق فقط");
     }
+
+    const { response } = await SignInWithApple.authorize({
+      scopes: ["FULL_NAME", "EMAIL"],
+    });
+
+    const identityToken = (response as any)?.identityToken;
+    if (!identityToken) {
+      throw new Error("تعذّر الحصول على رمز التحقق من أبل");
+    }
+
+    const fullName = {
+      firstName: (response as any)?.givenName || (response as any)?.fullName?.givenName || undefined,
+      lastName: (response as any)?.familyName || (response as any)?.fullName?.familyName || undefined,
+    };
+
+    const result = await apiRequest("/api/auth/apple-native", "POST", {
+      identityToken,
+      email: (response as any)?.email || undefined,
+      fullName,
+    });
+
+    if (result?.token) {
+      await persistAuthTokens({ authToken: result.token, phoneSession: result.token });
+      return {
+        id: result.user?.id || "",
+        email: result.user?.email || "",
+        name: result.user?.name || "",
+        accessToken: result.token,
+        token: result.token,
+      };
+    }
+
+    throw new Error("Apple Sign-In failed");
   } catch (error: any) {
     console.error('[AppleAuth] Sign-in error:', error);
     throw new Error(error.message || 'Apple Sign-In failed');

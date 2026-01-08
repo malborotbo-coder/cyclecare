@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Bell, Wrench, Package, History, UserCircle, MapPin, Star, UserPlus, CheckCircle2, LogOut, Plus, User, Edit } from "lucide-react";
-import heroImage from "@assets/generated_images/Professional_cyclist_rear_view_landscape_bad0f0cd.png"; // desktop/tablet original
+// خلفية موحدة (لون فقط) بدلاً من الصورة لضبط التناسق على الجوال
 import LanguageToggle from "@/components/LanguageToggle";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -97,22 +97,7 @@ export default function HomePage() {
   const isNative = platform !== 'web';
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [heroLoaded, setHeroLoaded] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
-
-  // Fix for safe area on native apps
-  useEffect(() => {
-    if (isNative) {
-      const style = document.documentElement.style;
-      style.setProperty('background-color', 'hsl(var(--background))');
-    }
-  }, [isNative]);
-
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => setHeroLoaded(true);
-    img.src = heroImage;
-  }, []);
 
   // Skip API calls on iOS - just show mock data
   const shouldSkipAPI = !!nativeUser;
@@ -249,18 +234,16 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#f2e8dc] dark:bg-[#0f0f0f]">
       <main 
         ref={heroRef}
-        className="pb-20 relative min-h-screen bg-cover bg-center bg-fixed" 
+        className="pb-20 relative min-h-screen bg-[#f2e8dc] dark:bg-[#0f0f0f]"
         style={{ 
-          backgroundImage: heroLoaded ? `url(${heroImage})` : undefined,
-          backgroundPosition: "center top",
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
           minHeight: "max(100vh, 100dvh)",
         }}
       >
-        <div className={`absolute inset-0 transition-all duration-500 ${heroLoaded ? 'bg-black/30' : 'bg-gradient-to-b from-primary/40 to-secondary/40'}`}></div>
+        <div className="absolute inset-0 bg-black/6 dark:bg-black/25 transition-all duration-500"></div>
         
         <div className="relative">
           <div className="container mx-auto px-4 flex flex-col justify-center items-start min-h-screen">

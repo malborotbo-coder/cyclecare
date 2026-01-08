@@ -204,8 +204,8 @@ export default function ServiceBooking() {
 
   return (
     <BookingBackgroundLayout>
-      <div className="max-w-2xl mx-auto p-4 mt-6 md:mt-10">
-        <Card className="bg-white/75 dark:bg-black/70 text-foreground dark:text-white border-border/20 backdrop-blur-sm">
+      <div className="max-w-2xl mx-auto p-4 mt-10 md:mt-14">
+        <Card className="bg-white/85 dark:bg-black/70 text-foreground dark:text-white border-border/20 backdrop-blur-md shadow-xl">
           <CardHeader>
             <CardTitle>حجز خدمة</CardTitle>
           </CardHeader>
@@ -216,8 +216,8 @@ export default function ServiceBooking() {
                 {services.map((s, idx) => (
                   <Label
                     key={s.id}
-                    className={`flex gap-3 p-3 border rounded-md bg-white/5 ${
-                      s.disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-white/10"
+                    className={`flex gap-3 p-3 border rounded-md bg-white/90 dark:bg-white/5 ${
+                      s.disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-white/95 dark:hover:bg-white/10"
                     }`}
                   >
                     <RadioGroupItem value={s.id} disabled={s.disabled} />
@@ -237,7 +237,7 @@ export default function ServiceBooking() {
             {currentStep === 1 && (
               <>
                 <p>الموقع: {locationText}</p>
-                <div className="h-64 w-full rounded-md overflow-hidden border border-white/10 mb-4">
+                <div className="h-64 w-full rounded-md overflow-hidden border border-white/40 dark:border-white/15 mb-4">
                   <iframe
                     title="client-location"
                     src={`https://maps.google.com/maps?q=${location.lat},${location.lng}&z=15&output=embed`}
@@ -283,7 +283,7 @@ export default function ServiceBooking() {
                         <Label
                           key={tech.id}
                           htmlFor={tech.id}
-                          className="flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer hover-elevate bg-white/5 border-white/10"
+                          className="flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer hover-elevate bg-white/85 text-foreground dark:bg-white/5 dark:text-white border-white/30 dark:border-white/10"
                           data-testid={`option-technician-${idx}`}
                         >
                           <RadioGroupItem value={tech.id} id={tech.id} />
@@ -319,7 +319,7 @@ export default function ServiceBooking() {
                   <div className="text-muted-foreground">جاري حساب التكلفة...</div>
                 )}
                 {costBreakdown && selectedTechnician && (
-                  <Card className="border border-white/10 bg-white/80 text-foreground dark:bg-white/5 dark:text-white">
+                  <Card className="border border-white/30 bg-white/90 text-foreground dark:border-white/10 dark:bg-white/5 dark:text-white backdrop-blur-md shadow-lg">
                     <CardHeader>
                       <CardTitle className="text-lg">تأكيد الحجز</CardTitle>
                     </CardHeader>

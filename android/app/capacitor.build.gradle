@@ -15,6 +15,7 @@ dependencies {
     implementation project(':capacitor-geolocation')
     implementation project(':capacitor-preferences')
     implementation project(':capgo-capacitor-native-biometric')
+    implementation project(':capacitor-native-biometric')
 
 }
 

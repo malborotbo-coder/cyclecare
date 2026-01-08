@@ -21,10 +21,14 @@ import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
 import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
+import { signJWT } from "./jwt";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
+const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
+const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
 const upload = multer({
   limits: {
@@ -78,6 +82,14 @@ function buildMockTech(lat: number, lng: number) {
     latitude: lat,
     longitude: lng,
   };
+}
+
+async function verifyAppleIdentityToken(identityToken: string) {
+  const { payload } = await jwtVerify(identityToken, appleJwks, {
+    issuer: "https://appleid.apple.com",
+    audience: APPLE_BUNDLE_ID,
+  });
+  return payload;
 }
 
 async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?: number) {
@@ -440,6 +452,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // AUTHENTICATED ROUTES
+
+  app.post("/api/auth/apple-native", async (req, res) => {
+    try {
+      const { identityToken, email, fullName } = req.body || {};
+      if (!identityToken) {
+        return res.status(400).json({ message: "IDENTITY_TOKEN_REQUIRED" });
+      }
+
+      const payload = await verifyAppleIdentityToken(identityToken);
+      const sub = payload.sub as string | undefined;
+      if (!sub) {
+        return res.status(400).json({ message: "INVALID_TOKEN" });
+      }
+
+      const firstName = (fullName?.firstName || (payload as any)?.given_name || "").trim();
+      const lastName = (fullName?.lastName || (payload as any)?.family_name || "").trim();
+      const emailValue = (payload.email as string) || email || null;
+
+      const token = signJWT({
+        sub: `apple_${sub}`,
+        email: emailValue || undefined,
+        firstName: firstName || undefined,
+        lastName: lastName || undefined,
+        profileImageUrl: null,
+        isAdmin: false,
+      });
+
+      return res.json({
+        token,
+        user: {
+          id: `apple_${sub}`,
+          email: emailValue,
+          name: `${firstName} ${lastName}`.trim(),
+        },
+      });
+    } catch (error: any) {
+      console.error("[APPLE][AUTH][ERROR]", error);
+      return res
+        .status(400)
+        .json({ message: "APPLE_AUTH_FAILED", detail: error?.message || "Invalid Apple identity token" });
+    }
+  });
 
   // Auth route - Get current user
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
