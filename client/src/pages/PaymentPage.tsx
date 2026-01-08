@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -65,31 +65,18 @@ export default function PaymentPage() {
     { id: "tamara", label: labels.tamaraLabel, icon: Wallet, color: "bg-green-600" },
     { id: "credit_card", label: labels.creditCardLabel, icon: CreditCard, color: "bg-gray-700" },
     { id: "bank_transfer", label: labels.bankTransfer, icon: Wallet, color: "bg-purple-600" },
+    { id: "mock", label: isArabic ? "دفع تجريبي" : "Mock Payment", icon: Wallet, color: "bg-primary" },
   ];
-
-  const paymentMutation = useMutation({
-    mutationFn: async (method: string) => {
-      return apiRequest("POST", "/api/payments", {
-        method,
-        amount: 150.00,
-        currency: "SAR",
-      });
-    },
-    onSuccess: () => {
-      setShowSuccess(true);
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      setTimeout(() => {
-        setLocation("/");
-      }, 2000);
-    },
-  });
 
   const handlePayment = () => {
     if (!selectedMethod) {
       alert(labels.selectPaymentMethod);
       return;
     }
-    paymentMutation.mutate(selectedMethod);
+    setShowSuccess(true);
+    setTimeout(() => {
+      setLocation("/");
+    }, 2000);
   };
 
   if (showSuccess) {

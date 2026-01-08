@@ -7,7 +7,7 @@ import { CreditCard, Smartphone, Building2, Apple } from "lucide-react";
 import type { PaymentMethod } from "@shared/schema";
 
 interface PaymentOption {
-  id: PaymentMethod;
+  id: PaymentMethod | "mock";
   name: string;
   nameEn: string;
   icon: React.ReactNode;
@@ -43,12 +43,19 @@ const paymentMethods: PaymentOption[] = [
     icon: <Building2 className="w-6 h-6" />,
     description: "التحويل المباشر إلى الحساب البنكي",
   },
+  {
+    id: "mock",
+    name: "دفع تجريبي",
+    nameEn: "Mock Payment",
+    icon: <CreditCard className="w-6 h-6" />,
+    description: "تأكيد فوري دون بوابة دفع",
+  },
 ];
 
 interface PaymentOptionsProps {
   amount: number;
   serviceRequestId: string;
-  onSelectMethod: (method: PaymentMethod) => void;
+  onSelectMethod: (method: PaymentMethod | "mock") => void;
   onCancel: () => void;
   isProcessing?: boolean;
 }
@@ -60,7 +67,7 @@ export default function PaymentOptions({
   onCancel,
   isProcessing = false,
 }: PaymentOptionsProps) {
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | "">("");
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | "mock" | "">("");
 
   const handleConfirm = () => {
     if (selectedMethod) {
