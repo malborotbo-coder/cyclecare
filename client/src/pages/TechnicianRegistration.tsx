@@ -12,7 +12,7 @@ import Logo from "@/components/Logo";
 import LanguageToggle from "@/components/LanguageToggle";
 import { queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
-import technicianBg from "@assets/stock_images/bicycle_mechanic_tec_e306465b.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 type FieldErrors = Record<string, string>;
 
@@ -169,7 +169,7 @@ export default function TechnicianRegistration() {
       <div
         className="fixed inset-0 z-0"
         style={{
-          backgroundImage: `url(${technicianBg})`,
+          backgroundImage: `url(${workshopBg})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundAttachment: "fixed",
@@ -202,7 +202,7 @@ export default function TechnicianRegistration() {
         </header>
 
         {/* Main Content */}
-        <main className="max-w-2xl mx-auto p-4 pb-8">
+        <main className="max-w-2xl mx-auto p-4 pb-8 text-foreground dark:text-white">
           {/* Logo and Title */}
           <div className="text-center py-6">
             <div className="bg-white/90 dark:bg-black/80 backdrop-blur-sm rounded-2xl p-6 mb-6 inline-block">
@@ -210,11 +210,11 @@ export default function TechnicianRegistration() {
             </div>
             <div className="flex items-center justify-center gap-2 mb-2">
               <Wrench className="w-6 h-6 text-primary" />
-              <h1 className="text-2xl font-bold text-white drop-shadow-lg" data-testid="text-page-title">
+              <h1 className="text-2xl font-bold text-foreground dark:text-white drop-shadow-lg" data-testid="text-page-title">
                 {t("techRegTitle")}
               </h1>
             </div>
-            <p className="text-white/90 drop-shadow" data-testid="text-page-subtitle">
+            <p className="text-foreground dark:text-white/90 drop-shadow" data-testid="text-page-subtitle">
               {t("techRegSubtitle")}
             </p>
           </div>

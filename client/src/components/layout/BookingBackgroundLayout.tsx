@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import bikeBg from "@assets/images/bike page backgraound.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 type Props = {
   children: ReactNode;
   className?: string;
@@ -11,7 +11,7 @@ export default function BookingBackgroundLayout({ children, className }: Props) 
       <div
         className="absolute inset-0"
         style={{
-          backgroundImage: `url(${bikeBg})`,
+          backgroundImage: `url(${workshopBg})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundAttachment: "scroll",

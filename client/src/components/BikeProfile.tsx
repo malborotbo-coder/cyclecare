@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Bike, Calendar, Wrench, AlertCircle, Plus, Pencil, Camera, Loader2, ImagePlus, X } from "lucide-react";
 import bikeImage from "@assets/generated_images/Modern_bike_in_Riyadh_2027f785.png";
-import bikePageBg from "@assets/images/bike page backgraound.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import type { Bike as BikeType, MaintenanceRecord, InsertBike } from "@shared/schema";
 import { insertBikeSchema } from "@shared/schema";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -258,7 +258,7 @@ const BikePageBackground = ({ children }: { children: ReactNode }) => (
     <div className="absolute inset-0">
       <div
         className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${bikePageBg})` }}
+        style={{ backgroundImage: `url(${workshopBg})` }}
         aria-hidden="true"
       />
       <div className="absolute inset-0 bg-black/30" aria-hidden="true" />

@@ -20,7 +20,7 @@ import Logo from "@/components/Logo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/useAuth";
-import bikePageBg from "@assets/images/bike page backgraound.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 interface ServiceCardProps {
   icon: React.ReactNode;
@@ -242,7 +242,7 @@ export default function HomePage() {
         style={{ 
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
           minHeight: "max(100vh, 100dvh)",
-          backgroundImage: `url(${bikePageBg})`,
+          backgroundImage: `url(${workshopBg})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           backgroundAttachment: "scroll",

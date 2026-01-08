@@ -11,7 +11,7 @@ import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient"
 import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
 import { buildApiUrl } from "@/lib/apiConfig";
-import bikeProfileBg from "@assets/images/bike page backgraound.jpg";
+import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 export default function ProfilePage() {
   const { t, lang, toggleLanguage } = useLanguage();
@@ -147,7 +147,7 @@ export default function ProfilePage() {
       <div className="absolute inset-0">
         <div
           className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${bikeProfileBg})` }}
+          style={{ backgroundImage: `url(${workshopBg})` }}
           aria-hidden="true"
         />
         <div className="absolute inset-0 bg-black/30" aria-hidden="true" />
