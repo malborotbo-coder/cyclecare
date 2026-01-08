@@ -13,7 +13,7 @@ export default function SafeAreaLayout({
 }) {
   return (
     <div
-      className={`min-h-screen bg-background ${className}`}
+      className={`min-h-screen bg-transparent ${className}`}
       style={{
         paddingTop: "env(safe-area-inset-top, 0px)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",

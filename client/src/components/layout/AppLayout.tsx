@@ -5,6 +5,7 @@ import { queryClient } from "@/lib/queryClient";
 import { clearAuthTokens } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
 import SafeAreaLayout from "./SafeAreaLayout";
+import GlobalBackground from "./GlobalBackground";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -74,10 +75,11 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
   };
 
   return (
-    <SafeAreaLayout className="flex flex-col bg-background">
+    <SafeAreaLayout className="flex flex-col bg-transparent">
+      <GlobalBackground />
       <AppHeader onLogout={handleLogout} transparent={transparentHeader} />
       <main
-        className="flex-1"
+        className="flex-1 relative z-10"
         style={{
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
         }}

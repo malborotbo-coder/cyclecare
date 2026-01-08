@@ -22,7 +22,6 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { ApiError } from "@/lib/apiError";
 import type { Technician } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
-import BookingBackgroundLayout from "@/components/layout/BookingBackgroundLayout";
 import type { PricingBreakdown } from "@shared/bookingTypes";
 
 export default function ServiceBooking() {
@@ -203,8 +202,8 @@ export default function ServiceBooking() {
   /* ------------------ UI ------------------ */
 
   return (
-    <BookingBackgroundLayout>
-      <div className="max-w-2xl mx-auto p-4 mt-10 md:mt-14">
+    <div className="relative z-10">
+      <div className="max-w-2xl mx-auto p-4 mt-6 md:mt-10">
         <Card className="bg-white/85 dark:bg-black/70 text-foreground dark:text-white border-border/20 backdrop-blur-md shadow-xl">
           <CardHeader>
             <CardTitle>حجز خدمة</CardTitle>
@@ -436,6 +435,6 @@ export default function ServiceBooking() {
           </CardContent>
         </Card>
       </div>
-    </BookingBackgroundLayout>
+    </div>
   );
 }

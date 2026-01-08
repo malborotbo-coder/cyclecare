@@ -7,7 +7,6 @@ import { useLocation } from "wouter";
 import { Apple, CreditCard, Wallet } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import BookingBackgroundLayout from "@/components/layout/BookingBackgroundLayout";
 
 export default function PaymentPage() {
   const { lang } = useLanguage();
@@ -95,7 +94,7 @@ export default function PaymentPage() {
 
   if (showSuccess) {
     return (
-      <BookingBackgroundLayout>
+      <div className="relative z-10">
         <div className="min-h-screen flex items-center justify-center p-4">
           <Card className="w-full max-w-md bg-white/85 dark:bg-slate-900/85 backdrop-blur border border-white/20 p-8 text-center shadow-xl">
             <div className="text-green-500 text-5xl mb-4">✓</div>
@@ -103,12 +102,12 @@ export default function PaymentPage() {
             <p className="text-muted-foreground">{labels.successMsg}</p>
           </Card>
         </div>
-      </BookingBackgroundLayout>
+      </div>
     );
   }
 
   return (
-    <BookingBackgroundLayout>
+    <div className="relative z-10">
       <div className="min-h-screen p-4">
         <div className="max-w-2xl mx-auto">
           <h1 className={`text-3xl font-bold text-white mb-8 ${isArabic ? "text-right" : "text-left"}`}>
@@ -173,6 +172,6 @@ export default function PaymentPage() {
           </div>
         </div>
       </div>
-    </BookingBackgroundLayout>
+    </div>
   );
 }
