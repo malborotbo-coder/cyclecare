@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import logoImage from "@assets/cycle-care-new-logo.png";
 
 export type InvoiceLineItem = {
@@ -76,12 +77,269 @@ const getCustomerContact = (user?: InvoiceUser) => {
   return contact;
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const hasArabic = (value: string) => /[\u0600-\u06FF]/.test(value);
+
+const collectTextSnapshot = (
+  invoice: InvoiceLike,
+  user?: InvoiceUser,
+  meta?: InvoicePdfMeta
+) => {
+  const pieces: Array<string | number | null | undefined> = [
+    invoice.invoiceNumber,
+    invoice.status,
+    invoice.description,
+    user?.firstName,
+    user?.lastName,
+    user?.email,
+    user?.phone,
+    user?.phoneNumber,
+    meta?.orderId,
+    meta?.serviceName,
+    meta?.technicianName,
+    meta?.paymentMethod,
+    meta?.location,
+    meta?.routeFrom,
+    meta?.routeTo,
+    meta?.notes,
+  ];
+
+  if (Array.isArray(invoice.items)) {
+    invoice.items.forEach((item) => {
+      pieces.push(item.name, item.description);
+    });
+  }
+
+  return pieces.filter(Boolean).join(" ");
+};
+
+const renderInvoiceHtmlToPdf = async (
+  invoice: InvoiceLike,
+  user: InvoiceUser | undefined,
+  meta: InvoicePdfMeta | undefined,
+  fileName: string,
+  isArabic: boolean
+) => {
+  if (typeof document === "undefined") {
+    throw new Error("HTML rendering requires document access.");
+  }
+
+  const wrapper = document.createElement("div");
+  const direction = isArabic ? "rtl" : "ltr";
+  const customerName = getCustomerName(user);
+  const contactLines = getCustomerContact(user);
+
+  const detailRows = [
+    { label: "Order ID", value: meta?.orderId },
+    { label: "Service", value: meta?.serviceName },
+    { label: "Technician", value: meta?.technicianName },
+    { label: "Payment", value: meta?.paymentMethod },
+    { label: "Booking Date", value: meta?.bookingDate ? formatDate(meta.bookingDate) : undefined },
+    { label: "Location", value: meta?.location },
+    {
+      label: "Route",
+      value:
+        meta?.routeFrom && meta?.routeTo ? `${meta.routeFrom} -> ${meta.routeTo}` : undefined,
+    },
+    {
+      label: "Distance / ETA",
+      value:
+        meta?.distanceKm || meta?.etaMinutes
+          ? `${meta?.distanceKm ?? "-"} km • ${meta?.etaMinutes ?? "-"} min`
+          : undefined,
+    },
+  ].filter((row) => row.value);
+
+  const items = Array.isArray(invoice.items)
+    ? invoice.items
+    : invoice.description
+    ? [{ name: invoice.description, quantity: 1, unitPrice: invoice.total, total: invoice.total }]
+    : [];
+
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-10000px";
+  wrapper.style.top = "0";
+  wrapper.style.width = "794px";
+  wrapper.style.background = "#ffffff";
+  wrapper.style.color = "#111111";
+  wrapper.style.direction = direction;
+  wrapper.style.fontFamily = "'Tajawal','Inter',sans-serif";
+  wrapper.innerHTML = `
+    <div style="padding:32px 36px;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:24px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img src="${logoImage}" alt="Cycle Care" style="width:56px; height:56px; object-fit:contain;" />
+          <div>
+            <div style="font-size:18px; font-weight:700;">Cycle Care</div>
+            <div style="font-size:12px; color:#6b7280;">Tax Invoice</div>
+          </div>
+        </div>
+        <div style="text-align:${isArabic ? "left" : "right"}; font-size:12px; color:#111111;">
+          <div style="font-weight:700; color:rgb(${brandPrimary.join(",")}); font-size:13px;">
+            Invoice: ${escapeHtml(invoice.invoiceNumber)}
+          </div>
+          ${invoice.status ? `<div style="margin-top:4px; color:#6b7280;">Status: ${escapeHtml(String(invoice.status))}</div>` : ""}
+          ${invoice.issuedDate ? `<div style="margin-top:4px; color:#6b7280;">Issued: ${escapeHtml(formatDate(invoice.issuedDate))}</div>` : ""}
+        </div>
+      </div>
+
+      <div style="display:flex; gap:24px; margin-top:24px;">
+        <div style="flex:1;">
+          <div style="font-size:11px; color:#6b7280; letter-spacing:0.08em;">BILL TO</div>
+          <div style="margin-top:8px; font-size:13px; font-weight:600;">${escapeHtml(customerName)}</div>
+          ${contactLines
+            .map((line) => `<div style="margin-top:4px; font-size:12px; color:#374151;">${escapeHtml(line)}</div>`)
+            .join("")}
+        </div>
+        <div style="flex:1;">
+          <div style="font-size:11px; color:#6b7280; letter-spacing:0.08em;">BOOKING DETAILS</div>
+          <div style="margin-top:8px; font-size:12px; color:#111111;">
+            ${detailRows
+              .map(
+                (row) => `
+                <div style="display:flex; justify-content:space-between; gap:12px; margin-bottom:6px;">
+                  <span style="color:#6b7280;">${escapeHtml(row.label)}</span>
+                  <span style="font-weight:600;">${escapeHtml(String(row.value))}</span>
+                </div>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+
+      ${
+        meta?.notes
+          ? `
+        <div style="margin-top:20px; background:#f3f4f6; padding:12px 14px; border-radius:10px;">
+          <div style="font-size:11px; color:#6b7280; letter-spacing:0.08em;">NOTES</div>
+          <div style="margin-top:6px; font-size:12px; color:#111111;">${escapeHtml(meta.notes)}</div>
+        </div>
+      `
+          : ""
+      }
+
+      <table style="width:100%; border-collapse:collapse; margin-top:24px; font-size:12px;">
+        <thead>
+          <tr style="background:rgb(${brandPrimary.join(",")}); color:#ffffff;">
+            <th style="text-align:left; padding:8px 10px;">Item</th>
+            <th style="text-align:center; padding:8px 10px;">Qty</th>
+            <th style="text-align:center; padding:8px 10px;">Unit</th>
+            <th style="text-align:right; padding:8px 10px;">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map((item, index) => {
+              const name = item.name || item.description || `Item ${index + 1}`;
+              const quantity = item.quantity ?? 1;
+              const unitPrice = item.unitPrice ?? item.price ?? item.total ?? 0;
+              const total = item.total ?? Number(unitPrice) * quantity;
+              return `
+                <tr style="border-bottom:1px solid #e5e7eb;">
+                  <td style="padding:8px 10px;">${escapeHtml(String(name))}</td>
+                  <td style="padding:8px 10px; text-align:center;">${escapeHtml(String(quantity))}</td>
+                  <td style="padding:8px 10px; text-align:center;">${escapeHtml(formatAmount(unitPrice))}</td>
+                  <td style="padding:8px 10px; text-align:right;">${escapeHtml(formatAmount(total))}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+
+      <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+        <div style="min-width:220px; font-size:12px;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <span style="color:#6b7280;">Subtotal</span>
+            <span>${escapeHtml(formatCurrency(invoice.subtotal))}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+            <span style="color:#6b7280;">VAT (${escapeHtml(String(invoice.taxRate))}%)</span>
+            <span>${escapeHtml(formatCurrency(invoice.taxAmount))}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-weight:700; color:rgb(${brandAccent.join(",")});">
+            <span>Total</span>
+            <span>${escapeHtml(formatCurrency(invoice.total))}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:28px; text-align:center; font-size:10px; color:#9ca3af; font-style:italic;">
+        Thank you for your business - Cycle Care
+      </div>
+      <div style="text-align:center; font-size:10px; color:#9ca3af;">
+        Riyadh, Kingdom of Saudi Arabia
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrapper);
+
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+
+  const canvas = await html2canvas(wrapper, {
+    backgroundColor: "#ffffff",
+    scale: 2,
+    useCORS: true,
+  });
+
+  wrapper.remove();
+
+  const pdf = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4",
+  });
+
+  const imgData = canvas.toDataURL("image/png");
+  const pdfWidth = pdf.internal.pageSize.getWidth();
+  const pdfHeight = pdf.internal.pageSize.getHeight();
+  const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+  let heightLeft = imgHeight;
+  let position = 0;
+
+  pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+  heightLeft -= pdfHeight;
+
+  while (heightLeft > 0) {
+    position = heightLeft - imgHeight;
+    pdf.addPage();
+    pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+    heightLeft -= pdfHeight;
+  }
+
+  pdf.save(fileName);
+};
+
 export async function generateInvoicePDF(
   invoice: InvoiceLike,
   user: InvoiceUser | undefined,
   language: "ar" | "en" = "ar",
   meta?: InvoicePdfMeta
 ) {
+  const textSnapshot = collectTextSnapshot(invoice, user, meta);
+  const isArabic = language === "ar" || hasArabic(textSnapshot);
+  const fileName = `Invoice-${invoice.invoiceNumber}.pdf`;
+
+  if (isArabic) {
+    try {
+      await renderInvoiceHtmlToPdf(invoice, user, meta, fileName, isArabic);
+      return;
+    } catch (error) {
+      console.error("HTML invoice rendering failed, falling back to vector PDF:", error);
+    }
+  }
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -253,5 +511,5 @@ export async function generateInvoicePDF(
     align: "center",
   });
 
-  doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
+  doc.save(fileName);
 }

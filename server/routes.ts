@@ -123,6 +123,117 @@ async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?
   return { latitude, longitude };
 }
 
+type TrackingStep = {
+  id: string;
+  title: string;
+  description: string;
+  status: "done" | "current" | "pending";
+  timestamp: string;
+};
+
+type RouteSummary = {
+  fromLabel: string;
+  toLabel: string;
+  distanceKm: number;
+  etaMinutes: number;
+  lastUpdated: string;
+};
+
+const addMinutes = (base: Date, minutes: number) =>
+  new Date(base.getTime() + minutes * 60_000);
+
+const parseJsonValue = (value: any) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return value;
+};
+
+const buildDefaultRoute = (location?: string): RouteSummary => ({
+  fromLabel: "نقطة انطلاق الفني",
+  toLabel: location || "موقع العميل",
+  distanceKm: 0,
+  etaMinutes: 0,
+  lastUpdated: new Date().toISOString(),
+});
+
+const buildDefaultTrackingSteps = (status?: string, createdAt?: string): TrackingStep[] => {
+  const baseTime = createdAt ? new Date(createdAt) : new Date();
+  const templates = [
+    {
+      id: "created",
+      title: "تم استلام الطلب",
+      description: "طلبك قيد المراجعة الآن.",
+    },
+    {
+      id: "assigned",
+      title: "تم إسناد الفني",
+      description: "جارٍ تجهيز الفني والتواصل معك.",
+    },
+    {
+      id: "on_the_way",
+      title: "الفني في الطريق",
+      description: "الفني متجه إلى موقعك.",
+    },
+    {
+      id: "arrived",
+      title: "تم الوصول",
+      description: "الفني وصل إلى موقعك ويبدأ الخدمة.",
+    },
+    {
+      id: "completed",
+      title: "تمت الخدمة",
+      description: "تم إنهاء الطلب بنجاح.",
+    },
+  ];
+
+  const stageMap: Record<string, number> = {
+    pending: 0,
+    accepted: 1,
+    in_progress: 2,
+    completed: 4,
+    cancelled: 0,
+  };
+  const stageIndex = stageMap[status || "pending"] ?? 0;
+
+  return templates.map((step, index) => {
+    const statusValue =
+      status === "completed"
+        ? "done"
+        : index < stageIndex
+        ? "done"
+        : index === stageIndex
+        ? "current"
+        : "pending";
+    return {
+      ...step,
+      status: statusValue,
+      timestamp: addMinutes(baseTime, index * 6).toISOString(),
+    };
+  });
+};
+
+const normalizeTrackingSteps = (input: any, status?: string, createdAt?: string): TrackingStep[] => {
+  const parsed = parseJsonValue(input);
+  if (Array.isArray(parsed)) {
+    return parsed as TrackingStep[];
+  }
+  return buildDefaultTrackingSteps(status, createdAt);
+};
+
+const normalizeRoute = (input: any, location?: string): RouteSummary => {
+  const parsed = parseJsonValue(input);
+  if (parsed && typeof parsed === "object") {
+    return parsed as RouteSummary;
+  }
+  return buildDefaultRoute(location);
+};
+
 const profilePhotoUpload = (req: any, res: any, next: any) => {
   upload.single("photo")(req, res, (err: any) => {
     if (err) {
@@ -2001,6 +2112,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bike_id: (requestData as any).bikeId || null,
       };
 
+      const createdAtIso = new Date().toISOString();
+      const trackingSteps = normalizeTrackingSteps(
+        body.trackingSteps ?? body.tracking_steps,
+        requestData.status,
+        createdAtIso,
+      );
+      const route = normalizeRoute(body.route ?? body.route_data ?? body.route_json, requestData.location);
+
       const { resp, data } = await pgFetch("/service_requests", {
         method: "POST",
         body: [payload],
@@ -2017,6 +2136,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const created = Array.isArray(data) ? data[0] : data;
+
+      const patchPayload: Record<string, any> = {};
+      if (trackingSteps) {
+        patchPayload.tracking_steps = trackingSteps;
+      }
+      if (route) {
+        patchPayload.route = route;
+      }
+
+      if (created?.id && Object.keys(patchPayload).length > 0) {
+        const { resp: patchResp, data: patchData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(created.id)}`,
+          {
+            method: "PATCH",
+            body: patchPayload,
+            headers: { Prefer: "return=representation" },
+          },
+        );
+
+        if (patchResp.ok) {
+          const patched = Array.isArray(patchData) ? patchData[0] : patchData;
+          res.status(201).json(patched || created);
+          return;
+        }
+
+        console.log("[SERVICE_REQUEST][TRACKING][WARN]", {
+          status: patchResp.status,
+          body: patchData,
+        });
+      }
+
       res.status(201).json(created);
     } catch (error) {
       const handled = handleRouteError(error, req, res);
@@ -2868,8 +3018,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
-      const orders = await storage.getUserOrders(userId);
+      const userUuid = await ensureUserUuid(auth);
+
+      const { resp: srResp, data: srData } = await pgFetch(
+        `/service_requests?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+      if (!srResp.ok) {
+        console.error("[ORDERS][AGG][SERVICE_REQUESTS][FAILED]", {
+          status: srResp.status,
+          body: srData,
+        });
+        return res.status(500).json({ message: "Failed to fetch service requests" });
+      }
+
+      const { resp: invResp, data: invData } = await pgFetch(
+        `/invoices?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+      if (!invResp.ok) {
+        console.error("[ORDERS][AGG][INVOICES][FAILED]", {
+          status: invResp.status,
+          body: invData,
+        });
+      }
+
+      const serviceRequests = Array.isArray(srData) ? srData : [];
+      const invoices = Array.isArray(invData) ? invData : [];
+      const invoiceByRequest = new Map<string, any>();
+      invoices.forEach((invoice: any) => {
+        const key = invoice.service_request_id || invoice.serviceRequestId;
+        if (key) {
+          invoiceByRequest.set(key, invoice);
+        }
+      });
+
+      const orders = serviceRequests.map((request: any) => {
+        const requestId = request.id;
+        const invoice = requestId ? invoiceByRequest.get(requestId) : undefined;
+        const createdAt = request.created_at || request.createdAt || new Date().toISOString();
+        const trackingSteps = normalizeTrackingSteps(
+          request.tracking_steps ?? request.trackingSteps,
+          request.status,
+          createdAt,
+        );
+        const route = normalizeRoute(
+          request.route ?? request.route_data ?? request.routeData,
+          request.location,
+        );
+
+        return {
+          id: requestId,
+          serviceRequestId: requestId,
+          invoiceId: invoice?.id ?? null,
+          orderNumber: request.order_number || request.orderNumber || requestId,
+          invoiceNumber: invoice?.invoice_number || invoice?.invoiceNumber || null,
+          status: invoice?.status || request.status || "pending",
+          serviceType: request.service_type || request.serviceType,
+          location: request.location,
+          latitude: request.latitude,
+          longitude: request.longitude,
+          notes: request.notes,
+          technicianId: request.technician_id || request.technicianId,
+          trackingSteps,
+          route,
+          subtotal: Number(invoice?.subtotal ?? request.estimated_cost ?? 0),
+          taxRate: Number(invoice?.tax_rate ?? invoice?.taxRate ?? 15),
+          taxAmount: Number(invoice?.tax_amount ?? invoice?.taxAmount ?? 0),
+          total: Number(invoice?.total ?? request.estimated_cost ?? 0),
+          items: invoice?.items ?? [],
+          createdAt,
+          updatedAt: request.updated_at || request.updatedAt || createdAt,
+          invoice,
+          serviceRequest: request,
+        };
+      });
+
       res.json(orders);
     } catch (error) {
       console.error("Error fetching orders:", error);
