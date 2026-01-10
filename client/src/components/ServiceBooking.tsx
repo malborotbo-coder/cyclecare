@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation as useRouterLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,12 +10,16 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowRight,
   ArrowLeft,
-  Check,
   Wrench,
   Package,
   Settings,
   User,
   Navigation,
+  FileText,
+  ClipboardCheck,
+  MapPin,
+  Clock,
+  Route,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -24,9 +29,17 @@ import type { Technician } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
 import type { PricingBreakdown } from "@shared/bookingTypes";
 import type { PaymentMethod } from "@shared/schema";
+import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
+import { createMockOrder, saveMockOrder, type StoredOrder } from "@/lib/mockOrders";
+import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function ServiceBooking() {
   const { toast } = useToast();
+  const [, setRouterLocation] = useRouterLocation();
+  const { user } = useFirebaseAuth();
+  const { lang } = useLanguage();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedService, setSelectedService] = useState("");
@@ -43,6 +56,7 @@ export default function ServiceBooking() {
   const [createdServiceRequestId, setCreatedServiceRequestId] = useState<string | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | "mock" | null>(null);
+  const [confirmedOrder, setConfirmedOrder] = useState<StoredOrder | null>(null);
 
   /* ------------------ DATA ------------------ */
 
@@ -201,6 +215,64 @@ export default function ServiceBooking() {
     }
   };
 
+  const resetBooking = () => {
+    setCurrentStep(0);
+    setSelectedService("");
+    setSelectedTechnicianId("");
+    setNotes("");
+    setCostBreakdown(null);
+    setCreatedServiceRequestId(null);
+    setProcessingPayment(false);
+    setSelectedPaymentMethod(null);
+    setConfirmedOrder(null);
+  };
+
+  const paymentMethodLabels: Record<string, string> = {
+    stripe_apple_pay: "Apple Pay",
+    stripe_card: "بطاقة ائتمان",
+    stc_pay: "STC Pay",
+    bank_transfer: "حوالة بنكية",
+    mock: "دفع تجريبي",
+  };
+
+  const downloadInvoice = (order: StoredOrder) => {
+    const invoice = {
+      invoiceNumber: order.invoiceNumber,
+      subtotal: order.subtotal,
+      taxRate: order.taxRate,
+      taxAmount: order.taxAmount,
+      total: order.total,
+      issuedDate: order.createdAt,
+      status: "PAID",
+      items: order.items,
+    };
+
+    const meta = {
+      orderId: order.orderNumber,
+      serviceName: order.serviceType,
+      technicianName: order.technician,
+      paymentMethod: paymentMethodLabels[order.paymentMethod || "mock"],
+      bookingDate: order.createdAt,
+      location: order.locationText,
+      routeFrom: order.route?.fromLabel,
+      routeTo: order.route?.toLabel,
+      distanceKm: order.route?.distanceKm,
+      etaMinutes: order.route?.etaMinutes,
+      notes: order.notes,
+    };
+
+    const pdfUser = user
+      ? {
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
+          email: user.email ?? undefined,
+          phone: user.phone ?? undefined,
+        }
+      : undefined;
+
+    void generateInvoicePDF(invoice, pdfUser, lang as "ar" | "en", meta);
+  };
+
   /* ------------------ UI ------------------ */
 
   return (
@@ -212,6 +284,110 @@ export default function ServiceBooking() {
           </CardHeader>
 
           <CardContent>
+            {currentStep === 5 && confirmedOrder && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-primary/20 bg-white/90 dark:bg-white/5 p-4 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                      <ClipboardCheck className="h-6 w-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold">تم تأكيد الدفع</h3>
+                      <p className="text-sm text-muted-foreground">
+                        رقم الطلب {confirmedOrder.orderNumber}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">الخدمة</span>
+                        <span>{confirmedOrder.serviceType}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">الفني</span>
+                        <span>{confirmedOrder.technician}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">طريقة الدفع</span>
+                        <span>{paymentMethodLabels[confirmedOrder.paymentMethod || "mock"]}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">الموقع</span>
+                        <span>{confirmedOrder.locationText || "الرياض"}</span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <FileText className="h-4 w-4 text-primary" />
+                        <span>ملخص الفاتورة</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">المجموع الفرعي</span>
+                        <span>{confirmedOrder.subtotal.toFixed(2)} ر.س</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">الضريبة</span>
+                        <span>{confirmedOrder.taxAmount.toFixed(2)} ر.س</span>
+                      </div>
+                      <div className="flex items-center justify-between text-base font-bold text-primary">
+                        <span>الإجمالي</span>
+                        <span>{confirmedOrder.total.toFixed(2)} ر.س</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 space-y-2 text-sm">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <Route className="h-4 w-4 text-primary" />
+                      <span>ملخص المسار</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">من</span>
+                      <span>{confirmedOrder.route?.fromLabel || "نقطة انطلاق الفني"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">إلى</span>
+                      <span>{confirmedOrder.route?.toLabel || "موقع العميل"}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-4 w-4" />
+                        {confirmedOrder.route?.distanceKm ?? 0} كم
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {confirmedOrder.route?.etaMinutes ?? 0} دقيقة
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-3">
+                  <h4 className="font-semibold">تتبع الطلب</h4>
+                  <OrderTrackingTimeline steps={confirmedOrder.trackingSteps} />
+                </div>
+
+                <div className="flex flex-col gap-3 md:flex-row">
+                  <Button className="flex-1" onClick={() => downloadInvoice(confirmedOrder)}>
+                    تحميل الفاتورة PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setRouterLocation("/orders")}
+                  >
+                    عرض طلباتي
+                  </Button>
+                  <Button variant="ghost" className="flex-1" onClick={resetBooking}>
+                    حجز جديد
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {currentStep === 0 && (
               <RadioGroup value={selectedService} onValueChange={setSelectedService} className="space-y-3">
                 {services.map((s, idx) => (
@@ -410,27 +586,25 @@ export default function ServiceBooking() {
                 onSelectMethod={(method) => {
                   setSelectedPaymentMethod(method);
 
-                  // حفظ الطلب محلياً ليظهر في صفحة "طلباتي"
-                  const newOrder = {
-                    id: crypto.randomUUID(),
-                    total: costBreakdown.total || 0,
-                    serviceType: services.find((s) => s.id === selectedService)?.name || "خدمة",
-                    technician: selectedTechnician?.name || `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
-                    createdAt: new Date().toISOString(),
-                  };
-                  try {
-                    const raw = localStorage.getItem("mock_orders");
-                    const list = raw ? JSON.parse(raw) : [];
-                    localStorage.setItem("mock_orders", JSON.stringify([newOrder, ...list].slice(0, 20)));
-                  } catch (e) {
-                    console.warn("Failed to save mock order", e);
-                  }
+                  if (!costBreakdown || !selectedTechnician) return;
 
-                  toast({
-                    title: "تم استلام طلبك",
-                    description: "المندوب في الطريق إليك ويمكنك تحميل الفاتورة من طلباتك.",
+                  const order = createMockOrder({
+                    serviceName: services.find((s) => s.id === selectedService)?.name || "خدمة",
+                    technicianName:
+                      selectedTechnician?.name ||
+                      `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
+                    technicianRating: Number(selectedTechnician.rating ?? 0),
+                    technicianDistanceKm: selectedTechnician.distanceKm ?? 0,
+                    technicianEtaMinutes: selectedTechnician.etaMinutes ?? 25,
+                    locationText,
+                    notes,
+                    paymentMethod: method,
+                    breakdown: costBreakdown,
                   });
-                  resetBooking();
+
+                  saveMockOrder(order);
+                  setConfirmedOrder(order);
+                  setCurrentStep(5);
                 }}
                 onCancel={() => setCurrentStep(3)}
               />

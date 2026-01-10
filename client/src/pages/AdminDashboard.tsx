@@ -36,6 +36,11 @@ interface TechnicianWithUser extends Technician {
   userEmail?: string | null;
 }
 
+type InvoiceWithConvoy = Invoice & {
+  convoyId?: string;
+  convoyName?: string;
+};
+
 export default function AdminDashboard() {
   const { lang, t } = useLanguage();
   const { toast } = useToast();
@@ -188,6 +193,8 @@ export default function AdminDashboard() {
       total: "الإجمالي",
       issuedDate: "تاريخ الإصدار",
       downloadPDF: "تحميل PDF",
+      convoy: "الموكب",
+      allConvoys: "كل المواكب",
     },
     en: {
       title: "Owner Dashboard",
@@ -249,6 +256,8 @@ export default function AdminDashboard() {
       total: "Total",
       issuedDate: "Issued Date",
       downloadPDF: "Download PDF",
+      convoy: "Convoy",
+      allConvoys: "All Convoys",
       discountCode: "Discount Code",
       discountValue: "Discount Value",
       discountType: "Type",
@@ -326,6 +335,8 @@ export default function AdminDashboard() {
     total: "الإجمالي",
     issuedDate: "تاريخ الإصدار",
     downloadPDF: "تحميل PDF",
+    convoy: "الموكب",
+    allConvoys: "كل المواكب",
     discountCode: "كود الخصم",
     discountValue: "قيمة الخصم",
     discountType: "نوع الخصم",
@@ -341,6 +352,19 @@ export default function AdminDashboard() {
     addPart: "إضافة قطعة",
     addCode: "إضافة كود",
   } : translations['en'];
+
+  const convoys = [
+    { id: "convoy-riyadh", name: lang === "ar" ? "موكب الرياض" : "Riyadh Convoy" },
+    { id: "convoy-jeddah", name: lang === "ar" ? "موكب جدة" : "Jeddah Convoy" },
+    { id: "convoy-dammam", name: lang === "ar" ? "موكب الدمام" : "Dammam Convoy" },
+  ];
+
+  const convoyOptions = [
+    { id: "all", name: txt.allConvoys },
+    ...convoys,
+  ];
+
+  const [selectedConvoy, setSelectedConvoy] = useState<string>(() => convoyOptions[1]?.id ?? "all");
 
   const { data: users, isLoading: usersLoading, error: usersError } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
@@ -390,6 +414,88 @@ export default function AdminDashboard() {
   const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
+
+  const mockConvoyInvoices: InvoiceWithConvoy[] = [
+    {
+      id: "mock-invoice-1",
+      invoiceNumber: "INV-2024-1101",
+      userId: "mock-user-1",
+      serviceRequestId: null,
+      subtotal: "280.00",
+      taxRate: "15",
+      taxAmount: "42.00",
+      total: "322.00",
+      description: "Periodic maintenance",
+      items: [{ name: "Periodic maintenance", quantity: 1, unitPrice: 280, total: 280 }],
+      status: "paid",
+      issuedDate: new Date(),
+      dueDate: null,
+      paidDate: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      convoyId: convoys[0]?.id,
+      convoyName: convoys[0]?.name,
+    },
+    {
+      id: "mock-invoice-2",
+      invoiceNumber: "INV-2024-1102",
+      userId: "mock-user-2",
+      serviceRequestId: null,
+      subtotal: "190.00",
+      taxRate: "15",
+      taxAmount: "28.50",
+      total: "218.50",
+      description: "Emergency repair",
+      items: [{ name: "Emergency repair", quantity: 1, unitPrice: 190, total: 190 }],
+      status: "issued",
+      issuedDate: new Date(),
+      dueDate: null,
+      paidDate: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      convoyId: convoys[1]?.id,
+      convoyName: convoys[1]?.name,
+    },
+    {
+      id: "mock-invoice-3",
+      invoiceNumber: "INV-2024-1103",
+      userId: "mock-user-3",
+      serviceRequestId: null,
+      subtotal: "350.00",
+      taxRate: "15",
+      taxAmount: "52.50",
+      total: "402.50",
+      description: "Delivery + service",
+      items: [
+        { name: "Service", quantity: 1, unitPrice: 300, total: 300 },
+        { name: "Delivery", quantity: 1, unitPrice: 50, total: 50 },
+      ],
+      status: "paid",
+      issuedDate: new Date(),
+      dueDate: null,
+      paidDate: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      convoyId: convoys[2]?.id,
+      convoyName: convoys[2]?.name,
+    },
+  ];
+
+  const convoyInvoices: InvoiceWithConvoy[] = safeInvoices.length
+    ? safeInvoices.map((invoice, index) => {
+        const convoy = convoys[index % convoys.length];
+        return {
+          ...invoice,
+          convoyId: convoy?.id,
+          convoyName: convoy?.name,
+        };
+      })
+    : mockConvoyInvoices;
+
+  const filteredInvoices =
+    selectedConvoy === "all"
+      ? convoyInvoices
+      : convoyInvoices.filter((invoice) => invoice.convoyId === selectedConvoy);
   const safeParts = Array.isArray(parts as any) ? (parts as any) : [];
   const safeDiscountCodes = Array.isArray(discountCodes as any) ? (discountCodes as any) : [];
 
@@ -1256,17 +1362,34 @@ export default function AdminDashboard() {
           <TabsContent value="invoices" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>{txt.invoices}</CardTitle>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <CardTitle>{txt.invoices}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">{txt.convoy}</span>
+                    <Select value={selectedConvoy} onValueChange={setSelectedConvoy}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {convoyOptions.map((convoy) => (
+                          <SelectItem key={convoy.id} value={convoy.id}>
+                            {convoy.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[500px]">
                   {invoicesLoading ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : safeInvoices.length === 0 ? (
+                  ) : filteredInvoices.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {safeInvoices.map((invoice) => {
+                      {filteredInvoices.map((invoice) => {
                         const user = safeUsers.find((u) => u.id === invoice.userId);
                         return (
                           <div
@@ -1282,6 +1405,11 @@ export default function AdminDashboard() {
                                 <p className="text-sm text-muted-foreground">
                                   {user ? `${user.firstName} ${user.lastName}` : 'Unknown User'}
                                 </p>
+                                {invoice.convoyName && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {txt.convoy}: {invoice.convoyName}
+                                  </p>
+                                )}
                               </div>
                               <Badge
                                 variant={
