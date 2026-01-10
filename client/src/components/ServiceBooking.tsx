@@ -20,6 +20,7 @@ import {
   MapPin,
   Clock,
   Route,
+  ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -413,15 +414,37 @@ export default function ServiceBooking() {
 
             {currentStep === 1 && (
               <>
-                <p>الموقع: {locationText}</p>
-                <div className="h-64 w-full rounded-md overflow-hidden border border-white/40 dark:border-white/15 mb-4">
-                  <iframe
-                    title="client-location"
-                    src={`https://maps.google.com/maps?q=${location.lat},${location.lng}&z=15&output=embed`}
-                    className="w-full h-full border-0"
-                    loading="lazy"
-                    allowFullScreen
-                  />
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold">خريطة الموقع</h4>
+                      <p className="text-sm text-muted-foreground">
+                        يمكنك التكبير والتحريك لتحديد موقعك بدقة.
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" asChild>
+                      <a
+                        href={`https://maps.google.com/maps?q=${location.lat},${location.lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        فتح في خرائط Google
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
+                  <div className="relative overflow-hidden rounded-2xl border border-white/40 bg-white/80 shadow-xl dark:border-white/10 dark:bg-white/5">
+                    <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full bg-white/90 px-3 py-1 text-xs text-foreground shadow-sm dark:bg-black/60 dark:text-white">
+                      {locationText}
+                    </div>
+                    <iframe
+                      title="client-location"
+                      src={`https://maps.google.com/maps?q=${location.lat},${location.lng}&z=15&output=embed`}
+                      className="h-[360px] w-full border-0 md:h-[420px]"
+                      loading="lazy"
+                      allowFullScreen
+                    />
+                  </div>
                 </div>
                 <Button
                   onClick={() =>
