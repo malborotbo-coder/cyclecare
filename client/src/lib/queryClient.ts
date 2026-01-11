@@ -1,13 +1,11 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { auth } from "@/lib/firebase";
 import { buildApiError, ensureApiError } from "@/lib/apiError";
 import { buildApiUrl, getApiBaseUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
 import { Capacitor } from "@capacitor/core";
-import { getBestAuthToken } from "./authStorage";
+import { getFirebaseIdToken } from "@/lib/firebaseAuth";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
-// Token storage key (must match FirebaseAuthContext)
-const AUTH_TOKEN_KEY = "auth_token";
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
 
@@ -31,54 +29,12 @@ function getLanguagePreference(): Language {
   return "ar";
 }
 
-// Helper to get auth token - supports JWT, phone session, and Firebase tokens
-async function getAuthToken(): Promise<string | null> {
-  const storedAuthToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
-  const storedFirebaseToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("firebase_token") : null;
-
-  const bestToken = await getBestAuthToken();
-  if (bestToken) return bestToken;
-
-  // Try to refresh Firebase token if we have a current user (web)
-  try {
-    const currentUser = auth.currentUser;
-    if (currentUser) {
-      // Get fresh token (force refresh if token is old)
-      const freshToken = await currentUser.getIdToken(false);
-      // Update Firebase token cache without overriding app JWT
-      localStorage.setItem("firebase_token", freshToken);
-      localStorage.setItem(AUTH_TOKEN_KEY, freshToken);
-      console.log("[Auth] Firebase token refreshed");
-      return freshToken;
-    }
-  } catch (error) {
-    console.error("[Auth] Error refreshing Firebase ID token:", error);
-  }
-  
-  // If Firebase currentUser is not available yet (after page reload), 
-  // use stored token as fallback - it's still valid for ~1 hour
-  if (storedFirebaseToken) {
-    console.log("[Auth] Using stored Firebase token (currentUser not ready)");
-    return storedFirebaseToken;
-  }
-  
-  // Check for JWT token (Google OAuth) - these are longer lived
-  if (storedAuthToken) {
-    console.log("[Auth] Using stored JWT token");
-    return storedAuthToken;
-  }
-  
-  return null;
-}
-
-  // Build headers with auth token if available (async version)
+// Build headers with auth token if available (async version)
 export async function getAuthHeadersAsync(includeContentType: boolean = false, lang?: Language): Promise<HeadersInit> {
   const headers: HeadersInit = {};
   const resolvedLang = lang || getLanguagePreference();
   
-  const token = await getAuthToken();
+  const token = await getFirebaseIdToken(false);
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -132,7 +88,7 @@ export async function apiRequest(
     });
   }
   try {
-    const res = await fetch(targetUrl, {
+    const res = await fetchWithFirebaseAuth(targetUrl, {
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
@@ -193,7 +149,7 @@ export const getQueryFn: <T>(options: {
           apiBase: getApiBaseUrl(),
         });
       }
-      const res = await fetch(targetUrl, {
+      const res = await fetchWithFirebaseAuth(targetUrl, {
         headers,
         credentials: isNative ? "omit" : "include",
       });
