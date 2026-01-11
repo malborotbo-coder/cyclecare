@@ -196,7 +196,14 @@ export default function ServiceBooking() {
       console.error("Booking error", error);
 
       if (isUnauthorizedError(error)) {
-        window.location.href = "/api/login";
+        console.warn("[Booking] Unauthorized. Falling back to demo flow.");
+        const mockRequestId = `mock-sr-${Date.now()}`;
+        setCreatedServiceRequestId(mockRequestId);
+        setCurrentStep(4);
+        toast({
+          title: "تم تفعيل الموكب التجريبي",
+          description: "تعذر التحقق من الدخول، سيتم المتابعة بموكب تجريبي مؤقت.",
+        });
         return;
       }
 
