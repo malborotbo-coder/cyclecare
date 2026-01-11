@@ -39,7 +39,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 export default function ServiceBooking() {
   const { toast } = useToast();
   const [, setRouterLocation] = useRouterLocation();
-  const { user } = useFirebaseAuth();
+  const { user, serverAuthenticated } = useFirebaseAuth();
   const { lang } = useLanguage();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -69,7 +69,7 @@ export default function ServiceBooking() {
 
   const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
     queryKey: ["/api/technicians/nearby", location.lat, location.lng],
-    enabled: !!location.lat && !!location.lng,
+    enabled: !!location.lat && !!location.lng && serverAuthenticated,
     queryFn: async () => {
       try {
         return await apiRequest(`/api/technicians/nearby?lat=${location.lat}&lng=${location.lng}`, "GET");
@@ -123,10 +123,31 @@ export default function ServiceBooking() {
       if (!service) return;
 
       const distanceKm = selectedTechnician.distanceKm ?? 0;
+      const fallbackBase = Number(service.base) || 0;
+      const fallbackBreakdown = {
+        service: { id: service.id, name: service.name, base: fallbackBase },
+        parts: { items: [], total: 0 },
+        install: { accessoryFee: 0, sparePartFee: 0, total: 0 },
+        delivery: { base: 0, perKm: 0, distanceKm, total: 0, min: 0, max: 0 },
+        subtotal: fallbackBase,
+        vatRate: 15,
+        vat: Number((fallbackBase * 0.15).toFixed(2)),
+        total: Number((fallbackBase * 1.15).toFixed(2)),
+        breakdownVersion: "fallback",
+      } as PricingBreakdown;
 
       setLoadingBreakdown(true);
 
       try {
+        if (!serverAuthenticated) {
+          setCostBreakdown(fallbackBreakdown);
+          toast({
+            title: "تم استخدام تسعير تقديري",
+            description: "تم تفعيل وضع الموكب التجريبي للتسعير.",
+          });
+          return;
+        }
+
         const breakdown = await apiRequest("/api/pricing/quote", "POST", {
           serviceId: service.id,
           serviceName: service.name,
@@ -136,19 +157,7 @@ export default function ServiceBooking() {
         setCostBreakdown(breakdown);
       } catch (e) {
         console.error("Pricing error", e);
-        const fallbackBase = Number(service.base) || 0;
-        const fallback = {
-          service: { id: service.id, name: service.name, base: fallbackBase },
-          parts: { items: [], total: 0 },
-          install: { accessoryFee: 0, sparePartFee: 0, total: 0 },
-          delivery: { base: 0, perKm: 0, distanceKm, total: 0, min: 0, max: 0 },
-          subtotal: fallbackBase,
-          vatRate: 15,
-          vat: Number((fallbackBase * 0.15).toFixed(2)),
-          total: Number((fallbackBase * 1.15).toFixed(2)),
-          breakdownVersion: "fallback",
-        } as PricingBreakdown;
-        setCostBreakdown(fallback);
+        setCostBreakdown(fallbackBreakdown);
         toast({
           title: "تم استخدام تسعير تقديري",
           description: "لم يتم جلب التسعير اللحظي، تم اعتماد تسعير تقديري مؤقت.",
@@ -159,7 +168,7 @@ export default function ServiceBooking() {
     };
 
     fetchPricing();
-  }, [selectedService, selectedTechnicianId]);
+  }, [selectedService, selectedTechnicianId, selectedTechnician, serverAuthenticated, toast]);
 
   /* ------------------ BOOKING ------------------ */
 
@@ -176,6 +185,18 @@ export default function ServiceBooking() {
     setSubmittingBooking(true);
 
     try {
+      if (!serverAuthenticated) {
+        console.warn("[Booking] Server auth unavailable. Falling back to demo flow.");
+        const mockRequestId = `mock-sr-${Date.now()}`;
+        setCreatedServiceRequestId(mockRequestId);
+        setCurrentStep(4);
+        toast({
+          title: "تم تفعيل الموكب التجريبي",
+          description: "تعذر التحقق من الدخول، سيتم المتابعة بموكب تجريبي مؤقت.",
+        });
+        return;
+      }
+
       const payload = {
         serviceType: selectedService,
         technicianId: selectedTechnicianId,

@@ -23,6 +23,7 @@ interface FirebaseAuthContextType {
   user: AuthUser;
   isLoading: boolean;
   authReady: boolean;
+  serverAuthenticated: boolean;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
 }
@@ -48,10 +49,12 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<AuthUser>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
+  const [serverAuthenticated, setServerAuthenticated] = useState(false);
 
   const checkSession = useCallback(async () => {
     setAuthReady(false);
     setIsLoading(true);
+    setServerAuthenticated(false);
     try {
       // Ensure native-stored tokens are available in localStorage for API calls
       await syncAuthTokensFromPreferences();
@@ -100,6 +103,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
 
       if (!response.ok) {
         console.warn("[Auth] Session check returned non-200:", response.status);
+        setServerAuthenticated(false);
       } else {
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
@@ -108,11 +112,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           if (userData && userData.id) {
             console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
             setUser(userData);
+            setServerAuthenticated(true);
             sessionResolved = true;
           }
         } else {
           const body = await response.text().catch(() => "");
           console.warn("[Auth] Session response was not JSON, treating as unauthenticated. Body snippet:", body.slice(0, 200));
+          setServerAuthenticated(false);
         }
       }
 
@@ -132,6 +138,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           isAdmin: false,
           source: "firebase_auth",
         });
+        setServerAuthenticated(false);
         return;
       }
 
@@ -147,13 +154,16 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           isAdmin: false,
           source: "firebase_auth"
         });
+        setServerAuthenticated(false);
         return;
       }
       
       console.log("[Auth] No active session (method:", authMethod, ")");
       setUser(null);
+      setServerAuthenticated(false);
     } catch (error) {
       console.error("[Auth] Error checking session:", error);
+      setServerAuthenticated(false);
       
       // Try to use local phone session as fallback
       const phoneSession = localStorage.getItem("phone_session");
@@ -230,7 +240,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   };
 
   return (
-    <FirebaseAuthContext.Provider value={{ user, isLoading, authReady, logout, getIdToken }}>
+    <FirebaseAuthContext.Provider value={{ user, isLoading, authReady, serverAuthenticated, logout, getIdToken }}>
       {children}
     </FirebaseAuthContext.Provider>
   );
