@@ -201,9 +201,11 @@ const normalizeOrder = (raw: Partial<StoredOrder>): StoredOrder => {
 export const loadMockOrders = (): StoredOrder[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) return seedOrders();
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return seedOrders();
+    }
     return parsed.map((order) => normalizeOrder(order));
   } catch (error) {
     console.warn("Failed to parse mock orders", error);
@@ -216,6 +218,129 @@ export const saveMockOrder = (order: StoredOrder) => {
   const updated = [order, ...existing].slice(0, 20);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   return updated;
+};
+
+const seedOrders = () => {
+  const now = new Date();
+  const seed: StoredOrder[] = [
+    normalizeOrder({
+      id: "demo-order-1",
+      orderNumber: "CC-2026-10001",
+      invoiceNumber: "INV-2026-10001",
+      createdAt: now.toISOString(),
+      serviceType: "صيانة دورية",
+      technician: "فني الموكب - 01",
+      technicianRating: 4.9,
+      locationText: "الرياض - حي المروج",
+      paymentMethod: "mock",
+      subtotal: 180,
+      taxRate: 15,
+      taxAmount: 27,
+      total: 207,
+      status: "on_the_way",
+      items: [
+        { name: "صيانة دورية", quantity: 1, unitPrice: 150, total: 150 },
+        { name: "رسوم التوصيل", quantity: 1, unitPrice: 30, total: 30 },
+      ],
+      trackingSteps: [
+        {
+          id: "paid",
+          title: "تم الدفع",
+          description: "تم تأكيد عملية الدفع بنجاح.",
+          status: "done",
+          timestamp: now.toISOString(),
+        },
+        {
+          id: "assigned",
+          title: "تم إسناد الفني",
+          description: "الفني ضمن الموكب ويتجه إليك.",
+          status: "done",
+          timestamp: addMinutes(now, 3).toISOString(),
+        },
+        {
+          id: "on_the_way",
+          title: "الفني في الطريق",
+          description: "متوقع الوصول خلال 18 دقيقة.",
+          status: "current",
+          timestamp: addMinutes(now, 8).toISOString(),
+        },
+        {
+          id: "arrived",
+          title: "تم الوصول",
+          description: "الفني وصل موقعك ويبدأ الخدمة.",
+          status: "pending",
+          timestamp: addMinutes(now, 18).toISOString(),
+        },
+      ],
+      route: {
+        fromLabel: "نقطة تجمع الموكب",
+        toLabel: "موقع العميل",
+        distanceKm: 7.5,
+        etaMinutes: 18,
+        lastUpdated: now.toISOString(),
+      },
+    }),
+    normalizeOrder({
+      id: "demo-order-2",
+      orderNumber: "CC-2026-10002",
+      invoiceNumber: "INV-2026-10002",
+      createdAt: addMinutes(now, -90).toISOString(),
+      serviceType: "إصلاح عطل",
+      technician: "فني الموكب - 07",
+      technicianRating: 4.7,
+      locationText: "الرياض - حي النرجس",
+      paymentMethod: "mock",
+      subtotal: 220,
+      taxRate: 15,
+      taxAmount: 33,
+      total: 253,
+      status: "completed",
+      items: [
+        { name: "إصلاح عطل", quantity: 1, unitPrice: 200, total: 200 },
+        { name: "رسوم خدمة عاجلة", quantity: 1, unitPrice: 20, total: 20 },
+      ],
+      trackingSteps: [
+        {
+          id: "paid",
+          title: "تم الدفع",
+          description: "تم تأكيد عملية الدفع بنجاح.",
+          status: "done",
+          timestamp: addMinutes(now, -90).toISOString(),
+        },
+        {
+          id: "assigned",
+          title: "تم إسناد الفني",
+          description: "الفني في طريقه إليك.",
+          status: "done",
+          timestamp: addMinutes(now, -80).toISOString(),
+        },
+        {
+          id: "arrived",
+          title: "تم الوصول",
+          description: "الفني وصل موقعك وبدأ الخدمة.",
+          status: "done",
+          timestamp: addMinutes(now, -65).toISOString(),
+        },
+        {
+          id: "completed",
+          title: "تمت الخدمة",
+          description: "تم إنهاء الطلب بنجاح.",
+          status: "done",
+          timestamp: addMinutes(now, -45).toISOString(),
+        },
+      ],
+      route: {
+        fromLabel: "مركز الموكب",
+        toLabel: "موقع العميل",
+        distanceKm: 5.2,
+        etaMinutes: 12,
+        lastUpdated: addMinutes(now, -90).toISOString(),
+      },
+    }),
+  ];
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+  return seed;
 };
 
 export const createMockOrder = (input: CreateMockOrderInput): StoredOrder => {

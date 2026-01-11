@@ -1,5 +1,7 @@
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { Capacitor } from "@capacitor/core";
+import { Share } from "@capacitor/share";
 import logoImage from "@assets/cycle-care-new-logo.png";
 
 export type InvoiceLineItem = {
@@ -75,6 +77,89 @@ const getCustomerContact = (user?: InvoiceUser) => {
   const phone = user.phoneNumber ?? user.phone;
   if (phone) contact.push(phone);
   return contact;
+};
+
+const isNativePlatform = () => {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+};
+
+const blobToBase64 = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      if (base64) {
+        resolve(base64);
+      } else {
+        reject(new Error("Empty base64 output"));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+    reader.readAsDataURL(blob);
+  });
+
+const saveAndOpenPdf = async (blob: Blob, fileName: string) => {
+  try {
+    const { Filesystem, Directory } = await import("@capacitor/filesystem");
+    const base64Data = await blobToBase64(blob);
+    const safeName = fileName.toLowerCase().endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+
+    await Filesystem.writeFile({
+      path: safeName,
+      data: base64Data,
+      directory: Directory.Documents,
+      recursive: true,
+    });
+
+    const uriResult = await Filesystem.getUri({
+      directory: Directory.Documents,
+      path: safeName,
+    });
+
+    const fileUri = uriResult?.uri;
+    if (!fileUri) {
+      console.warn("[Invoice PDF] Missing file URI after write.");
+      return;
+    }
+    if (fileUri.startsWith("blob:")) {
+      console.warn("[Invoice PDF] Refusing to open blob URL on native:", fileUri);
+      return;
+    }
+
+    if (isNativePlatform()) {
+      console.log("[Invoice PDF] Opening native share sheet");
+      await Share.share({
+        title: "Invoice PDF",
+        url: fileUri,
+        dialogTitle: "فتح الفاتورة",
+      });
+      return;
+    }
+
+    await Browser.open({ url: fileUri });
+  } catch (error) {
+    console.warn("[Invoice PDF] Failed to save/open PDF on native:", error);
+  }
+};
+
+const handlePdfOutput = async (pdf: jsPDF, fileName: string) => {
+  if (isNativePlatform()) {
+    console.log("[Invoice PDF] Native handler executed");
+    try {
+      const blob = pdf.output("blob");
+      await saveAndOpenPdf(blob, fileName);
+    } catch (error) {
+      console.warn("[Invoice PDF] Native save/open failed:", error);
+    }
+    return;
+  }
+
+  pdf.save(fileName);
 };
 
 const escapeHtml = (value: string) =>
@@ -318,7 +403,7 @@ const renderInvoiceHtmlToPdf = async (
     heightLeft -= pdfHeight;
   }
 
-  pdf.save(fileName);
+  await handlePdfOutput(pdf, fileName);
 };
 
 export async function generateInvoicePDF(
@@ -511,5 +596,5 @@ export async function generateInvoicePDF(
     align: "center",
   });
 
-  doc.save(fileName);
+  await handlePdfOutput(doc, fileName);
 }
