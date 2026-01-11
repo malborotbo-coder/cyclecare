@@ -1,12 +1,23 @@
 import { Capacitor } from "@capacitor/core";
 import { resolveApiUrl } from "./apiConfig";
-import { getFirebaseIdToken, waitForFirebaseAuthReady } from "./firebaseAuth";
+import { auth } from "./firebase";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
 const baseFetch = globalThis.fetch.bind(globalThis);
 
 const isApiRequest = (url: string) => url.includes("/api/");
+
+async function getFirebaseIdToken(forceRefresh = false): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    return await user.getIdToken(forceRefresh);
+  } catch (err) {
+    console.warn("[Auth] Failed to get Firebase ID token", err);
+    return null;
+  }
+}
 
 async function buildRequestBody(
   request: Request,
@@ -43,10 +54,9 @@ export async function fetchWithFirebaseAuth(
   const headers = new Headers(request.headers);
 
   if (isApiRequest(urlString)) {
-    await waitForFirebaseAuthReady();
-    if (!headers.has("Authorization")) {
-      const token = await getFirebaseIdToken(false);
-      if (token) headers.set("Authorization", `Bearer ${token}`);
+    const token = await getFirebaseIdToken(false);
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
   }
 

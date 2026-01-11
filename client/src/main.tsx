@@ -3,13 +3,7 @@ import App from "./App";
 import "./index.css";
 import { syncAuthTokensFromPreferences } from "./lib/authStorage";
 import { restoreBiometricSession } from "./lib/biometricSession";
-import { initFirebaseAuthPersistence } from "./lib/firebaseAuth";
 import { fetchWithFirebaseAuth } from "./lib/apiClient";
-
-// Initialize Firebase auth persistence on startup
-initFirebaseAuthPersistence().catch((err) => {
-  console.warn("[Auth] Failed to initialize persistence", err);
-});
 
 // Best-effort native token restore (biometric + preferences)
 Promise.all([restoreBiometricSession(), syncAuthTokensFromPreferences()]).catch(() => null);
@@ -20,9 +14,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   try {
     const request = new Request(input as any, init);
     const url = request.url;
-    const isApiCall =
-      url.startsWith("/api/") ||
-      url.startsWith(`${window.location.origin}/api/`);
+    const isApiCall = url.includes("/api/");
 
     if (isApiCall) {
       return fetchWithFirebaseAuth(input, init);

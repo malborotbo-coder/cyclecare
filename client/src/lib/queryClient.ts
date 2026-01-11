@@ -3,7 +3,6 @@ import { buildApiError, ensureApiError } from "@/lib/apiError";
 import { buildApiUrl, getApiBaseUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
 import { Capacitor } from "@capacitor/core";
-import { getFirebaseIdToken } from "@/lib/firebaseAuth";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
 const platform = Capacitor.getPlatform();
@@ -33,12 +32,7 @@ function getLanguagePreference(): Language {
 export async function getAuthHeadersAsync(includeContentType: boolean = false, lang?: Language): Promise<HeadersInit> {
   const headers: HeadersInit = {};
   const resolvedLang = lang || getLanguagePreference();
-  
-  const token = await getFirebaseIdToken(false);
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  
+
   if (includeContentType) {
     headers["Content-Type"] = "application/json";
   }
