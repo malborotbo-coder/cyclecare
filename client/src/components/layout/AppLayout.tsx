@@ -1,11 +1,14 @@
 import AppHeader from "./AppHeader";
 import { Capacitor } from "@capacitor/core";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { useNativeAuth } from "@/contexts/NativeAuthContext";
 import { queryClient } from "@/lib/queryClient";
 import { clearAuthTokens } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
 import SafeAreaLayout from "./SafeAreaLayout";
 import GlobalBackground from "./GlobalBackground";
+import { loadMockOrders } from "@/lib/mockOrders";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -15,6 +18,12 @@ interface AppLayoutProps {
 export default function AppLayout({ children, transparentHeader = false }: AppLayoutProps) {
   const isNative = Capacitor.isNativePlatform();
   const nativeAuth = useNativeAuth();
+  const [location] = useLocation();
+
+  useEffect(() => {
+    if (location.startsWith("/admin")) return;
+    loadMockOrders();
+  }, [location]);
 
   const handleLogout = async () => {
     console.log('[Logout] ===== LOGOUT STARTED =====');

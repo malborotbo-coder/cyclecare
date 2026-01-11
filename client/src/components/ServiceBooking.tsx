@@ -150,9 +150,8 @@ export default function ServiceBooking() {
         } as PricingBreakdown;
         setCostBreakdown(fallback);
         toast({
-          title: "خطأ",
-          description: "فشل حساب التكلفة",
-          variant: "destructive",
+          title: "تم استخدام تسعير تقديري",
+          description: "لم يتم جلب التسعير اللحظي، تم اعتماد تسعير تقديري مؤقت.",
         });
       } finally {
         setLoadingBreakdown(false);
