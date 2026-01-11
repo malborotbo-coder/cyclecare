@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { resolveApiUrl } from "./apiConfig";
 import { auth } from "./firebase";
+import { getBestAuthToken } from "./authStorage";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
@@ -52,11 +53,19 @@ export async function fetchWithFirebaseAuth(
   const resolvedUrl = resolveApiUrl(request.url);
   const urlString = typeof resolvedUrl === "string" ? resolvedUrl : resolvedUrl.toString();
   const headers = new Headers(request.headers);
+  let usedToken: string | null = null;
 
   if (isApiRequest(urlString)) {
     const token = await getFirebaseIdToken(false);
     if (token) {
+      usedToken = token;
       headers.set("Authorization", `Bearer ${token}`);
+    } else {
+      const fallbackToken = await getBestAuthToken();
+      if (fallbackToken) {
+        usedToken = fallbackToken;
+        headers.set("Authorization", `Bearer ${fallbackToken}`);
+      }
     }
   }
 
@@ -81,7 +90,7 @@ export async function fetchWithFirebaseAuth(
 
   if (isApiRequest(urlString) && response.status === 401) {
     const refreshed = await getFirebaseIdToken(true);
-    if (refreshed) {
+    if (refreshed && refreshed !== usedToken) {
       headers.set("Authorization", `Bearer ${refreshed}`);
       response = await baseFetch(resolvedUrl as any, { ...baseInit, headers });
     }

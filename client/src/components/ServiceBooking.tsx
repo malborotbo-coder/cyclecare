@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation as useRouterLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,32 +80,37 @@ export default function ServiceBooking() {
     }
   });
 
-  const techniciansList: Technician[] =
-    technicians && technicians.length > 0
-      ? technicians
-      : [
-          {
-            id: "mock-tech-1",
-            userId: "mock-user",
-            name: "فني تجريبي",
-            phoneNumber: null,
-            location: "Riyadh",
-            latitude: 24.7136,
-            longitude: 46.6753,
-            rating: 4.8,
-            reviewCount: 120,
-            isAvailable: true,
-            is_available: true,
-            isApproved: true,
-            yearsOfExperience: null,
-            commercialRegister: null,
-            nationalId: null,
-            iban: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            distanceKm: 0,
-          } as Technician,
-        ];
+  const fallbackTechnicians = useMemo<Technician[]>(() => {
+    const now = new Date().toISOString();
+    return [
+      {
+        id: "mock-tech-1",
+        userId: "mock-user",
+        name: "فني تجريبي",
+        phoneNumber: null,
+        location: "Riyadh",
+        latitude: 24.7136,
+        longitude: 46.6753,
+        rating: 4.8,
+        reviewCount: 120,
+        isAvailable: true,
+        is_available: true,
+        isApproved: true,
+        yearsOfExperience: null,
+        commercialRegister: null,
+        nationalId: null,
+        iban: null,
+        createdAt: now,
+        updatedAt: now,
+        distanceKm: 0,
+      } as Technician,
+    ];
+  }, []);
+
+  const techniciansList = useMemo<Technician[]>(
+    () => (technicians && technicians.length > 0 ? technicians : fallbackTechnicians),
+    [technicians, fallbackTechnicians],
+  );
 
   useEffect(() => {
     if (!selectedTechnicianId && techniciansList.length > 0) {
@@ -113,7 +118,10 @@ export default function ServiceBooking() {
     }
   }, [techniciansList, selectedTechnicianId]);
 
-  const selectedTechnician = techniciansList.find((t) => t.id === selectedTechnicianId);
+  const selectedTechnician = useMemo(
+    () => techniciansList.find((t) => t.id === selectedTechnicianId),
+    [techniciansList, selectedTechnicianId],
+  );
 
   useEffect(() => {
     const fetchPricing = async () => {
