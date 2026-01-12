@@ -272,22 +272,32 @@ export default function SupportPage() {
       headers.set("Accept-Language", lang);
       headers.set("X-Lang", lang);
 
-      const response = await fetch(buildApiUrl("/api/support/tickets"), {
-        method: "POST",
-        headers,
-        body: formData,
-        credentials: Capacitor.isNativePlatform() ? "omit" : "include",
-      });
-
-      if (!response.ok) {
-        let payload: any = null;
-        try {
-          payload = await response.json();
-        } catch {
-          // ignore
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", buildApiUrl("/api/support/tickets"), true);
+        xhr.withCredentials = !Capacitor.isNativePlatform();
+        if (token) {
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         }
-        throw new Error(payload?.message || labels.submitErrorBody);
-      }
+        xhr.setRequestHeader("Accept-Language", lang);
+        xhr.setRequestHeader("X-Lang", lang);
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+            return;
+          }
+          let message = labels.submitErrorBody;
+          try {
+            const payload = JSON.parse(xhr.responseText || "{}");
+            message = payload?.message || message;
+          } catch {
+            // ignore parse errors
+          }
+          reject(new Error(message));
+        };
+        xhr.onerror = () => reject(new Error(labels.submitErrorBody));
+        xhr.send(formData);
+      });
 
       clearFormFields();
       setSubmitted(true);
