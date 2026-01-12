@@ -23,6 +23,7 @@ import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { sendSupportEmail } from "./supportEmail";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const DEFAULT_LAT = 24.7136;
@@ -272,6 +273,42 @@ type AuthContext = {
   phoneNumber?: string;
 };
 
+const parseEnvList = (value?: string) =>
+  (value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const normalizeTestPhone = (phone?: string | null): string | null => {
+  if (!phone) return null;
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("966")) digits = digits.slice(3);
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  const normalized = digits.slice(-9);
+  return normalized || null;
+};
+
+const testUserEmailSet = new Set(parseEnvList(process.env.TEST_USER_EMAILS).map((email) => email.toLowerCase()));
+const testUserIdSet = new Set(parseEnvList(process.env.TEST_USER_UIDS));
+const testUserPhoneSet = new Set(
+  parseEnvList(process.env.TEST_USER_PHONES)
+    .map((phone) => normalizeTestPhone(phone))
+    .filter((phone): phone is string => !!phone),
+);
+
+function isTestUser(auth: AuthContext | null): boolean {
+  if (!auth) return false;
+  if (auth.email && testUserEmailSet.has(auth.email.toLowerCase())) return true;
+  if (testUserIdSet.has(auth.userId)) return true;
+  const normalizedPhone = normalizeTestPhone(auth.phoneNumber);
+  if (normalizedPhone && testUserPhoneSet.has(normalizedPhone)) return true;
+  return false;
+}
+
+function canUseTestMode(auth: AuthContext | null): boolean {
+  return !!auth && (auth.isAdmin || isTestUser(auth));
+}
+
 // Role helpers (primary source: roles + user_roles)
 let roleCache: { byName: Record<string, Role>; lastFetched?: number } = {
   byName: {},
@@ -378,6 +415,11 @@ async function ensureUserUuid(auth: AuthContext): Promise<string> {
   const uuidRegex = /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{12}$/;
   if (uuidRegex.test(auth.userId)) {
     return auth.userId;
+  }
+
+  const existingById = await storage.getUser(auth.userId);
+  if (existingById?.id) {
+    return existingById.id;
   }
 
   const providerId = auth.userId;
@@ -751,6 +793,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error uploading profile photo:", error);
       res.status(500).json({ message: "Failed to upload profile photo" });
+    }
+  });
+
+  app.post("/api/support/tickets", isAuthenticated, upload.single("attachment"), async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const getText = (value: any) => (typeof value === "string" ? value.trim() : "");
+
+      const category = getText(req.body?.category);
+      const categoryLabel = getText(req.body?.categoryLabel) || category;
+      const categoryLabelEn = getText(req.body?.categoryLabelEn);
+      const subCategory = getText(req.body?.subCategory);
+      const subCategoryLabel = getText(req.body?.subCategoryLabel) || subCategory;
+      const subCategoryLabelEn = getText(req.body?.subCategoryLabelEn);
+      const subject =
+        getText(req.body?.subject) ||
+        [categoryLabel, subCategoryLabel].filter(Boolean).join(" - ");
+      const description = getText(req.body?.description);
+      const userName = getText(req.body?.userName) || undefined;
+      const emailRaw = getText(req.body?.email);
+      const phone = getText(req.body?.phone) || undefined;
+      const platform =
+        getText(req.body?.platform) ||
+        getText(req.headers["x-platform"]) ||
+        "web";
+
+      const supportSchema = z.object({
+        category: z.string().min(1),
+        categoryLabel: z.string().min(1),
+        categoryLabelEn: z.string().optional(),
+        subCategory: z.string().optional(),
+        subCategoryLabel: z.string().optional(),
+        subCategoryLabelEn: z.string().optional(),
+        subject: z.string().min(1),
+        description: z.string().min(1),
+        userName: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional(),
+        platform: z.string().optional(),
+      });
+
+      const ticketData = validateSchema(
+        supportSchema,
+        {
+          category,
+          categoryLabel,
+          categoryLabelEn: categoryLabelEn || undefined,
+          subCategory: subCategory || undefined,
+          subCategoryLabel: subCategoryLabel || undefined,
+          subCategoryLabelEn: subCategoryLabelEn || undefined,
+          subject,
+          description,
+          userName,
+          email: emailRaw || undefined,
+          phone,
+          platform,
+        },
+        req,
+      );
+
+      const ticket = {
+        firebaseUid: auth.userId,
+        userName: ticketData.userName || null,
+        email: ticketData.email || null,
+        phone: ticketData.phone || null,
+        category: ticketData.categoryLabel,
+        categoryEn: ticketData.categoryLabelEn || null,
+        subCategory: ticketData.subCategoryLabel || ticketData.subCategory || null,
+        subCategoryEn: ticketData.subCategoryLabelEn || null,
+        subject: ticketData.subject,
+        description: ticketData.description,
+        platform: ticketData.platform || "web",
+        timestamp: new Date().toISOString(),
+      };
+
+      const attachmentFile = (req as any).file as Express.Multer.File | undefined;
+      const attachment = attachmentFile
+        ? {
+            filename: attachmentFile.originalname,
+            content: attachmentFile.buffer,
+            contentType: attachmentFile.mimetype,
+          }
+        : undefined;
+
+      const ticketId = `support_${Date.now()}`;
+      void sendSupportEmail(ticket, attachment).catch((error) => {
+        console.error("[Support] Email send failed:", error);
+      });
+
+      res.status(202).json({ success: true, ticketId });
+    } catch (error) {
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
+      console.error("Error creating support ticket:", error);
+      res.status(500).json({ message: "Failed to submit support ticket" });
     }
   });
 
@@ -1607,6 +1748,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      if (!canUseTestMode(auth)) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const userUuid = await ensureUserUuid(auth);
       const { serviceRequestId, technicianId, breakdown, paymentMethod } = req.body || {};
       if (!serviceRequestId || !technicianId || !breakdown) {
@@ -1621,7 +1765,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Service request not found" });
       }
       const sr = srData[0];
-      if (sr.user_id !== userUuid && !auth.isAdmin) {
+      const srUserId = sr.user_id || sr.userId;
+      const isOwner = srUserId && (srUserId === userUuid || srUserId === auth.userId);
+      if (!isOwner && !auth.isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -1634,8 +1780,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appCommissionAmount = Number((total * (commissionRate / 100)).toFixed(2));
       const technicianNetAmount = Number((total - appCommissionAmount).toFixed(2));
 
+      const orderUserId = srUserId || userUuid;
       const orderPayload = {
-        userId: userUuid,
+        userId: orderUserId,
         orderNumber: `ORD-${Date.now()}`,
         subtotal: subtotal.toString(),
         taxRate: taxRate.toString(),
@@ -1675,7 +1822,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers: { Prefer: "return=representation" },
       }).catch(() => {});
 
-      res.status(201).json({ order, commissionRate, appCommissionAmount, technicianNetAmount });
+      const invoiceNumber = `INV-TEST-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const invoiceData = validateSchema(insertInvoiceSchema, {
+        invoiceNumber,
+        userId: orderUserId,
+        serviceRequestId,
+        subtotal,
+        taxRate,
+        taxAmount,
+        total,
+        status: "paid",
+        issuedDate: new Date(),
+        paidDate: new Date(),
+        items: breakdown?.parts?.items || [],
+      }, req);
+
+      const invoice = await storage.createInvoice(invoiceData);
+
+      res.status(201).json({ order, invoice, commissionRate, appCommissionAmount, technicianNetAmount });
     } catch (error) {
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;

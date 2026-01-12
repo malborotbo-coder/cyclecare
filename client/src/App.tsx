@@ -25,6 +25,7 @@ import { InstallPWA } from "@/components/InstallPWA";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import OrdersPage from "@/pages/OrdersPage";
+import SupportPage from "@/pages/Support";
 import {
   FirebaseAuthProvider,
   useFirebaseAuth,
@@ -205,6 +206,12 @@ function Router() {
               <Route path="/orders">
                 <AppLayout>
                   <OrdersPage />
+                </AppLayout>
+              </Route>
+
+              <Route path="/support">
+                <AppLayout>
+                  <SupportPage />
                 </AppLayout>
               </Route>
 
