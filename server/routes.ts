@@ -803,72 +803,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const getText = (value: any) => (typeof value === "string" ? value.trim() : "");
+      const getText = (value: any) => {
+        if (typeof value === "string") return value.trim();
+        if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
+        return "";
+      };
 
-      const category = getText(req.body?.category);
-      const categoryLabel = getText(req.body?.categoryLabel) || category;
-      const categoryLabelEn = getText(req.body?.categoryLabelEn);
-      const subCategory = getText(req.body?.subCategory);
-      const subCategoryLabel = getText(req.body?.subCategoryLabel) || subCategory;
-      const subCategoryLabelEn = getText(req.body?.subCategoryLabelEn);
+      const rawBody = req.body || {};
+      const type = getText(rawBody.type) || getText(rawBody.category) || getText(rawBody.categoryLabel);
+      const category = getText(rawBody.category) || getText(rawBody.categoryLabel);
+      const message = getText(rawBody.message) || getText(rawBody.description);
+
+      if (!type || !category || !message) {
+        return res.status(400).json({ message: "type, category, and message are required" });
+      }
+
+      const categoryLabel = getText(rawBody.categoryLabel) || category;
+      const categoryLabelEn = getText(rawBody.categoryLabelEn);
+      const subCategory = getText(rawBody.subCategory);
+      const subCategoryLabel = getText(rawBody.subCategoryLabel) || subCategory;
+      const subCategoryLabelEn = getText(rawBody.subCategoryLabelEn);
       const subject =
-        getText(req.body?.subject) ||
+        getText(rawBody.subject) ||
         [categoryLabel, subCategoryLabel].filter(Boolean).join(" - ");
-      const description = getText(req.body?.description);
-      const userName = getText(req.body?.userName) || undefined;
-      const emailRaw = getText(req.body?.email);
-      const phone = getText(req.body?.phone) || undefined;
+      const userName = getText(rawBody.userName) || undefined;
+      const emailRaw = getText(rawBody.email);
+      const phone = getText(rawBody.phone) || undefined;
       const platform =
-        getText(req.body?.platform) ||
+        getText(rawBody.platform) ||
         getText(req.headers["x-platform"]) ||
         "web";
 
-      const supportSchema = z.object({
-        category: z.string().min(1),
-        categoryLabel: z.string().min(1),
-        categoryLabelEn: z.string().optional(),
-        subCategory: z.string().optional(),
-        subCategoryLabel: z.string().optional(),
-        subCategoryLabelEn: z.string().optional(),
-        subject: z.string().min(1),
-        description: z.string().min(1),
-        userName: z.string().optional(),
-        email: z.string().email().optional(),
-        phone: z.string().optional(),
-        platform: z.string().optional(),
-      });
-
-      const ticketData = validateSchema(
-        supportSchema,
-        {
-          category,
-          categoryLabel,
-          categoryLabelEn: categoryLabelEn || undefined,
-          subCategory: subCategory || undefined,
-          subCategoryLabel: subCategoryLabel || undefined,
-          subCategoryLabelEn: subCategoryLabelEn || undefined,
-          subject,
-          description,
-          userName,
-          email: emailRaw || undefined,
-          phone,
-          platform,
-        },
-        req,
-      );
-
       const ticket = {
         firebaseUid: auth.userId,
-        userName: ticketData.userName || null,
-        email: ticketData.email || null,
-        phone: ticketData.phone || null,
-        category: ticketData.categoryLabel,
-        categoryEn: ticketData.categoryLabelEn || null,
-        subCategory: ticketData.subCategoryLabel || ticketData.subCategory || null,
-        subCategoryEn: ticketData.subCategoryLabelEn || null,
-        subject: ticketData.subject,
-        description: ticketData.description,
-        platform: ticketData.platform || "web",
+        userName: userName || null,
+        email: emailRaw || null,
+        phone: phone || null,
+        category: categoryLabel || category,
+        categoryEn: categoryLabelEn || null,
+        subCategory: subCategoryLabel || subCategory || null,
+        subCategoryEn: subCategoryLabelEn || null,
+        subject: subject || category,
+        description: message,
+        platform: platform || "web",
         timestamp: new Date().toISOString(),
       };
 
@@ -882,14 +859,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : undefined;
 
       const ticketId = `support_${Date.now()}`;
-      void sendSupportEmail(ticket, attachment).catch((error) => {
-        console.error("[Support] Email send failed:", error);
-      });
+      try {
+        void sendSupportEmail(ticket, attachment).catch((error) => {
+          console.error("[Support] Email send failed:", error);
+        });
+      } catch (error) {
+        console.error("[Support] Email send crashed:", error);
+      }
 
       res.status(202).json({ success: true, ticketId });
     } catch (error) {
-      const handled = handleRouteError(error, req, res);
-      if (handled) return handled;
       console.error("Error creating support ticket:", error);
       res.status(500).json({ message: "Failed to submit support ticket" });
     }
