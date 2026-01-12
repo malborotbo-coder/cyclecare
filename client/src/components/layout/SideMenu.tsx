@@ -64,7 +64,6 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
     { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
     { id: "orders", path: "/orders", icon: Shield, label: t[lang].orders },
-    { id: "support", path: "/support", icon: LifeBuoy, label: t[lang].support },
     { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
   ];
 
@@ -164,6 +163,17 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
         {user && (
           <div className="absolute bottom-6 left-4 right-4 space-y-2">
+            <Button
+              variant={isActive("/support") ? "default" : "ghost"}
+              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
+                isActive("/support") ? "bg-primary text-white" : ""
+              }`}
+              onClick={() => handleNavigate("/support")}
+              data-testid="menu-support"
+            >
+              <LifeBuoy className="h-5 w-5" />
+              {t[lang].support}
+            </Button>
             <Button
               variant={isActive("/my-profile") ? "default" : "ghost"}
               className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${

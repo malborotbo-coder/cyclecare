@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useLocation } from "wouter";
-import { CheckCircle2, MessageCircle, Paperclip, ArrowLeft, ArrowRight } from "lucide-react";
+import { CheckCircle2, Headset, Paperclip, ArrowLeft, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -215,6 +215,14 @@ export default function SupportPage() {
     setSubmitted(false);
   };
 
+  const clearFormFields = () => {
+    setStep(1);
+    setSelectedCategoryId("");
+    setSelectedSubcategoryId("");
+    setDescription("");
+    setAttachment(null);
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setIsSubmitting(true);
@@ -230,7 +238,9 @@ export default function SupportPage() {
         (selectedCategory?.subcategories.length === 0 ? generalSubcategoryLabels.en : "");
 
       const formData = new FormData();
-      formData.append("category", selectedCategoryId);
+      formData.append("type", selectedCategoryId);
+      formData.append("category", categoryLabelAr || selectedCategoryId);
+      formData.append("message", description.trim());
       formData.append("categoryLabel", categoryLabelAr);
       formData.append("categoryLabelEn", categoryLabelEn);
       if (selectedSubcategoryId) formData.append("subCategory", selectedSubcategoryId);
@@ -259,6 +269,7 @@ export default function SupportPage() {
         throw new Error(payload?.message || labels.submitErrorBody);
       }
 
+      clearFormFields();
       setSubmitted(true);
       toast({ title: labels.successTitle, description: labels.successBody });
     } catch (error: any) {
@@ -302,7 +313,7 @@ export default function SupportPage() {
             <CardHeader className="space-y-2">
               <div className="flex items-center gap-3">
                 <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                  <MessageCircle className="h-6 w-6 text-primary" />
+                  <Headset className="h-6 w-6 text-primary" />
                 </div>
                 <div>
                   <CardTitle className="text-2xl">{labels.title}</CardTitle>
