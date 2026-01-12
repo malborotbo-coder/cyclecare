@@ -12,7 +12,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { buildApiUrl } from "@/lib/apiConfig";
-import { fetchWithFirebaseAuth } from "@/lib/apiClient";
+import { auth } from "@/lib/firebase";
+import { getBestAuthToken } from "@/lib/authStorage";
 
 type SupportOption = {
   id: string;
@@ -254,9 +255,28 @@ export default function SupportPage() {
       if (contactPhone.trim()) formData.append("phone", contactPhone.trim());
       if (attachment) formData.append("attachment", attachment, attachment.name);
 
-      const response = await fetchWithFirebaseAuth(buildApiUrl("/api/support/tickets"), {
+      let token: string | null = null;
+      try {
+        token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      } catch (error) {
+        console.warn("[Support] Failed to get Firebase ID token", error);
+      }
+      if (!token) {
+        token = await getBestAuthToken();
+      }
+
+      const headers = new Headers();
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      headers.set("Accept-Language", lang);
+      headers.set("X-Lang", lang);
+
+      const response = await fetch(buildApiUrl("/api/support/tickets"), {
         method: "POST",
+        headers,
         body: formData,
+        credentials: Capacitor.isNativePlatform() ? "omit" : "include",
       });
 
       if (!response.ok) {
