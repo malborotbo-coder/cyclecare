@@ -796,12 +796,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/support/tickets", isAuthenticated, upload.single("attachment"), async (req: any, res) => {
+  app.post("/api/support/tickets", upload.single("attachment"), async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
 
       const getText = (value: any) => {
         if (typeof value === "string") return value.trim();
@@ -835,7 +832,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "web";
 
       const ticket = {
-        firebaseUid: auth.userId,
+        firebaseUid: auth?.userId || "anonymous",
         userName: userName || null,
         email: emailRaw || null,
         phone: phone || null,
