@@ -61,6 +61,7 @@ const supportCategories: SupportCategory[] = [
 ];
 
 const generalSubcategoryLabels = { ar: "عام", en: "General" };
+const SUPPORT_TICKET_STORAGE_KEY = "support_ticket_latest";
 
 const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
@@ -106,6 +107,13 @@ export default function SupportPage() {
       selectCategory: "اختر التصنيف",
       selectSubcategory: "اختر التصنيف الفرعي",
       fileReady: "تم اختيار الملف",
+      lastTicketTitle: "آخر طلب دعم",
+      lastTicketEmpty: "لا يوجد طلبات دعم سابقة على هذا الجهاز.",
+      ticketTime: "الوقت",
+      ticketCategory: "التصنيف",
+      ticketSubcategory: "التصنيف الفرعي",
+      ticketSubject: "الموضوع",
+      ticketMessage: "الرسالة",
     },
     en: {
       title: "Support",
@@ -137,6 +145,13 @@ export default function SupportPage() {
       selectCategory: "Select category",
       selectSubcategory: "Select sub-category",
       fileReady: "File selected",
+      lastTicketTitle: "Latest Support Ticket",
+      lastTicketEmpty: "No previous support tickets on this device.",
+      ticketTime: "Time",
+      ticketCategory: "Category",
+      ticketSubcategory: "Sub-category",
+      ticketSubject: "Subject",
+      ticketMessage: "Message",
     },
   }[lang === "en" ? "en" : "ar"];
 
@@ -150,6 +165,13 @@ export default function SupportPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [lastTicket, setLastTicket] = useState<{
+    timestamp: string;
+    category: string;
+    subCategory?: string;
+    subject: string;
+    message: string;
+  } | null>(null);
 
   const selectedCategory = useMemo(
     () => supportCategories.find((category) => category.id === selectedCategoryId),
@@ -168,6 +190,20 @@ export default function SupportPage() {
     if (user.email) setContactEmail(user.email);
     if (user.phone) setContactPhone(user.phone);
   }, [user]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(SUPPORT_TICKET_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.timestamp && parsed?.subject && parsed?.message) {
+          setLastTicket(parsed);
+        }
+      }
+    } catch {
+      setLastTicket(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedCategory) {
@@ -299,6 +335,15 @@ export default function SupportPage() {
         xhr.send(formData);
       });
 
+      const ticketSnapshot = {
+        timestamp: new Date().toISOString(),
+        category: categoryLabelAr || categoryLabelEn || selectedCategoryId,
+        subCategory: subLabelAr || subLabelEn || "",
+        subject,
+        message: description.trim(),
+      };
+      localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
+      setLastTicket(ticketSnapshot);
       clearFormFields();
       setSubmitted(true);
       toast({ title: labels.successTitle, description: labels.successBody });
@@ -509,6 +554,41 @@ export default function SupportPage() {
                     </Button>
                   </div>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="bg-white/80 dark:bg-black/75 border border-white/20 backdrop-blur shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-lg">{labels.lastTicketTitle}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {!lastTicket ? (
+                <p className="text-muted-foreground">{labels.lastTicketEmpty}</p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labels.ticketTime}</span>
+                    <span>{new Date(lastTicket.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labels.ticketCategory}</span>
+                    <span>{lastTicket.category}</span>
+                  </div>
+                  {lastTicket.subCategory ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{labels.ticketSubcategory}</span>
+                      <span>{lastTicket.subCategory}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labels.ticketSubject}</span>
+                    <span>{lastTicket.subject}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-muted-foreground">{labels.ticketMessage}</span>
+                    <p className="whitespace-pre-wrap">{lastTicket.message}</p>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
