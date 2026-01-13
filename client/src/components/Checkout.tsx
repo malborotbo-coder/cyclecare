@@ -18,12 +18,12 @@ type CheckoutStep = "confirm" | "payment" | "success";
 export default function Checkout() {
   const { items, subtotal, tax, total, clearCart } = useCart();
   const { lang } = useLanguage();
-  const [, setLocation] = useLocation();
+  const [, setRoute] = useLocation();
   const { toast } = useToast();
   const [step, setStep] = useState<CheckoutStep>("confirm");
   const [deliveryOption, setDeliveryOption] = useState<"pickup" | "delivery_installation">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [location, setLocation] = useState({ lat: 24.7136, lng: 46.6753 });
+  const [geoLocation, setGeoLocation] = useState({ lat: 24.7136, lng: 46.6753 });
   const [locationText, setLocationText] = useState(lang === "ar" ? "الرياض" : "Riyadh");
   const [createdOrder, setCreatedOrder] = useState<any>(null);
 
@@ -78,8 +78,8 @@ export default function Checkout() {
     if (deliveryAddress.trim()) {
       return encodeURIComponent(deliveryAddress.trim());
     }
-    return `${location.lat},${location.lng}`;
-  }, [deliveryAddress, location]);
+    return `${geoLocation.lat},${geoLocation.lng}`;
+  }, [deliveryAddress, geoLocation]);
 
   const successItems = useMemo(() => {
     const raw = createdOrder?.items;
@@ -143,7 +143,7 @@ export default function Checkout() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <p className="text-muted-foreground">{labelsText.empty}</p>
-          <Button onClick={() => setLocation("/parts")}>{labelsText.viewProducts}</Button>
+          <Button onClick={() => setRoute("/parts")}>{labelsText.viewProducts}</Button>
         </div>
       </div>
     );
@@ -215,7 +215,7 @@ export default function Checkout() {
                         </div>
                         <Button variant="outline" size="sm" asChild>
                           <a
-                            href={`https://maps.google.com/maps?q=${location.lat},${location.lng}`}
+                            href={`https://maps.google.com/maps?q=${geoLocation.lat},${geoLocation.lng}`}
                             target="_blank"
                             rel="noopener noreferrer"
                           >
@@ -240,7 +240,7 @@ export default function Checkout() {
                         variant="secondary"
                         onClick={() =>
                           navigator.geolocation.getCurrentPosition((p) => {
-                            setLocation({ lat: p.coords.latitude, lng: p.coords.longitude });
+                            setGeoLocation({ lat: p.coords.latitude, lng: p.coords.longitude });
                             const text = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`;
                             setLocationText(text);
                             setDeliveryAddress(text);
@@ -366,10 +366,10 @@ export default function Checkout() {
               </div>
 
               <div className="flex flex-col md:flex-row gap-3">
-                <Button className="flex-1" onClick={() => setLocation("/parts")}>
+                <Button className="flex-1" onClick={() => setRoute("/parts")}>
                   {labelsText.viewProducts}
                 </Button>
-                <Button variant="outline" className="flex-1" onClick={() => setLocation("/")}>
+                <Button variant="outline" className="flex-1" onClick={() => setRoute("/")}>
                   {lang === "ar" ? "الرئيسية" : "Home"}
                 </Button>
               </div>
