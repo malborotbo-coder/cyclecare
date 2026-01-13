@@ -307,6 +307,75 @@ const normalizeRoute = (input: any, location?: string): RouteSummary => {
   return buildDefaultRoute(location);
 };
 
+const normalizeUserRow = (row: any) => ({
+  id: row.id,
+  email: row.email ?? null,
+  firstName: row.first_name ?? row.firstName ?? null,
+  lastName: row.last_name ?? row.lastName ?? null,
+  phone: row.phone ?? row.phone_number ?? row.phoneNumber ?? null,
+  authProvider: row.auth_provider ?? row.authProvider ?? null,
+  authProviderId: row.auth_provider_id ?? row.authProviderId ?? null,
+  profileImageUrl: row.profile_image_url ?? row.profileImageUrl ?? null,
+  isTechnician: row.is_technician ?? row.isTechnician ?? false,
+  isAdmin: row.is_admin ?? row.isAdmin ?? false,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+});
+
+const normalizeOrderRow = (row: any) => ({
+  id: row.id,
+  userId: row.user_id ?? row.userId ?? null,
+  orderNumber: row.order_number ?? row.orderNumber ?? null,
+  subtotal: row.subtotal,
+  taxRate: row.tax_rate ?? row.taxRate,
+  taxAmount: row.tax_amount ?? row.taxAmount,
+  total: row.total,
+  deliveryType: row.delivery_type ?? row.deliveryType ?? null,
+  deliveryAddress: row.delivery_address ?? row.deliveryAddress ?? null,
+  deliveryOption: row.delivery_option ?? row.deliveryOption ?? null,
+  paymentMethod: row.payment_method ?? row.paymentMethod ?? null,
+  paymentStatus: row.payment_status ?? row.paymentStatus ?? null,
+  items: row.items ?? [],
+  trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
+  status: row.status,
+  notes: row.notes ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+});
+
+const normalizeInvoiceRow = (row: any) => ({
+  id: row.id,
+  invoiceNumber: row.invoice_number ?? row.invoiceNumber ?? null,
+  userId: row.user_id ?? row.userId ?? null,
+  serviceRequestId: row.service_request_id ?? row.serviceRequestId ?? null,
+  subtotal: row.subtotal,
+  taxRate: row.tax_rate ?? row.taxRate,
+  taxAmount: row.tax_amount ?? row.taxAmount,
+  total: row.total,
+  description: row.description ?? null,
+  items: row.items ?? [],
+  status: row.status,
+  issuedDate: row.issued_date ?? row.issuedDate ?? null,
+  dueDate: row.due_date ?? row.dueDate ?? null,
+  paidDate: row.paid_date ?? row.paidDate ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+});
+
+const normalizeDiscountCodeRow = (row: any) => ({
+  id: row.id,
+  code: row.code,
+  discountType: row.discount_type ?? row.discountType ?? null,
+  discountValue: row.discount_value ?? row.discountValue ?? null,
+  maxUses: row.max_uses ?? row.maxUses ?? null,
+  currentUses: row.current_uses ?? row.currentUses ?? null,
+  isActive: row.is_active ?? row.isActive ?? false,
+  expiresAt: row.expires_at ?? row.expiresAt ?? null,
+  createdBy: row.created_by ?? row.createdBy ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+});
+
 const profilePhotoUpload = (req: any, res: any, next: any) => {
   upload.single("photo")(req, res, (err: any) => {
     if (err) {
@@ -550,6 +619,11 @@ async function ensureUserUuid(auth: AuthContext): Promise<string> {
     is_admin: auth.isAdmin === true,
     is_technician: false,
   };
+  Object.keys(createPayload).forEach((key) => {
+    if (createPayload[key] === null || createPayload[key] === undefined) {
+      delete createPayload[key];
+    }
+  });
   if (uuidRegex.test(providerId)) {
     createPayload.id = providerId;
   }
@@ -597,20 +671,27 @@ async function ensureGuestUserId(guestToken?: string | null): Promise<string> {
     if (existing?.id) return existing.id;
   }
 
+  const createPayload: Record<string, any> = {
+    auth_provider: "guest",
+    auth_provider_id: token,
+    first_name: "Guest",
+    last_name: null,
+    email: null,
+    phone: null,
+    profile_image_url: null,
+    is_admin: false,
+    is_technician: false,
+  };
+  Object.keys(createPayload).forEach((key) => {
+    if (createPayload[key] === null || createPayload[key] === undefined) {
+      delete createPayload[key];
+    }
+  });
+
   const { resp: createResp, data: createData } = await pgFetch("/users", {
     method: "POST",
     body: [
-      {
-        auth_provider: "guest",
-        auth_provider_id: token,
-        first_name: "Guest",
-        last_name: null,
-        email: null,
-        phone: null,
-        profile_image_url: null,
-        is_admin: false,
-        is_technician: false,
-      },
+      createPayload,
     ],
     headers: { Prefer: "return=representation" },
   });
@@ -2183,11 +2264,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (restPayload[key] === undefined) delete restPayload[key];
           });
 
-          const { resp: createResp, data: createData } = await pgFetch("/orders", {
+          let { resp: createResp, data: createData } = await pgFetch("/orders", {
             method: "POST",
             body: [restPayload],
             headers: { Prefer: "return=representation" },
           });
+          if (!createResp.ok) {
+            const message = typeof createData?.message === "string" ? createData.message : "";
+            if (message.includes("delivery_option") || message.includes("tracking_steps")) {
+              const retryPayload = { ...restPayload };
+              delete retryPayload.delivery_option;
+              delete retryPayload.tracking_steps;
+              ({ resp: createResp, data: createData } = await pgFetch("/orders", {
+                method: "POST",
+                body: [retryPayload],
+                headers: { Prefer: "return=representation" },
+              }));
+            }
+          }
           if (!createResp.ok) {
             const { resp: lookupResp, data: lookupData } = await pgFetch(
               `/orders?order_number=eq.${encodeURIComponent(resolvedOrderData.orderNumber)}&limit=1`,
@@ -3034,7 +3128,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(users);
     } catch (error) {
       console.error("Error fetching all users:", error);
-      res.status(500).json({ message: "Failed to fetch users" });
+      try {
+        const { resp, data } = await pgFetch("/users?order=created_at.desc");
+        if (!resp.ok) {
+          console.log("[ADMIN][USERS][LIST][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        const rows = Array.isArray(data) ? data : [];
+        res.json(rows.map(normalizeUserRow));
+      } catch (fallbackError) {
+        console.error("[ADMIN][USERS][LIST] Fallback failed:", fallbackError);
+        res.json([]);
+      }
     }
   });
 
@@ -3475,7 +3580,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(invoices);
     } catch (error) {
       console.error("Error fetching invoices:", error);
-      res.status(500).json({ message: "Failed to fetch invoices" });
+      try {
+        const { resp, data } = await pgFetch("/invoices?order=created_at.desc");
+        if (!resp.ok) {
+          console.log("[ADMIN][INVOICES][LIST][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        const rows = Array.isArray(data) ? data : [];
+        res.json(rows.map(normalizeInvoiceRow));
+      } catch (fallbackError) {
+        console.error("[ADMIN][INVOICES][LIST] Fallback failed:", fallbackError);
+        res.json([]);
+      }
     }
   });
 
@@ -3778,7 +3894,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(orders);
     } catch (error) {
       console.error("Error fetching all orders:", error);
-      res.status(500).json({ message: "Failed to fetch orders" });
+      try {
+        const { resp, data } = await pgFetch("/orders?order=created_at.desc");
+        if (!resp.ok) {
+          console.log("[ADMIN][ORDERS][LIST][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        const rows = Array.isArray(data) ? data : [];
+        res.json(rows.map(normalizeOrderRow));
+      } catch (fallbackError) {
+        console.error("[ADMIN][ORDERS][LIST] Fallback failed:", fallbackError);
+        res.json([]);
+      }
     }
   });
 
@@ -3793,7 +3920,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(codes);
       } catch (error) {
         console.error("Error fetching discount codes:", error);
-        res.status(500).json({ message: "Failed to fetch discount codes" });
+        try {
+          const { resp, data } = await pgFetch("/discount_codes?order=created_at.desc");
+          if (!resp.ok) {
+            console.log("[ADMIN][DISCOUNT][LIST][FAILED]", { status: resp.status, body: data });
+            return res.json([]);
+          }
+          const rows = Array.isArray(data) ? data : [];
+          res.json(rows.map(normalizeDiscountCodeRow));
+        } catch (fallbackError) {
+          console.error("[ADMIN][DISCOUNT][LIST] Fallback failed:", fallbackError);
+          res.json([]);
+        }
       }
     },
   );
