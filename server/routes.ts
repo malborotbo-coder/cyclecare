@@ -597,18 +597,42 @@ async function ensureGuestUserId(guestToken?: string | null): Promise<string> {
     if (existing?.id) return existing.id;
   }
 
-  const guest = await storage.createUser({
-    authProvider: "guest",
-    authProviderId: token,
-    firstName: "Guest",
-    lastName: null,
-    email: null,
-    phone: null,
-    profileImageUrl: null,
-    isAdmin: false,
-    isTechnician: false,
+  const { resp: createResp, data: createData } = await pgFetch("/users", {
+    method: "POST",
+    body: [
+      {
+        auth_provider: "guest",
+        auth_provider_id: token,
+        first_name: "Guest",
+        last_name: null,
+        email: null,
+        phone: null,
+        profile_image_url: null,
+        is_admin: false,
+        is_technician: false,
+      },
+    ],
+    headers: { Prefer: "return=representation" },
   });
-  return guest.id;
+
+  if (!createResp.ok) {
+    console.log("[GUEST][CREATE] Failed", { status: createResp.status, body: createData });
+    throw new AppError({
+      code: "SERVER_ERROR",
+      status: createResp.status || 500,
+      message: "Failed to resolve guest user",
+    });
+  }
+
+  const created = Array.isArray(createData) ? createData[0] : createData;
+  if (!created?.id) {
+    throw new AppError({
+      code: "SERVER_ERROR",
+      status: 500,
+      message: "Failed to resolve guest user",
+    });
+  }
+  return created.id;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1448,21 +1472,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!req.body.years_of_experience && !req.body.yearsOfExperience) {
           errors.years_of_experience = "Required";
         }
-        if (!req.body.national_address && !req.body.nationalAddress) {
-          errors.national_address = "Required";
-        }
-        if (!files || files.length === 0) {
-          errors.documents = "At least one document is required";
-        }
-
-        for (const file of files) {
-          if (!allowedTypes.includes(file.mimetype)) {
-            errors.documents = "Invalid file type";
-            break;
-          }
-          if (file.size > maxSize) {
-            errors.documents = "File too large (max 5MB)";
-            break;
+        if (files.length > 0) {
+          for (const file of files) {
+            if (!allowedTypes.includes(file.mimetype)) {
+              errors.documents = "Invalid file type";
+              break;
+            }
+            if (file.size > maxSize) {
+              errors.documents = "File too large (max 5MB)";
+              break;
+            }
           }
         }
 
@@ -1470,11 +1489,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ fieldErrors: errors });
         }
 
+        const nationalAddress = (req.body.national_address || req.body.nationalAddress || "").trim();
         const techPayload = {
           user_id: userUuid,
           phone_number: req.body.phone_number || req.body.phoneNumber,
           years_of_experience: Number(req.body.years_of_experience || req.body.yearsOfExperience),
-          national_address: req.body.national_address || req.body.nationalAddress,
+          national_address: nationalAddress ? nationalAddress : null,
           status: "pending",
           is_active: false,
           is_available: false,
@@ -1927,7 +1947,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate and create
       const validated = validateSchema(insertOrderSchema, orderPayload as any, req);
-      const order = await storage.createOrder(validated as any);
+      let order;
+      try {
+        order = await storage.createOrder(validated as any);
+      } catch (error) {
+        const restPayload: Record<string, any> = {
+          user_id: validated.userId,
+          order_number: validated.orderNumber,
+          subtotal: validated.subtotal,
+          tax_rate: validated.taxRate,
+          tax_amount: validated.taxAmount,
+          total: validated.total,
+          delivery_type: validated.deliveryType,
+          delivery_address: validated.deliveryAddress,
+          delivery_option: validated.deliveryOption,
+          payment_method: validated.paymentMethod,
+          payment_status: validated.paymentStatus,
+          items: validated.items,
+          tracking_steps: validated.trackingSteps,
+          status: validated.status,
+          notes: validated.notes,
+        };
+        Object.keys(restPayload).forEach((key) => {
+          if (restPayload[key] === undefined) delete restPayload[key];
+        });
+
+        const { resp: createResp, data: createData } = await pgFetch("/orders", {
+          method: "POST",
+          body: [restPayload],
+          headers: { Prefer: "return=representation" },
+        });
+        if (!createResp.ok) {
+          const { resp: lookupResp, data: lookupData } = await pgFetch(
+            `/orders?order_number=eq.${encodeURIComponent(validated.orderNumber)}&limit=1`,
+          );
+          if (lookupResp.ok) {
+            const existing = Array.isArray(lookupData) ? lookupData[0] : lookupData?.[0];
+            if (existing) {
+              order = existing;
+            }
+          }
+          if (!order) {
+            throw error;
+          }
+        } else {
+          order = Array.isArray(createData) ? createData[0] : createData;
+        }
+      }
 
       // Optional: mark payment as mock succeeded
       await pgFetch("/payments", {
@@ -1961,7 +2027,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         items: breakdown?.parts?.items || [],
       }, req);
 
-      const invoice = await storage.createInvoice(invoiceData);
+      let invoice;
+      try {
+        invoice = await storage.createInvoice(invoiceData);
+      } catch (error) {
+        const restPayload: Record<string, any> = {
+          invoice_number: invoiceData.invoiceNumber,
+          user_id: invoiceData.userId,
+          service_request_id: invoiceData.serviceRequestId,
+          subtotal: invoiceData.subtotal,
+          tax_rate: invoiceData.taxRate,
+          tax_amount: invoiceData.taxAmount,
+          total: invoiceData.total,
+          description: invoiceData.description,
+          items: invoiceData.items,
+          status: invoiceData.status,
+          issued_date: invoiceData.issuedDate,
+          due_date: invoiceData.dueDate,
+          paid_date: invoiceData.paidDate,
+        };
+        Object.keys(restPayload).forEach((key) => {
+          if (restPayload[key] === undefined) delete restPayload[key];
+        });
+
+        const { resp: createResp, data: createData } = await pgFetch("/invoices", {
+          method: "POST",
+          body: [restPayload],
+          headers: { Prefer: "return=representation" },
+        });
+        if (!createResp.ok) {
+          const { resp: lookupResp, data: lookupData } = await pgFetch(
+            `/invoices?invoice_number=eq.${encodeURIComponent(invoiceData.invoiceNumber)}&limit=1`,
+          );
+          if (lookupResp.ok) {
+            const existing = Array.isArray(lookupData) ? lookupData[0] : lookupData?.[0];
+            if (existing) {
+              invoice = existing;
+            }
+          }
+          if (!invoice) {
+            throw error;
+          }
+        } else {
+          invoice = Array.isArray(createData) ? createData[0] : createData;
+        }
+      }
 
       res.status(201).json({ order, invoice, commissionRate, appCommissionAmount, technicianNetAmount });
     } catch (error) {
@@ -2035,15 +2145,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }, req);
 
       let order;
+      let resolvedOrderData = orderData;
       try {
         order = await storage.createOrder(orderData);
       } catch (error: any) {
+        let lastError = error;
         const message = error?.message || "";
         if (message.includes("delivery_option") || message.includes("tracking_steps") || message.includes("column")) {
           const { deliveryOption, trackingSteps, ...fallback } = orderData as any;
-          order = await storage.createOrder(fallback);
-        } else {
-          throw error;
+          resolvedOrderData = fallback;
+          try {
+            order = await storage.createOrder(resolvedOrderData);
+          } catch (storageError) {
+            lastError = storageError;
+          }
+        }
+
+        if (!order) {
+          const restPayload: Record<string, any> = {
+            user_id: resolvedOrderData.userId,
+            order_number: resolvedOrderData.orderNumber,
+            subtotal: resolvedOrderData.subtotal,
+            tax_rate: resolvedOrderData.taxRate,
+            tax_amount: resolvedOrderData.taxAmount,
+            total: resolvedOrderData.total,
+            delivery_type: resolvedOrderData.deliveryType,
+            delivery_address: resolvedOrderData.deliveryAddress,
+            delivery_option: resolvedOrderData.deliveryOption,
+            payment_method: resolvedOrderData.paymentMethod,
+            payment_status: resolvedOrderData.paymentStatus,
+            items: resolvedOrderData.items,
+            tracking_steps: resolvedOrderData.trackingSteps,
+            status: resolvedOrderData.status,
+            notes: resolvedOrderData.notes,
+          };
+          Object.keys(restPayload).forEach((key) => {
+            if (restPayload[key] === undefined) delete restPayload[key];
+          });
+
+          const { resp: createResp, data: createData } = await pgFetch("/orders", {
+            method: "POST",
+            body: [restPayload],
+            headers: { Prefer: "return=representation" },
+          });
+          if (!createResp.ok) {
+            const { resp: lookupResp, data: lookupData } = await pgFetch(
+              `/orders?order_number=eq.${encodeURIComponent(resolvedOrderData.orderNumber)}&limit=1`,
+            );
+            if (lookupResp.ok) {
+              const existing = Array.isArray(lookupData) ? lookupData[0] : lookupData?.[0];
+              if (existing) {
+                order = existing;
+              }
+            }
+            if (!order) {
+              throw lastError;
+            }
+          } else {
+            order = Array.isArray(createData) ? createData[0] : createData;
+          }
         }
       }
       res.status(201).json(order);

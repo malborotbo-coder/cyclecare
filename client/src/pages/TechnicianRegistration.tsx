@@ -129,16 +129,63 @@ export default function TechnicianRegistration() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
     },
     onError: (error: any) => {
-      if (error.fieldErrors) {
-        setErrors(error.fieldErrors);
+      const normalizeFieldErrors = (fieldErrors: any): FieldErrors => {
+        if (!fieldErrors) return {};
+        if (Array.isArray(fieldErrors)) {
+          return fieldErrors.reduce((acc, item) => {
+            if (item?.field && item?.message) {
+              acc[item.field] = item.message;
+            }
+            return acc;
+          }, {} as FieldErrors);
+        }
+        return fieldErrors as FieldErrors;
+      };
+
+      const normalizedErrors = normalizeFieldErrors(error.fieldErrors);
+      if (Object.keys(normalizedErrors).length > 0) {
+        setErrors(normalizedErrors);
       }
+
+      const fieldLabels = {
+        ar: {
+          name: "الاسم الكامل",
+          email: "البريد الإلكتروني",
+          phone_number: "رقم الجوال",
+          years_of_experience: "سنوات الخبرة",
+          national_id: "رقم الهوية",
+          national_address: "العنوان الوطني",
+          documents: "المستندات",
+        },
+        en: {
+          name: "Full name",
+          email: "Email",
+          phone_number: "Phone number",
+          years_of_experience: "Years of experience",
+          national_id: "National ID",
+          national_address: "National address",
+          documents: "Documents",
+        },
+      };
+
+      const resolveErrorMessage = () => {
+        const entries = Object.entries(normalizedErrors);
+        if (entries.length === 0) return null;
+        const [field, message] = entries[0];
+        const label = fieldLabels[lang]?.[field as keyof typeof fieldLabels.ar];
+        return label ? `${label}: ${message}` : message;
+      };
       toast({
         title: t("applicationError"),
-        description: error.code === "STORAGE_UPLOAD_FAILED"
-          ? (lang === "ar" ? "فشل رفع الملفات. حاول مرة أخرى." : "File upload failed. Please try again.")
-          : error.message.includes("already")
-          ? t("emailAlreadyRegistered")
-          : error.message,
+        description:
+          resolveErrorMessage() ||
+          (error.code === "STORAGE_UPLOAD_FAILED"
+            ? lang === "ar"
+              ? "فشل رفع الملفات. حاول مرة أخرى."
+              : "File upload failed. Please try again."
+            : error.message?.includes("already")
+            ? t("emailAlreadyRegistered")
+            : error.message || (lang === "ar" ? "تعذر إكمال الطلب." : "Unable to complete the request.")),
         variant: "destructive",
       });
     },
@@ -162,28 +209,37 @@ export default function TechnicianRegistration() {
     const newErrors: FieldErrors = {};
     const docs = gatherDocuments();
 
+    if (!formData.fullName.trim()) newErrors.name = t("requiredField");
+    if (!formData.email.trim()) {
+      newErrors.email = t("requiredField");
+    } else if (!/^\S+@\S+\.\S+$/.test(formData.email.trim())) {
+      newErrors.email = t("invalidEmail");
+    }
     if (!formData.phoneNumber.trim()) newErrors.phone_number = t("requiredField");
     if (!formData.experienceYears.trim()) newErrors.years_of_experience = t("requiredField");
-    if (!formData.nationalAddress.trim()) newErrors.national_address = t("requiredField");
-    if (formData.nationalAddress.trim().length > 8) newErrors.national_address = lang === "ar" ? "الحد الأقصى 8 أحرف" : "Max 8 characters";
-    const addressPattern = /^[\u0600-\u06FF0-9]{0,8}$/;
-    if (formData.nationalAddress && !addressPattern.test(formData.nationalAddress)) {
-      newErrors.national_address = lang === "ar" ? "أدخل أحرف عربية أو أرقام فقط" : "Use Arabic letters or numbers only";
+    if (!formData.nationalId.trim()) newErrors.national_id = t("requiredField");
+    if (formData.nationalAddress.trim()) {
+      if (formData.nationalAddress.trim().length > 8) {
+        newErrors.national_address = lang === "ar" ? "الحد الأقصى 8 أحرف" : "Max 8 characters";
+      }
+      const addressPattern = /^[\u0600-\u06FF0-9]{0,8}$/;
+      if (!addressPattern.test(formData.nationalAddress)) {
+        newErrors.national_address = lang === "ar" ? "أدخل أحرف عربية أو أرقام فقط" : "Use Arabic letters or numbers only";
+      }
     }
-    if (docs.length === 0)
-      newErrors.documents =
-        lang === "ar" ? "يرجى إرفاق مستند واحد على الأقل" : "Please attach at least one document";
 
     const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
     const maxSize = 5 * 1024 * 1024;
-    for (const file of docs) {
-      if (!allowedTypes.includes(file.type)) {
-        newErrors.documents = lang === "ar" ? "صيغة ملف غير مسموحة" : "Invalid file type";
-        break;
-      }
-      if (file.size > maxSize) {
-        newErrors.documents = lang === "ar" ? "الحد الأقصى للملف 5 ميجابايت" : "File too large (max 5MB)";
-        break;
+    if (docs.length > 0) {
+      for (const file of docs) {
+        if (!allowedTypes.includes(file.type)) {
+          newErrors.documents = lang === "ar" ? "صيغة ملف غير مسموحة" : "Invalid file type";
+          break;
+        }
+        if (file.size > maxSize) {
+          newErrors.documents = lang === "ar" ? "الحد الأقصى للملف 5 ميجابايت" : "File too large (max 5MB)";
+          break;
+        }
       }
     }
 
@@ -327,7 +383,7 @@ export default function TechnicianRegistration() {
 
                 {/* Experience Years */}
                 <div className="space-y-2">
-                  <Label htmlFor="experience">{t("experienceYears")}</Label>
+                  <Label htmlFor="experience">{t("experienceYears")} *</Label>
                   <Input
                     id="experience"
                     type="number"
@@ -346,14 +402,16 @@ export default function TechnicianRegistration() {
 
                 {/* National ID */}
                 <div className="space-y-2">
-                  <Label htmlFor="nationalId">{t("nationalIdNumber")}</Label>
+                  <Label htmlFor="nationalId">{t("nationalIdNumber")} *</Label>
                   <Input
                     id="nationalId"
                     value={formData.nationalId}
                     onChange={(e) => handleInputChange("nationalId", e.target.value)}
                     placeholder={t("nationalIdPlaceholder")}
+                    className={inputErrorClass("national_id")}
                     data-testid="input-national-id"
                   />
+                  {errors.national_id && <p className="text-destructive text-sm">{errors.national_id}</p>}
                 </div>
 
                 {/* IBAN */}
@@ -382,7 +440,7 @@ export default function TechnicianRegistration() {
 
                 {/* National Address */}
                 <div className="space-y-2">
-                  <Label htmlFor="nationalAddress">{lang === "ar" ? "العنوان الوطني" : "National Address"} *</Label>
+                  <Label htmlFor="nationalAddress">{lang === "ar" ? "العنوان الوطني" : "National Address"}</Label>
                   <Input
                     id="nationalAddress"
                     value={formData.nationalAddress}
@@ -405,12 +463,12 @@ export default function TechnicianRegistration() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2 text-foreground">
                   <Upload className="w-5 h-5 text-secondary" />
-                  {lang === "ar" ? "المستندات مطلوبة" : "Documents are required"}
+                  {lang === "ar" ? "المستندات (اختياري)" : "Documents (optional)"}
                 </CardTitle>
                 <CardDescription className="text-muted-foreground">
                   {lang === "ar"
-                    ? "يرجى رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
-                    : "Please upload ID or certificates (PDF or image), max 5MB each"}
+                    ? "يمكنك رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
+                    : "You can upload ID or certificates (PDF or image), max 5MB each"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
