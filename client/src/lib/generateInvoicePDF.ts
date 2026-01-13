@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Capacitor } from "@capacitor/core";
 import { Share } from "@capacitor/share";
+import JsBarcode from "jsbarcode";
 import logoImage from "@assets/cycle-care-new-logo.png";
 
 export type InvoiceLineItem = {
@@ -102,6 +103,25 @@ const blobToBase64 = (blob: Blob) =>
     reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
     reader.readAsDataURL(blob);
   });
+
+const buildBarcodeDataUrl = (value: string | undefined | null) => {
+  if (!value) return null;
+  if (typeof document === "undefined") return null;
+  try {
+    const canvas = document.createElement("canvas");
+    JsBarcode(canvas, value, {
+      format: "CODE128",
+      displayValue: false,
+      height: 50,
+      width: 1.6,
+      margin: 0,
+    });
+    return canvas.toDataURL("image/png");
+  } catch (error) {
+    console.warn("[Invoice PDF] Failed to generate barcode:", error);
+    return null;
+  }
+};
 
 const saveAndOpenPdf = async (blob: Blob, fileName: string) => {
   try {
@@ -210,7 +230,8 @@ const renderInvoiceHtmlToPdf = async (
   user: InvoiceUser | undefined,
   meta: InvoicePdfMeta | undefined,
   fileName: string,
-  isArabic: boolean
+  isArabic: boolean,
+  barcodeDataUrl?: string | null
 ) => {
   if (typeof document === "undefined") {
     throw new Error("HTML rendering requires document access.");
@@ -256,6 +277,10 @@ const renderInvoiceHtmlToPdf = async (
   wrapper.style.color = "#111111";
   wrapper.style.direction = direction;
   wrapper.style.fontFamily = "'Tajawal','Inter',sans-serif";
+  const barcodeBlock = barcodeDataUrl
+    ? `<img src="${barcodeDataUrl}" alt="barcode" style="width:180px; height:48px; object-fit:contain; margin-top:8px;" />`
+    : "";
+
   wrapper.innerHTML = `
     <div style="padding:32px 36px;">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:24px;">
@@ -272,6 +297,7 @@ const renderInvoiceHtmlToPdf = async (
           </div>
           ${invoice.status ? `<div style="margin-top:4px; color:#6b7280;">Status: ${escapeHtml(String(invoice.status))}</div>` : ""}
           ${invoice.issuedDate ? `<div style="margin-top:4px; color:#6b7280;">Issued: ${escapeHtml(formatDate(invoice.issuedDate))}</div>` : ""}
+          ${barcodeBlock}
         </div>
       </div>
 
@@ -415,10 +441,11 @@ export async function generateInvoicePDF(
   const textSnapshot = collectTextSnapshot(invoice, user, meta);
   const isArabic = language === "ar" || hasArabic(textSnapshot);
   const fileName = `Invoice-${invoice.invoiceNumber}.pdf`;
+  const barcodeDataUrl = buildBarcodeDataUrl(invoice.invoiceNumber);
 
   if (isArabic) {
     try {
-      await renderInvoiceHtmlToPdf(invoice, user, meta, fileName, isArabic);
+      await renderInvoiceHtmlToPdf(invoice, user, meta, fileName, isArabic, barcodeDataUrl);
       return;
     } catch (error) {
       console.error("HTML invoice rendering failed, falling back to vector PDF:", error);
@@ -468,6 +495,9 @@ export async function generateInvoicePDF(
   }
   if (invoice.issuedDate) {
     doc.text(`Issued: ${formatDate(invoice.issuedDate)}`, pageWidth - margin, 32, { align: "right" });
+  }
+  if (barcodeDataUrl) {
+    doc.addImage(barcodeDataUrl, "PNG", pageWidth - margin - 55, 36, 55, 16);
   }
 
   let yPos = 52;

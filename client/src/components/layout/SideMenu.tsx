@@ -7,11 +7,12 @@ import {
   Wrench, 
   Package, 
   Briefcase, 
+  ClipboardList,
+  Headset,
   Shield,
   LogOut,
   User,
   Bike,
-  LifeBuoy,
   X
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -63,7 +64,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
     { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
-    { id: "orders", path: "/orders", icon: Shield, label: t[lang].orders },
+    { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
     { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
   ];
 
@@ -171,7 +172,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
               onClick={() => handleNavigate("/support")}
               data-testid="menu-support"
             >
-              <LifeBuoy className="h-5 w-5" />
+              <Headset className="h-5 w-5" />
               {t[lang].support}
             </Button>
             <Button

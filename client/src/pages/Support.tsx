@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { auth } from "@/lib/firebase";
 import { getBestAuthToken } from "@/lib/authStorage";
+import type { StoredOrder } from "@/lib/mockOrders";
 
 type SupportOption = {
   id: string;
@@ -114,6 +115,9 @@ export default function SupportPage() {
       ticketSubcategory: "التصنيف الفرعي",
       ticketSubject: "الموضوع",
       ticketMessage: "الرسالة",
+      orderLabel: "رقم الطلب (اختياري)",
+      orderPlaceholder: "اختر طلب مرتبط",
+      orderEmpty: "لا توجد طلبات مرتبطة حالياً.",
     },
     en: {
       title: "Support",
@@ -152,6 +156,9 @@ export default function SupportPage() {
       ticketSubcategory: "Sub-category",
       ticketSubject: "Subject",
       ticketMessage: "Message",
+      orderLabel: "Order (optional)",
+      orderPlaceholder: "Select related order",
+      orderEmpty: "No orders available.",
     },
   }[lang === "en" ? "en" : "ar"];
 
@@ -165,6 +172,7 @@ export default function SupportPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
   const [lastTicket, setLastTicket] = useState<{
     timestamp: string;
     category: string;
@@ -172,6 +180,22 @@ export default function SupportPage() {
     subject: string;
     message: string;
   } | null>(null);
+
+  const orders = useMemo<StoredOrder[]>(() => {
+    try {
+      const raw = localStorage.getItem("mock_orders");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const selectedOrder = useMemo(
+    () => orders.find((order) => order.id === selectedOrderId),
+    [orders, selectedOrderId],
+  );
 
   const selectedCategory = useMemo(
     () => supportCategories.find((category) => category.id === selectedCategoryId),
@@ -256,6 +280,7 @@ export default function SupportPage() {
     setStep(1);
     setSelectedCategoryId("");
     setSelectedSubcategoryId("");
+    setSelectedOrderId("");
     setDescription("");
     setAttachment(null);
   };
@@ -289,6 +314,10 @@ export default function SupportPage() {
       if (contactName.trim()) formData.append("userName", contactName.trim());
       if (contactEmail.trim()) formData.append("email", contactEmail.trim());
       if (contactPhone.trim()) formData.append("phone", contactPhone.trim());
+      if (selectedOrder) {
+        formData.append("orderId", selectedOrder.id);
+        formData.append("orderNumber", selectedOrder.orderNumber);
+      }
       if (attachment) formData.append("attachment", attachment, attachment.name);
 
       let token: string | null = null;
@@ -484,6 +513,29 @@ export default function SupportPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-semibold">{labels.subject}</label>
                     <Input value={subject} readOnly className="bg-white/80 dark:bg-black/60" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold">{labels.orderLabel}</label>
+                    {orders.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{labels.orderEmpty}</p>
+                    ) : (
+                      <Select
+                        value={selectedOrderId}
+                        onValueChange={(value) => setSelectedOrderId(value)}
+                      >
+                        <SelectTrigger className="bg-white/80 dark:bg-black/60">
+                          <SelectValue placeholder={labels.orderPlaceholder} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {orders.map((order) => (
+                            <SelectItem key={order.id} value={order.id}>
+                              {order.orderNumber} • {order.serviceType}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
 
                   <div className="space-y-2">

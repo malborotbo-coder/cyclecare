@@ -62,8 +62,13 @@ const formatNumber = (value: number, fallback = 0) =>
 const generateInvoiceNumber = () =>
   `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-const generateOrderNumber = () =>
-  `CC-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+const generateOrderNumber = () => {
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const timePart = now.toISOString().slice(11, 19).replace(/:/g, "");
+  const randPart = Math.floor(1000 + Math.random() * 9000);
+  return `ORD-${datePart}-${timePart}-${randPart}`;
+};
 
 const buildTrackingSteps = (createdAt: Date, etaMinutes: number): OrderTrackingStep[] => {
   const paidAt = createdAt;
@@ -225,7 +230,7 @@ const seedOrders = () => {
   const seed: StoredOrder[] = [
     normalizeOrder({
       id: "demo-order-1",
-      orderNumber: "CC-2026-10001",
+      orderNumber: "ORD-20260101-103000-1001",
       invoiceNumber: "INV-2026-10001",
       createdAt: now.toISOString(),
       serviceType: "صيانة دورية",
@@ -282,7 +287,7 @@ const seedOrders = () => {
     }),
     normalizeOrder({
       id: "demo-order-2",
-      orderNumber: "CC-2026-10002",
+      orderNumber: "ORD-20260101-094500-1002",
       invoiceNumber: "INV-2026-10002",
       createdAt: addMinutes(now, -90).toISOString(),
       serviceType: "إصلاح عطل",

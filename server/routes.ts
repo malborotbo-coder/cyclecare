@@ -254,6 +254,14 @@ const profilePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+const buildOrderNumber = () => {
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const timePart = now.toISOString().slice(11, 19).replace(/:/g, "");
+  const randPart = Math.floor(1000 + Math.random() * 9000);
+  return `ORD-${datePart}-${timePart}-${randPart}`;
+};
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const R = 6371; // km
@@ -1724,9 +1732,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      if (!canUseTestMode(auth)) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
       const userUuid = await ensureUserUuid(auth);
       const { serviceRequestId, technicianId, breakdown, paymentMethod } = req.body || {};
       if (!serviceRequestId || !technicianId || !breakdown) {
@@ -1759,7 +1764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const orderUserId = srUserId || userUuid;
       const orderPayload = {
         userId: orderUserId,
-        orderNumber: `ORD-${Date.now()}`,
+        orderNumber: buildOrderNumber(),
         subtotal: subtotal.toString(),
         taxRate: taxRate.toString(),
         taxAmount: taxAmount.toString(),
@@ -3141,6 +3146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { userId } = auth;
       const orderData = validateSchema(insertOrderSchema, {
         ...req.body,
+        orderNumber: req.body?.orderNumber || buildOrderNumber(),
         userId,
       }, req);
 
