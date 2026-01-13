@@ -53,6 +53,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [authReady, setAuthReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const GUEST_MODE_KEY = "guest_mode";
+  const GUEST_TOKEN_KEY = "guest_token";
 
   const readGuestFlag = () =>
     typeof localStorage !== "undefined" && localStorage.getItem(GUEST_MODE_KEY) === "true";
@@ -60,6 +61,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const enterGuestMode = useCallback(() => {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(GUEST_MODE_KEY, "true");
+      if (!localStorage.getItem(GUEST_TOKEN_KEY)) {
+        const token =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `guest_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        localStorage.setItem(GUEST_TOKEN_KEY, token);
+      }
     }
     setUser(null);
     setIsGuest(true);
@@ -68,6 +76,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const exitGuestMode = useCallback(() => {
     if (typeof localStorage !== "undefined") {
       localStorage.removeItem(GUEST_MODE_KEY);
+      localStorage.removeItem(GUEST_TOKEN_KEY);
     }
     setIsGuest(false);
   }, []);

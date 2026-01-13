@@ -5,16 +5,11 @@ import { useCart } from "@/contexts/CartContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
-import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { useToast } from "@/hooks/use-toast";
-import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 export default function Cart() {
   const { items, removeItem, updateQuantity, clearCart, subtotal, tax, total, itemCount } = useCart();
   const { lang } = useLanguage();
   const [, setLocation] = useLocation();
-  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
-  const { toast } = useToast();
 
   const labels = {
     ar: {
@@ -50,19 +45,6 @@ export default function Cart() {
   const labels_text = labels[lang as keyof typeof labels];
 
   const handleCheckout = () => {
-    if (!user && isGuest) {
-      setPostLoginRedirect("/checkout");
-      exitGuestMode();
-      toast({
-        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
-        description:
-          lang === "ar"
-            ? "يرجى تسجيل الدخول للمتابعة إلى الدفع."
-            : "Please sign in to proceed to checkout.",
-        variant: "destructive",
-      });
-      return;
-    }
     setLocation("/checkout");
   };
 
@@ -79,57 +61,48 @@ export default function Cart() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20 pb-32">
       <div className="container mx-auto px-4 py-6">
-        <h1 className="text-3xl font-bold mb-6">{labels_text.title}</h1>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-3xl font-bold">{labels_text.title}</h1>
+            <p className="text-sm text-muted-foreground">
+              {lang === "ar" ? `لديك ${itemCount} منتجات في السلة` : `${itemCount} items in your cart`}
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => setLocation("/parts")} data-testid="button-continue-shopping">
+            {labels_text.continueShopping}
+          </Button>
+        </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Cart Items */}
-          <div className="lg:col-span-2 space-y-3">
+        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+          <div className="space-y-4">
             {items.map(item => (
-              <Card key={item.part.id} data-testid={`card-cart-item-${item.part.id}`}>
-                <CardContent className="p-4 flex gap-4">
-                  {item.part.imageUrl && (
-                    <img
-                      src={item.part.imageUrl}
-                      alt={item.part.name}
-                      className="w-24 h-24 object-cover rounded"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold mb-2">
-                      {lang === 'ar' ? item.part.name : item.part.nameEn}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {item.part.price} {labels_text.currency} × {item.quantity}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateQuantity(item.part.id, item.quantity - 1)}
-                        data-testid={`button-decrease-${item.part.id}`}
-                      >
-                        <Minus className="w-4 h-4" />
-                      </Button>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.part.id, parseInt(e.target.value) || 1)}
-                        className="w-16 text-center"
-                        data-testid={`input-quantity-${item.part.id}`}
+              <Card key={item.part.id} className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur" data-testid={`card-cart-item-${item.part.id}`}>
+                <CardContent className="p-4 flex flex-col md:flex-row gap-4">
+                  <div className="w-full md:w-28 h-28 rounded-xl overflow-hidden bg-muted flex items-center justify-center">
+                    {item.part.imageUrl || (item.part as any).image_url ? (
+                      <img
+                        src={item.part.imageUrl || (item.part as any).image_url}
+                        alt={item.part.name}
+                        className="w-full h-full object-cover"
                       />
+                    ) : (
+                      <ShoppingCart className="w-10 h-10 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">
+                          {lang === 'ar' ? item.part.name : item.part.nameEn}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {item.part.price} {labels_text.currency}
+                        </p>
+                      </div>
                       <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => updateQuantity(item.part.id, item.quantity + 1)}
-                        data-testid={`button-increase-${item.part.id}`}
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="sm"
+                        size="icon"
                         variant="ghost"
                         onClick={() => removeItem(item.part.id)}
                         data-testid={`button-remove-${item.part.id}`}
@@ -137,51 +110,79 @@ export default function Cart() {
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-lg">
-                      {(Number(item.part.price) * item.quantity).toFixed(2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{labels_text.total}</p>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2 py-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => updateQuantity(item.part.id, item.quantity - 1)}
+                          data-testid={`button-decrease-${item.part.id}`}
+                        >
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => updateQuantity(item.part.id, parseInt(e.target.value) || 1)}
+                          className="w-16 text-center border-0 bg-transparent"
+                          data-testid={`input-quantity-${item.part.id}`}
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => updateQuantity(item.part.id, item.quantity + 1)}
+                          data-testid={`button-increase-${item.part.id}`}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">{labels_text.total}</p>
+                        <p className="text-lg font-semibold text-primary">
+                          {(Number(item.part.price) * item.quantity).toFixed(2)} {labels_text.currency}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
 
-          {/* Summary */}
-          <div>
-            <Card className="sticky top-20">
+          <div className="space-y-4">
+            <Card className="sticky top-20 border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
               <CardHeader>
                 <CardTitle>{labels_text.total}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span>{labels_text.subtotal}</span>
-                  <span>{subtotal.toFixed(2)}</span>
+                  <span>{subtotal.toFixed(2)} {labels_text.currency}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>{labels_text.tax}</span>
-                  <span>{tax.toFixed(2)}</span>
+                  <span>{tax.toFixed(2)} {labels_text.currency}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t pt-3">
                   <span>{labels_text.total}</span>
-                  <span>{total.toFixed(2)}</span>
+                  <span>{total.toFixed(2)} {labels_text.currency}</span>
                 </div>
                 <Button
                   className="w-full"
                   onClick={handleCheckout}
                   data-testid="button-checkout"
                 >
-                  {labels_text.checkout}
+                  {lang === "ar" ? "متابعة للتأكيد" : "Continue to confirmation"}
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   className="w-full"
-                  onClick={() => setLocation("/parts")}
-                  data-testid="button-continue-shopping-2"
+                  onClick={clearCart}
+                  data-testid="button-clear-cart"
                 >
-                  {labels_text.continueShopping}
+                  {lang === 'ar' ? 'إفراغ السلة' : 'Clear Cart'}
                 </Button>
               </CardContent>
             </Card>

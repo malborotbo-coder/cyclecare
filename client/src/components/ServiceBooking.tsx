@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { isUnauthorizedError } from "@/lib/authUtils";
 import { ApiError } from "@/lib/apiError";
 import type { Technician } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
@@ -36,8 +35,6 @@ import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  setPostLoginRedirect,
-  saveBookingDraft,
   loadBookingDraft,
   clearBookingDraft,
 } from "@/lib/authRedirect";
@@ -45,7 +42,7 @@ import {
 export default function ServiceBooking() {
   const { toast } = useToast();
   const [, setRouterLocation] = useRouterLocation();
-  const { user, exitGuestMode } = useFirebaseAuth();
+  const { user } = useFirebaseAuth();
   const { lang } = useLanguage();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -194,32 +191,7 @@ export default function ServiceBooking() {
 
   /* ------------------ BOOKING ------------------ */
 
-  const requireAuthForBooking = () => {
-    saveBookingDraft({
-      step: currentStep,
-      selectedService,
-      selectedTechnicianId,
-      notes,
-      location,
-      locationText,
-    });
-    setPostLoginRedirect("/booking");
-    exitGuestMode();
-    toast({
-      title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
-      description:
-        lang === "ar"
-          ? "يرجى تسجيل الدخول لإكمال الحجز."
-          : "Please sign in to complete your booking.",
-      variant: "destructive",
-    });
-  };
-
   const submitBooking = async () => {
-    if (!user) {
-      requireAuthForBooking();
-      return;
-    }
     if (!selectedService || !selectedTechnicianId || !costBreakdown) {
       toast({
         title: "خطأ",
@@ -251,12 +223,6 @@ export default function ServiceBooking() {
       setCurrentStep(4);
     } catch (error) {
       console.error("Booking error", error);
-
-      if (isUnauthorizedError(error)) {
-        console.warn("[Booking] Unauthorized. Redirecting to login.");
-        requireAuthForBooking();
-        return;
-      }
 
       const msg =
         error instanceof ApiError && error.errors?.length

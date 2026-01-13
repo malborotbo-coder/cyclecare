@@ -580,11 +580,26 @@ async function ensureUserUuid(auth: AuthContext): Promise<string> {
   return created.id;
 }
 
-async function ensureGuestUserId(): Promise<string> {
-  const guestToken = `guest_${randomUUID()}`;
+function getGuestToken(req: any): string | null {
+  const header = req.headers["x-guest-token"];
+  if (typeof header === "string") return header;
+  if (Array.isArray(header) && header.length > 0) return header[0];
+  return null;
+}
+
+async function ensureGuestUserId(guestToken?: string | null): Promise<string> {
+  const token = guestToken || `guest_${randomUUID()}`;
+  const { resp, data } = await pgFetch(
+    `/users?auth_provider_id=eq.${encodeURIComponent(token)}&select=id&limit=1`,
+  );
+  if (resp.ok) {
+    const existing = Array.isArray(data) ? data[0] : data?.[0];
+    if (existing?.id) return existing.id;
+  }
+
   const guest = await storage.createUser({
     authProvider: "guest",
-    authProviderId: guestToken,
+    authProviderId: token,
     firstName: "Guest",
     lastName: null,
     email: null,
@@ -1415,7 +1430,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         const auth = getAuthContext(req);
-        const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId();
+        const guestToken = getGuestToken(req);
+        const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
         console.log("[TECH][APPLY][USER]", {
           uuid: userUuid,
           externalId: auth?.userId || "guest",
@@ -1855,11 +1871,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mock payment + order creation (Phase D)
-  app.post("/api/orders/mock-checkout", isAuthenticated, async (req: any, res) => {
+  app.post("/api/orders/mock-checkout", async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const userUuid = await ensureUserUuid(auth);
+      const guestToken = getGuestToken(req);
+      const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
       const { serviceRequestId, technicianId, breakdown, paymentMethod } = req.body || {};
       if (!serviceRequestId || !technicianId || !breakdown) {
         return res.status(400).json({ message: "serviceRequestId, technicianId, and breakdown are required" });
@@ -1874,8 +1890,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const sr = srData[0];
       const srUserId = sr.user_id || sr.userId;
-      const isOwner = srUserId && (srUserId === userUuid || srUserId === auth.userId);
-      if (!isOwner && !auth.isAdmin) {
+      const isOwner = srUserId && (srUserId === userUuid || (auth && srUserId === auth.userId));
+      const isAdmin = auth?.isAdmin === true;
+      if (!isOwner && !isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -1957,11 +1974,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Shop mock checkout (products)
-  app.post("/api/shop/mock-checkout", isAuthenticated, async (req: any, res) => {
+  app.post("/api/shop/mock-checkout", async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const userUuid = await ensureUserUuid(auth);
+      const guestToken = getGuestToken(req);
+      const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
       const {
         items,
         deliveryOption,
@@ -2404,11 +2421,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
+  app.post("/api/service-requests", async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const userId = await ensureUserUuid(auth);
+      const guestToken = getGuestToken(req);
+      const userId = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
       const body = req.body || {};
       const technicianId = body.technicianId;
 

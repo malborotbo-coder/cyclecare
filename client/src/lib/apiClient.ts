@@ -67,6 +67,12 @@ export async function fetchWithFirebaseAuth(
         headers.set("Authorization", `Bearer ${fallbackToken}`);
       }
     }
+    if (!usedToken && typeof localStorage !== "undefined") {
+      const guestToken = localStorage.getItem("guest_token");
+      if (guestToken) {
+        headers.set("X-Guest-Token", guestToken);
+      }
+    }
   }
 
   const body = await buildRequestBody(request, headers, init);

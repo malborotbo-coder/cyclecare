@@ -5,6 +5,9 @@ import SideMenu from "./SideMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
+import { ShoppingCart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useCart } from "@/contexts/CartContext";
 
 interface AppHeaderProps {
   onLogout?: () => void;
@@ -15,6 +18,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const { lang, toggleLanguage } = useLanguage();
   const [, setLocation] = useLocation();
   const isNative = Capacitor.isNativePlatform();
+  const { itemCount } = useCart();
 
   const handleLogoClick = () => {
     setLocation("/");
@@ -40,6 +44,20 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
         </div>
         
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLocation("/cart")}
+            className="relative"
+            data-testid="button-cart"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            {itemCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-black text-[11px] font-bold flex items-center justify-center">
+                {itemCount}
+              </span>
+            )}
+          </Button>
           <ThemeToggle />
           <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
         </div>
