@@ -4,8 +4,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset } from "lucide-react";
+import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,13 +17,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { useToast } from "@/hooks/use-toast";
 import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole, Invoice, Order } from "@shared/schema";
 import type { Language } from "@/lib/i18n";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart as RePieChart, XAxis, YAxis } from "recharts";
 
 interface TechnicianDocument {
   id: string;
@@ -48,6 +51,10 @@ interface SupportTicket {
   message?: string | null;
   screenshot_url?: string | null;
   status?: string | null;
+  reply_message?: string | null;
+  replied_at?: string | null;
+  replied_by?: string | null;
+  updated_at?: string | null;
   created_at?: string | null;
 }
 
@@ -72,6 +79,18 @@ export default function AdminDashboard() {
   const [editingPrice, setEditingPrice] = useState<string>("");
   const [editingCategory, setEditingCategory] = useState<string>("");
   const [expandedSupportTicketId, setExpandedSupportTicketId] = useState<string | null>(null);
+  const [supportStatusDrafts, setSupportStatusDrafts] = useState<Record<string, string>>({});
+  const [supportReplyDrafts, setSupportReplyDrafts] = useState<Record<string, string>>({});
+  const [orderRange, setOrderRange] = useState<"day" | "week" | "month">("week");
+  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [reportStartDate, setReportStartDate] = useState<string>(() => {
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    return start.toISOString().slice(0, 10);
+  });
+  const [reportEndDate, setReportEndDate] = useState<string>(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
 
   const normalizeTechnician = (tech: any) => {
     const user = tech?.user;
@@ -160,12 +179,20 @@ export default function AdminDashboard() {
     ar: {
       title: "لوحة تحكم المالك",
       overview: "نظرة عامة",
+      overviewSubtitle: "ملخص سريع للأداء والتشغيل اليومي.",
+      reports: "التقارير",
+      analytics: "التحليلات",
       users: "المستخدمين",
       bikes: "الدراجات",
       technicians: "الفنيين",
       serviceRequests: "طلبات الخدمة",
+      serviceOrders: "طلبات الخدمة",
       userRoles: "صلاحيات المستخدمين",
       totalUsers: "إجمالي المستخدمين",
+      totalServiceOrders: "إجمالي طلبات الخدمة",
+      totalShopOrders: "إجمالي طلبات المتجر",
+      totalRevenue: "إجمالي الإيرادات",
+      openTickets: "تذاكر مفتوحة",
       totalBikes: "إجمالي الدراجات",
       totalTechnicians: "إجمالي الفنيين",
       totalRequests: "إجمالي الطلبات",
@@ -228,18 +255,52 @@ export default function AdminDashboard() {
       supportView: "عرض",
       supportNoData: "لا توجد طلبات دعم",
       supportScreenshot: "لقطة الشاشة",
+      supportReply: "رد الإدارة",
+      supportReplyPlaceholder: "اكتب الرد للعميل...",
+      supportReplyAction: "إرسال الرد",
+      supportStatus: "حالة التذكرة",
+      supportStatusOpen: "مفتوحة",
+      supportStatusClosed: "مغلقة",
       shopOrders: "طلبات المتجر",
       deliveryOption: "خيار التوصيل",
+      discounts: "أكواد الخصم",
+      registerTech: "تسجيل فني",
+      ordersOverTime: "الطلبات عبر الزمن",
+      mostSoldParts: "الأكثر مبيعاً",
+      serviceVsShop: "الخدمات مقابل المتجر",
+      orderRangeDay: "يومي",
+      orderRangeWeek: "أسبوعي",
+      orderRangeMonth: "شهري",
+      reportRange: "نطاق التاريخ",
+      reportSummary: "ملخص التقرير",
+      reportServiceOrders: "طلبات الخدمة",
+      reportShopOrders: "طلبات المتجر",
+      reportTotalRevenue: "إجمالي الإيرادات",
+      reportServiceRevenue: "إيرادات الخدمة",
+      reportShopRevenue: "إيرادات المتجر",
+      reportOpenTickets: "تذاكر مفتوحة",
+      reportTopParts: "أكثر القطع مبيعاً",
+      invoiceType: "نوع الفاتورة",
+      invoiceTypeService: "خدمة",
+      invoiceTypeShop: "متجر",
     },
     en: {
       title: "Owner Dashboard",
       overview: "Overview",
+      overviewSubtitle: "Quick operational snapshot for today.",
+      reports: "Reports",
+      analytics: "Analytics",
       users: "Users",
       bikes: "Bikes",
       technicians: "Technicians",
       serviceRequests: "Service Requests",
+      serviceOrders: "Service Orders",
       userRoles: "User Roles",
       totalUsers: "Total Users",
+      totalServiceOrders: "Total Service Orders",
+      totalShopOrders: "Total Shop Orders",
+      totalRevenue: "Total Revenue",
+      openTickets: "Open Tickets",
       totalBikes: "Total Bikes",
       totalTechnicians: "Total Technicians",
       totalRequests: "Total Requests",
@@ -316,20 +377,54 @@ export default function AdminDashboard() {
       supportView: "View",
       supportNoData: "No support tickets yet",
       supportScreenshot: "Screenshot",
+      supportReply: "Admin Reply",
+      supportReplyPlaceholder: "Write a reply to the customer...",
+      supportReplyAction: "Send Reply",
+      supportStatus: "Ticket Status",
+      supportStatusOpen: "Open",
+      supportStatusClosed: "Closed",
       shopOrders: "Shop Orders",
       deliveryOption: "Delivery Option",
+      discounts: "Discount Codes",
+      registerTech: "Register Technician",
+      ordersOverTime: "Orders Over Time",
+      mostSoldParts: "Top Spare Parts",
+      serviceVsShop: "Service vs Shop",
+      orderRangeDay: "Daily",
+      orderRangeWeek: "Weekly",
+      orderRangeMonth: "Monthly",
+      reportRange: "Date Range",
+      reportSummary: "Report Summary",
+      reportServiceOrders: "Service Orders",
+      reportShopOrders: "Shop Orders",
+      reportTotalRevenue: "Total Revenue",
+      reportServiceRevenue: "Service Revenue",
+      reportShopRevenue: "Shop Revenue",
+      reportOpenTickets: "Open Tickets",
+      reportTopParts: "Top Parts",
+      invoiceType: "Invoice Type",
+      invoiceTypeService: "Service",
+      invoiceTypeShop: "Shop",
     },
   };
   
   const txt = lang === 'ar' ? {
     title: "لوحة تحكم المالك",
     overview: "نظرة عامة",
+    overviewSubtitle: "ملخص سريع للأداء والتشغيل اليومي.",
+    reports: "التقارير",
+    analytics: "التحليلات",
     users: "المستخدمين",
     bikes: "الدراجات",
     technicians: "الفنيين",
     serviceRequests: "طلبات الخدمة",
+    serviceOrders: "طلبات الخدمة",
     userRoles: "صلاحيات المستخدمين",
     totalUsers: "إجمالي المستخدمين",
+    totalServiceOrders: "إجمالي طلبات الخدمة",
+    totalShopOrders: "إجمالي طلبات المتجر",
+    totalRevenue: "إجمالي الإيرادات",
+    openTickets: "تذاكر مفتوحة",
     totalBikes: "إجمالي الدراجات",
     totalTechnicians: "إجمالي الفنيين",
     totalRequests: "إجمالي الطلبات",
@@ -408,6 +503,32 @@ export default function AdminDashboard() {
     supportScreenshot: "لقطة الشاشة",
     shopOrders: "طلبات المتجر",
     deliveryOption: "خيار التوصيل",
+    discounts: "أكواد الخصم",
+    registerTech: "تسجيل فني",
+    ordersOverTime: "الطلبات عبر الزمن",
+    mostSoldParts: "الأكثر مبيعاً",
+    serviceVsShop: "الخدمات مقابل المتجر",
+    orderRangeDay: "يومي",
+    orderRangeWeek: "أسبوعي",
+    orderRangeMonth: "شهري",
+    reportRange: "نطاق التاريخ",
+    reportSummary: "ملخص التقرير",
+    reportServiceOrders: "طلبات الخدمة",
+    reportShopOrders: "طلبات المتجر",
+    reportTotalRevenue: "إجمالي الإيرادات",
+    reportServiceRevenue: "إيرادات الخدمة",
+    reportShopRevenue: "إيرادات المتجر",
+    reportOpenTickets: "تذاكر مفتوحة",
+    reportTopParts: "أكثر القطع مبيعاً",
+    supportReply: "رد الإدارة",
+    supportReplyPlaceholder: "اكتب الرد للعميل...",
+    supportReplyAction: "إرسال الرد",
+    supportStatus: "حالة التذكرة",
+    supportStatusOpen: "مفتوحة",
+    supportStatusClosed: "مغلقة",
+    invoiceType: "نوع الفاتورة",
+    invoiceTypeService: "خدمة",
+    invoiceTypeShop: "متجر",
   } : translations['en'];
 
   const convoys = [
@@ -423,37 +544,110 @@ export default function AdminDashboard() {
 
   const [selectedConvoy, setSelectedConvoy] = useState<string>(() => convoyOptions[1]?.id ?? "all");
 
+  const { data: roleInfo, isLoading: rolesInfoLoading } = useQuery<{ isAdmin: boolean; roles: string[] }>({
+    queryKey: ["/api/roles/me"],
+  });
+
+  const rolesReady = !rolesInfoLoading && !!roleInfo;
+  const isAdmin = roleInfo?.isAdmin === true;
+  const roleSet = useMemo(() => new Set(roleInfo?.roles ?? []), [roleInfo]);
+
+  const sectionAccess: Record<string, string[]> = {
+    overview: ["project_manager", "sales", "marketing", "support"],
+    users: ["project_manager"],
+    bikes: ["project_manager"],
+    technicians: ["project_manager"],
+    requests: ["project_manager"],
+    "shop-orders": ["sales"],
+    "support-tickets": ["support"],
+    invoices: ["sales", "project_manager"],
+    discounts: ["marketing", "sales"],
+    parts: ["sales"],
+    roles: ["admin"],
+    "register-tech": ["project_manager"],
+    reports: ["project_manager", "sales", "marketing"],
+  };
+
+  const canViewSection = (key: string) => {
+    if (!rolesReady) return true;
+    if (isAdmin) return true;
+    const allowed = sectionAccess[key] || [];
+    return allowed.some((role) => roleSet.has(role));
+  };
+
+  const shouldFetchOverview = canViewSection("overview") || canViewSection("reports");
+  const shouldFetchUsers = canViewSection("users") || shouldFetchOverview;
+  const shouldFetchServiceRequests = canViewSection("requests") || shouldFetchOverview;
+  const shouldFetchShopOrders = canViewSection("shop-orders") || shouldFetchOverview;
+  const shouldFetchInvoices = canViewSection("invoices") || shouldFetchOverview;
+  const shouldFetchSupportTickets = canViewSection("support-tickets") || shouldFetchOverview;
+
+  const navTabs = useMemo(() => ([
+    { id: "overview", label: txt.overview, icon: BarChart3 },
+    { id: "reports", label: txt.reports, icon: TrendingUp },
+    { id: "users", label: txt.users, icon: Users },
+    { id: "technicians", label: txt.pendingTechnicians, icon: Wrench },
+    { id: "bikes", label: txt.bikes, icon: Bike },
+    { id: "requests", label: txt.serviceRequests, icon: ClipboardList },
+    { id: "shop-orders", label: txt.shopOrders, icon: Package },
+    { id: "support-tickets", label: txt.supportTickets, icon: Headset },
+    { id: "invoices", label: txt.invoices, icon: FileText },
+    { id: "discounts", label: txt.discounts, icon: Wrench },
+    { id: "parts", label: txt.parts, icon: Package },
+    { id: "roles", label: txt.userRoles, icon: UserCog },
+    { id: "register-tech", label: txt.registerTech, icon: Wrench },
+  ]), [txt]);
+
+  const visibleTabs = useMemo(
+    () => navTabs.filter((tab) => canViewSection(tab.id)),
+    [navTabs, rolesReady, isAdmin, roleSet],
+  );
+
+  useEffect(() => {
+    if (!visibleTabs.find((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id || "overview");
+    }
+  }, [activeTab, visibleTabs]);
+
   const { data: users, isLoading: usersLoading, error: usersError } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
     retry: false,
+    enabled: shouldFetchUsers,
   });
 
   const { data: bikes, isLoading: bikesLoading } = useQuery<BikeType[]>({
     queryKey: ["/api/admin/bikes"],
+    enabled: canViewSection("bikes"),
   });
 
   const { data: technicians, isLoading: techniciansLoading } = useQuery<TechnicianWithUser[]>({
     queryKey: ["/api/admin/technicians"],
+    enabled: canViewSection("technicians"),
   });
 
   const { data: shopOrders, isLoading: shopOrdersLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin/orders"],
+    enabled: shouldFetchShopOrders,
   });
 
   const { data: serviceRequests, isLoading: requestsLoading } = useQuery<ServiceRequest[]>({
     queryKey: ["/api/admin/service-requests"],
+    enabled: shouldFetchServiceRequests,
   });
 
   const { data: supportTickets, isLoading: supportTicketsLoading } = useQuery<SupportTicket[]>({
     queryKey: ["/api/admin/support-tickets"],
+    enabled: shouldFetchSupportTickets,
   });
 
   const { data: roles, isLoading: rolesLoading } = useQuery<Role[]>({
     queryKey: ["/api/admin/roles"],
+    enabled: canViewSection("roles"),
   });
 
   const { data: userRolesData, isLoading: userRolesLoading } = useQuery<UserRole[]>({
     queryKey: ["/api/admin/user-roles"],
+    enabled: canViewSection("roles"),
   });
 
   const pendingTechnicians: TechnicianWithUser[] | undefined = undefined;
@@ -463,14 +657,17 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/invoices"],
     refetchOnMount: 'always',
     staleTime: 0,
+    enabled: shouldFetchInvoices,
   });
 
   const { data: parts, isLoading: partsLoading } = useQuery({
     queryKey: ["/api/parts"],
+    enabled: canViewSection("parts"),
   });
 
   const { data: discountCodes, isLoading: discountCodesLoading } = useQuery({
     queryKey: ["/api/admin/discount-codes"],
+    enabled: canViewSection("discounts"),
   });
 
   const safeUsers = Array.isArray(users) ? users : [];
@@ -481,6 +678,173 @@ export default function AdminDashboard() {
   const safeShopOrders = Array.isArray(shopOrders) ? shopOrders : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
+
+  const normalizedInvoices = safeInvoices.map((invoice: any) => ({
+    ...invoice,
+    invoiceNumber: invoice.invoiceNumber ?? invoice.invoice_number,
+    userId: invoice.userId ?? invoice.user_id,
+    serviceRequestId: invoice.serviceRequestId ?? invoice.service_request_id,
+    orderId: invoice.orderId ?? invoice.order_id,
+    total: Number(invoice.total ?? 0),
+    subtotal: Number(invoice.subtotal ?? 0),
+    taxRate: Number(invoice.taxRate ?? invoice.tax_rate ?? 0),
+    taxAmount: Number(invoice.taxAmount ?? invoice.tax_amount ?? 0),
+    issuedDate: invoice.issuedDate ?? invoice.issued_date,
+    status: invoice.status,
+  }));
+
+  const resolveDate = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const parseItems = (raw: any) => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const overviewStats = useMemo(() => {
+    const totalUsers = safeUsers.length;
+    const totalServiceOrders = safeServiceRequests.length;
+    const totalShopOrders = safeShopOrders.length;
+    const totalRevenue = normalizedInvoices.reduce((sum, invoice) => sum + (Number(invoice.total) || 0), 0);
+    const openTickets = safeSupportTickets.filter((ticket) => (ticket.status || "open") !== "closed").length;
+    return { totalUsers, totalServiceOrders, totalShopOrders, totalRevenue, openTickets };
+  }, [safeUsers.length, safeServiceRequests.length, safeShopOrders.length, normalizedInvoices, safeSupportTickets]);
+
+  const orderEvents = useMemo(() => {
+    const serviceEvents = safeServiceRequests
+      .map((req: any) => ({
+        type: "service",
+        date: resolveDate(req.createdAt ?? req.created_at),
+      }))
+      .filter((item) => item.date);
+    const shopEvents = safeShopOrders
+      .map((order: any) => ({
+        type: "shop",
+        date: resolveDate(order.createdAt ?? order.created_at),
+      }))
+      .filter((item) => item.date);
+    return [...serviceEvents, ...shopEvents] as { type: "service" | "shop"; date: Date }[];
+  }, [safeServiceRequests, safeShopOrders]);
+
+  const ordersChartData = useMemo(() => {
+    const formatKey = (date: Date) => {
+      if (orderRange === "month") return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      if (orderRange === "week") {
+        const weekStart = new Date(date);
+        const day = weekStart.getDay();
+        const diff = (day + 6) % 7;
+        weekStart.setDate(weekStart.getDate() - diff);
+        return weekStart.toISOString().slice(0, 10);
+      }
+      return date.toISOString().slice(0, 10);
+    };
+
+    const bucketMap = new Map<string, { label: string; service: number; shop: number }>();
+    orderEvents.forEach((event) => {
+      const key = formatKey(event.date);
+      const entry = bucketMap.get(key) || { label: key, service: 0, shop: 0 };
+      if (event.type === "service") entry.service += 1;
+      else entry.shop += 1;
+      bucketMap.set(key, entry);
+    });
+
+    return Array.from(bucketMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [orderEvents, orderRange]);
+
+  const topParts = useMemo(() => {
+    const counts = new Map<string, number>();
+    safeShopOrders.forEach((order: any) => {
+      const items = parseItems(order.items ?? order.items_json ?? []);
+      items.forEach((item: any) => {
+        const name = item.name || item.partName || item.part_id || "Unknown";
+        const qty = Number(item.quantity || 0);
+        if (!name || qty <= 0) return;
+        counts.set(name, (counts.get(name) || 0) + qty);
+      });
+    });
+    return Array.from(counts.entries())
+      .map(([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 6);
+  }, [safeShopOrders]);
+
+  const serviceShopSplit = useMemo(
+    () => [
+      { name: txt.serviceOrders, value: overviewStats.totalServiceOrders, key: "service" },
+      { name: txt.shopOrders, value: overviewStats.totalShopOrders, key: "shop" },
+    ],
+    [overviewStats.totalServiceOrders, overviewStats.totalShopOrders, txt.serviceOrders, txt.shopOrders],
+  );
+
+  const reportSummary = useMemo(() => {
+    const start = reportStartDate ? new Date(reportStartDate) : null;
+    const end = reportEndDate ? new Date(reportEndDate) : null;
+    if (end) end.setHours(23, 59, 59, 999);
+
+    const withinRange = (value?: string | null) => {
+      const date = resolveDate(value || undefined);
+      if (!date) return false;
+      if (start && date < start) return false;
+      if (end && date > end) return false;
+      return true;
+    };
+
+    const serviceOrders = safeServiceRequests.filter((req: any) =>
+      withinRange(req.createdAt ?? req.created_at),
+    );
+    const shopOrders = safeShopOrders.filter((order: any) =>
+      withinRange(order.createdAt ?? order.created_at),
+    );
+    const invoicesInRange = normalizedInvoices.filter((invoice: any) =>
+      withinRange(invoice.issuedDate ?? invoice.createdAt ?? invoice.created_at),
+    );
+    const serviceRevenue = invoicesInRange
+      .filter((invoice: any) => !!invoice.serviceRequestId)
+      .reduce((sum: number, invoice: any) => sum + (Number(invoice.total) || 0), 0);
+    const shopRevenue = invoicesInRange
+      .filter((invoice: any) => !!invoice.orderId && !invoice.serviceRequestId)
+      .reduce((sum: number, invoice: any) => sum + (Number(invoice.total) || 0), 0);
+    const totalRevenue = serviceRevenue + shopRevenue;
+    const openTickets = safeSupportTickets.filter((ticket) =>
+      (ticket.status || "open") !== "closed" && withinRange(ticket.created_at ?? ticket.createdAt),
+    ).length;
+
+    const partCounts = new Map<string, number>();
+    shopOrders.forEach((order: any) => {
+      const items = parseItems(order.items ?? order.items_json ?? []);
+      items.forEach((item: any) => {
+        const name = item.name || item.partName || item.part_id || "Unknown";
+        const qty = Number(item.quantity || 0);
+        if (!name || qty <= 0) return;
+        partCounts.set(name, (partCounts.get(name) || 0) + qty);
+      });
+    });
+    const topReportParts = Array.from(partCounts.entries())
+      .map(([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+
+    return {
+      serviceOrders: serviceOrders.length,
+      shopOrders: shopOrders.length,
+      serviceRevenue,
+      shopRevenue,
+      totalRevenue,
+      openTickets,
+      topReportParts,
+    };
+  }, [reportStartDate, reportEndDate, normalizedInvoices, safeServiceRequests, safeShopOrders, safeSupportTickets]);
 
   const mockConvoyInvoices: InvoiceWithConvoy[] = [
     {
@@ -548,8 +912,8 @@ export default function AdminDashboard() {
     },
   ];
 
-  const convoyInvoices: InvoiceWithConvoy[] = safeInvoices.length
-    ? safeInvoices.map((invoice, index) => {
+  const convoyInvoices: InvoiceWithConvoy[] = normalizedInvoices.length
+    ? normalizedInvoices.map((invoice: any, index) => {
         const convoy = convoys[index % convoys.length];
         return {
           ...invoice,
@@ -599,6 +963,11 @@ export default function AdminDashboard() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
+  };
+
+  const formatCurrency = (value: number) => {
+    const safeValue = Number.isFinite(value) ? value : 0;
+    return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
   };
 
   const approveTechnicianMutation = useMutation({
@@ -811,6 +1180,43 @@ export default function AdminDashboard() {
     setEditingCategory("");
   };
 
+  const updateSupportStatusMutation = useMutation({
+    mutationFn: async ({ ticketId, status }: { ticketId: string; status: string }) => {
+      return await apiRequest(`/api/admin/support-tickets/${ticketId}/status`, "PATCH", { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support-tickets"] });
+      toast({
+        title: lang === "ar" ? "تم تحديث الحالة" : "Status updated",
+      });
+    },
+    onError: () => {
+      toast({
+        title: txt.error,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const replySupportMutation = useMutation({
+    mutationFn: async ({ ticketId, message }: { ticketId: string; message: string }) => {
+      return await apiRequest(`/api/admin/support-tickets/${ticketId}/reply`, "POST", { message });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/support-tickets"] });
+      setSupportReplyDrafts((prev) => ({ ...prev, [variables.ticketId]: "" }));
+      toast({
+        title: lang === "ar" ? "تم إرسال الرد" : "Reply sent",
+      });
+    },
+    onError: () => {
+      toast({
+        title: txt.error,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleUploadPartImage = async (partId: string, file: File) => {
     setUploadingPartImage(partId);
     try {
@@ -957,115 +1363,251 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center gap-3">
-          <Shield className="w-8 h-8 text-primary" />
-          <h1 className="text-3xl font-bold text-foreground" data-testid="title-admin-dashboard">
-            {txt.title}
-          </h1>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <Shield className="w-8 h-8 text-primary" />
+            <div>
+              <h1 className="text-3xl font-bold text-foreground" data-testid="title-admin-dashboard">
+                {txt.title}
+              </h1>
+              <p className="text-sm text-muted-foreground">{txt.overviewSubtitle}</p>
+            </div>
+          </div>
         </div>
 
-        {/* Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{txt.totalUsers}</CardTitle>
-                <Users className="w-4 h-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="stat-total-users">
-                {usersLoading ? txt.loading : safeUsers.length}
-                </div>
-              </CardContent>
-            </Card>
-
-          <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{txt.totalBikes}</CardTitle>
-                <Bike className="w-4 h-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="stat-total-bikes">
-                {bikesLoading ? txt.loading : safeBikes.length}
-                </div>
-              </CardContent>
-            </Card>
-
-          <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{txt.totalTechnicians}</CardTitle>
-                <Wrench className="w-4 h-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="stat-total-technicians">
-                {techniciansLoading ? txt.loading : safeTechnicians.length}
-                </div>
-              </CardContent>
-            </Card>
-
-          <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{txt.totalRequests}</CardTitle>
-                <ClipboardList className="w-4 h-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="stat-total-requests">
-                {requestsLoading ? txt.loading : safeServiceRequests.length}
-                </div>
-              </CardContent>
-            </Card>
-        </div>
-
-        {/* Data Tables */}
-        <Tabs defaultValue="users" className="w-full">
+        {/* Admin Sections */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="flex flex-col md:flex-row gap-4">
             <TabsList className="flex flex-col h-auto md:w-64 gap-1">
-              <TabsTrigger value="users" className="w-full justify-start" data-testid="tab-users">
-                <Users className="w-4 h-4 mr-2" />
-                {txt.users}
-              </TabsTrigger>
-              <TabsTrigger value="technicians" className="w-full justify-start" data-testid="tab-technicians">
-                <Wrench className="w-4 h-4 mr-2" />
-                {txt.pendingTechnicians}
-              </TabsTrigger>
-              <TabsTrigger value="bikes" className="w-full justify-start" data-testid="tab-bikes">
-                <Bike className="w-4 h-4 mr-2" />
-                {txt.bikes}
-              </TabsTrigger>
-              <TabsTrigger value="requests" className="w-full justify-start" data-testid="tab-requests">
-                <ClipboardList className="w-4 h-4 mr-2" />
-                {txt.serviceRequests}
-              </TabsTrigger>
-              <TabsTrigger value="shop-orders" className="w-full justify-start" data-testid="tab-shop-orders">
-                <Package className="w-4 h-4 mr-2" />
-                {txt.shopOrders}
-              </TabsTrigger>
-              <TabsTrigger value="support-tickets" className="w-full justify-start" data-testid="tab-support-tickets">
-                <Headset className="w-4 h-4 mr-2" />
-                {txt.supportTickets}
-              </TabsTrigger>
-              <TabsTrigger value="roles" className="w-full justify-start" data-testid="tab-roles">
-                <UserCog className="w-4 h-4 mr-2" />
-                {txt.userRoles}
-              </TabsTrigger>
-              <TabsTrigger value="invoices" className="w-full justify-start" data-testid="tab-invoices">
-                <FileText className="w-4 h-4 mr-2" />
-                {txt.invoices}
-              </TabsTrigger>
-              <TabsTrigger value="discounts" className="w-full justify-start" data-testid="tab-discounts">
-                <Wrench className="w-4 h-4 mr-2" />
-                {lang === 'ar' ? 'أكواد الخصم' : 'Discount Codes'}
-              </TabsTrigger>
-              <TabsTrigger value="parts" className="w-full justify-start" data-testid="tab-parts">
-                <Wrench className="w-4 h-4 mr-2" />
-                {txt.parts}
-              </TabsTrigger>
-              <TabsTrigger value="register-tech" className="w-full justify-start" data-testid="tab-register-tech">
-                <Wrench className="w-4 h-4 mr-2" />
-                {lang === 'ar' ? 'تسجيل فني' : 'Register Technician'}
-              </TabsTrigger>
+              {visibleTabs.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id} className="w-full justify-start" data-testid={`tab-${tab.id}`}>
+                  <tab.icon className="w-4 h-4 mr-2" />
+                  {tab.label}
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             <div className="flex-1">
+
+          <TabsContent value="overview" className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card className="border border-border/60 bg-gradient-to-br from-primary/10 via-background to-background">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{txt.totalUsers}</CardTitle>
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="stat-total-users">
+                    {usersLoading ? txt.loading : overviewStats.totalUsers}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border border-border/60 bg-gradient-to-br from-emerald-500/10 via-background to-background">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{txt.totalServiceOrders}</CardTitle>
+                  <ClipboardList className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {requestsLoading ? txt.loading : overviewStats.totalServiceOrders}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border border-border/60 bg-gradient-to-br from-blue-500/10 via-background to-background">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{txt.totalShopOrders}</CardTitle>
+                  <Package className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {shopOrdersLoading ? txt.loading : overviewStats.totalShopOrders}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border border-border/60 bg-gradient-to-br from-amber-500/10 via-background to-background">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{txt.totalRevenue}</CardTitle>
+                  <DollarSign className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-primary">
+                    {formatCurrency(overviewStats.totalRevenue)}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border border-border/60 bg-gradient-to-br from-rose-500/10 via-background to-background">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{txt.openTickets}</CardTitle>
+                  <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {supportTicketsLoading ? txt.loading : overviewStats.openTickets}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card className="lg:col-span-2">
+                <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <CardTitle className="text-lg">{txt.ordersOverTime}</CardTitle>
+                    <p className="text-sm text-muted-foreground">{txt.analytics}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(["day", "week", "month"] as const).map((range) => (
+                      <Button
+                        key={range}
+                        size="sm"
+                        variant={orderRange === range ? "default" : "outline"}
+                        onClick={() => setOrderRange(range)}
+                      >
+                        {range === "day" ? txt.orderRangeDay : range === "week" ? txt.orderRangeWeek : txt.orderRangeMonth}
+                      </Button>
+                    ))}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {ordersChartData.length === 0 ? (
+                    <div className="text-center text-sm text-muted-foreground py-10">{txt.noData}</div>
+                  ) : (
+                    <ChartContainer
+                      config={{
+                        service: { label: txt.serviceOrders, color: "hsl(var(--chart-1))" },
+                        shop: { label: txt.shopOrders, color: "hsl(var(--chart-2))" },
+                      }}
+                    >
+                      <LineChart data={ordersChartData} margin={{ left: 8, right: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                        <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                        <Line type="monotone" dataKey="service" stroke="var(--color-service)" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="shop" stroke="var(--color-shop)" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ChartContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">{txt.serviceVsShop}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      config={{
+                        service: { label: txt.serviceOrders, color: "hsl(var(--chart-1))" },
+                        shop: { label: txt.shopOrders, color: "hsl(var(--chart-2))" },
+                      }}
+                    >
+                      <RePieChart>
+                        <ChartTooltip content={<ChartTooltipContent nameKey="name" />} />
+                        <Pie data={serviceShopSplit} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70}>
+                          {serviceShopSplit.map((entry) => (
+                            <Cell key={entry.key} fill={`var(--color-${entry.key})`} />
+                          ))}
+                        </Pie>
+                      </RePieChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">{txt.mostSoldParts}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {topParts.length === 0 ? (
+                      <div className="text-center text-sm text-muted-foreground py-6">{txt.noData}</div>
+                    ) : (
+                      <ChartContainer config={{ quantity: { label: txt.mostSoldParts, color: "hsl(var(--chart-3))" } }}>
+                        <BarChart data={topParts} margin={{ left: 8, right: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                          <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="quantity" fill="var(--color-quantity)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{txt.reportRange}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 md:flex-row md:items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{lang === "ar" ? "من" : "From"}</span>
+                  <Input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{lang === "ar" ? "إلى" : "To"}</span>
+                  <Input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{txt.reportSummary}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportServiceOrders}</p>
+                    <p className="text-xl font-semibold">{reportSummary.serviceOrders}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportShopOrders}</p>
+                    <p className="text-xl font-semibold">{reportSummary.shopOrders}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportTotalRevenue}</p>
+                    <p className="text-xl font-semibold text-primary">{formatCurrency(reportSummary.totalRevenue)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportServiceRevenue}</p>
+                    <p className="text-xl font-semibold">{formatCurrency(reportSummary.serviceRevenue)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportShopRevenue}</p>
+                    <p className="text-xl font-semibold">{formatCurrency(reportSummary.shopRevenue)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportOpenTickets}</p>
+                    <p className="text-xl font-semibold">{reportSummary.openTickets}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border/60 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold">{txt.reportTopParts}</h3>
+                  </div>
+                  {reportSummary.topReportParts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{txt.noData}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {reportSummary.topReportParts.map((part) => (
+                        <div key={part.name} className="flex items-center justify-between text-sm">
+                          <span>{part.name}</span>
+                          <span className="font-medium">{part.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="users" className="space-y-4">
             <Card>
@@ -1423,6 +1965,10 @@ export default function AdminDashboard() {
                           {safeSupportTickets.map((ticket) => {
                             const isExpanded = expandedSupportTicketId === ticket.id;
                             const statusLabel = ticket.status || "open";
+                            const draftStatus = supportStatusDrafts[ticket.id] || statusLabel;
+                            const replyMessage = (ticket as any).reply_message ?? (ticket as any).replyMessage ?? ticket.reply_message;
+                            const replyAt = (ticket as any).replied_at ?? (ticket as any).repliedAt ?? ticket.replied_at;
+                            const replyDraft = supportReplyDrafts[ticket.id] ?? "";
                             return (
                               <Fragment key={ticket.id}>
                                 <TableRow>
@@ -1456,9 +2002,77 @@ export default function AdminDashboard() {
                                   <TableRow>
                                     <TableCell colSpan={8} className="bg-muted/30">
                                       <div className="space-y-3">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                          <div className="text-sm text-muted-foreground">{txt.supportStatus}</div>
+                                          <Select
+                                            value={draftStatus}
+                                            onValueChange={(value) =>
+                                              setSupportStatusDrafts((prev) => ({
+                                                ...prev,
+                                                [ticket.id]: value,
+                                              }))
+                                            }
+                                          >
+                                            <SelectTrigger className="w-40">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="open">{txt.supportStatusOpen}</SelectItem>
+                                              <SelectItem value="closed">{txt.supportStatusClosed}</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              updateSupportStatusMutation.mutate({
+                                                ticketId: ticket.id,
+                                                status: draftStatus,
+                                              })
+                                            }
+                                            disabled={updateSupportStatusMutation.isPending}
+                                          >
+                                            {lang === "ar" ? "تحديث" : "Update"}
+                                          </Button>
+                                        </div>
                                         <div>
                                           <div className="text-sm text-muted-foreground">{txt.supportMessage}</div>
                                           <p className="whitespace-pre-wrap text-sm">{ticket.message || "-"}</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <div className="text-sm text-muted-foreground">{txt.supportReply}</div>
+                                          {replyMessage ? (
+                                            <div className="rounded-md border border-border/60 bg-background/70 p-3 text-sm">
+                                              <p className="whitespace-pre-wrap">{replyMessage}</p>
+                                              {replyAt ? (
+                                                <p className="mt-2 text-xs text-muted-foreground">
+                                                  {formatSupportDate(replyAt)}
+                                                </p>
+                                              ) : null}
+                                            </div>
+                                          ) : null}
+                                          <Textarea
+                                            placeholder={txt.supportReplyPlaceholder}
+                                            value={replyDraft}
+                                            onChange={(event) =>
+                                              setSupportReplyDrafts((prev) => ({
+                                                ...prev,
+                                                [ticket.id]: event.target.value,
+                                              }))
+                                            }
+                                          />
+                                          <Button
+                                            size="sm"
+                                            onClick={() =>
+                                              replySupportMutation.mutate({
+                                                ticketId: ticket.id,
+                                                message: replyDraft,
+                                              })
+                                            }
+                                            disabled={replySupportMutation.isPending || replyDraft.trim().length === 0}
+                                          >
+                                            {txt.supportReplyAction}
+                                          </Button>
                                         </div>
                                         {ticket.screenshot_url ? (
                                           <div>
@@ -1627,6 +2241,9 @@ export default function AdminDashboard() {
                     <div className="space-y-3">
                       {filteredInvoices.map((invoice) => {
                         const user = safeUsers.find((u) => u.id === invoice.userId);
+                        const invoiceType = (invoice as any).orderId || (invoice as any).order_id
+                          ? txt.invoiceTypeShop
+                          : txt.invoiceTypeService;
                         return (
                           <div
                             key={invoice.id}
@@ -1637,6 +2254,9 @@ export default function AdminDashboard() {
                               <div className="space-y-1">
                                 <p className="font-semibold text-foreground" data-testid={`invoice-number-${invoice.id}`}>
                                   {txt.invoiceNumber}: {invoice.invoiceNumber}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {txt.invoiceType}: {invoiceType}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
                                   {user ? `${user.firstName} ${user.lastName}` : 'Unknown User'}
@@ -1713,7 +2333,7 @@ export default function AdminDashboard() {
           <TabsContent value="discounts" className="space-y-4">
             <Card data-testid="card-discount-codes">
               <CardHeader>
-                <CardTitle>{lang === 'ar' ? 'أكواد الخصم' : 'Discount Codes'}</CardTitle>
+                <CardTitle>{txt.discounts}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2022,7 +2642,7 @@ export default function AdminDashboard() {
           <TabsContent value="register-tech" className="space-y-4">
             <Card data-testid="card-register-tech">
               <CardHeader>
-                <CardTitle>{lang === 'ar' ? 'تسجيل فني جديد' : 'Register New Technician'}</CardTitle>
+                <CardTitle>{txt.registerTech}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2047,7 +2667,7 @@ export default function AdminDashboard() {
                       createTechnicianMutation.mutate({ email, firstName: name, phoneNumber: phone, yearsOfExperience: parseInt(exp || '0'), nationalId: id, iban, commercialRegister: register, latitude: '24.7136', longitude: '46.6753' });
                     }
                   }} data-testid="button-register-tech" className="md:col-span-2">
-                    {lang === 'ar' ? 'تسجيل الفني' : 'Register Technician'}
+                    {txt.registerTech}
                   </Button>
                 </div>
               </CardContent>

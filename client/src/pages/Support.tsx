@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { auth } from "@/lib/firebase";
 import { getBestAuthToken } from "@/lib/authStorage";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import type { StoredOrder } from "@/lib/mockOrders";
 
 type SupportOption = {
@@ -71,6 +72,13 @@ const formatFileSize = (size: number) => {
   return `${(kb / 1024).toFixed(1)} MB`;
 };
 
+const formatTicketTime = (value?: string) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
+
 export default function SupportPage() {
   const { lang } = useLanguage();
   const { user } = useFirebaseAuth();
@@ -111,10 +119,15 @@ export default function SupportPage() {
       lastTicketTitle: "آخر طلب دعم",
       lastTicketEmpty: "لا يوجد طلبات دعم سابقة على هذا الجهاز.",
       ticketTime: "الوقت",
+      ticketStatus: "الحالة",
       ticketCategory: "التصنيف",
       ticketSubcategory: "التصنيف الفرعي",
       ticketSubject: "الموضوع",
       ticketMessage: "الرسالة",
+      ticketReply: "رد الإدارة",
+      ticketReplyEmpty: "لا يوجد رد حتى الآن.",
+      ticketStatusOpen: "مفتوحة",
+      ticketStatusClosed: "مغلقة",
       orderLabel: "رقم الطلب (اختياري)",
       orderPlaceholder: "اختر طلب مرتبط",
       orderEmpty: "لا توجد طلبات مرتبطة حالياً.",
@@ -152,10 +165,15 @@ export default function SupportPage() {
       lastTicketTitle: "Latest Support Ticket",
       lastTicketEmpty: "No previous support tickets on this device.",
       ticketTime: "Time",
+      ticketStatus: "Status",
       ticketCategory: "Category",
       ticketSubcategory: "Sub-category",
       ticketSubject: "Subject",
       ticketMessage: "Message",
+      ticketReply: "Admin Reply",
+      ticketReplyEmpty: "No reply yet.",
+      ticketStatusOpen: "Open",
+      ticketStatusClosed: "Closed",
       orderLabel: "Order (optional)",
       orderPlaceholder: "Select related order",
       orderEmpty: "No orders available.",
@@ -174,11 +192,15 @@ export default function SupportPage() {
   const [submitted, setSubmitted] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [lastTicket, setLastTicket] = useState<{
+    id?: string;
     timestamp: string;
     category: string;
     subCategory?: string;
     subject: string;
     message: string;
+    status?: string;
+    replyMessage?: string;
+    replyAt?: string;
   } | null>(null);
 
   const orders = useMemo<StoredOrder[]>(() => {
@@ -228,6 +250,46 @@ export default function SupportPage() {
       setLastTicket(null);
     }
   }, []);
+
+  useEffect(() => {
+    if (!user && !auth.currentUser) return;
+    let isActive = true;
+    const loadTickets = async () => {
+      try {
+        const response = await fetchWithFirebaseAuth(buildApiUrl("/api/support/tickets"), {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Accept-Language": lang,
+            "X-Lang": lang,
+          },
+        });
+        if (!response.ok) return;
+        const data = await response.json().catch(() => []);
+        if (!isActive || !Array.isArray(data) || data.length === 0) return;
+        const ticket = data[0] || {};
+        const ticketSnapshot = {
+          id: ticket.id,
+          timestamp: ticket.created_at || ticket.createdAt || new Date().toISOString(),
+          category: ticket.category || ticket.type || "",
+          subCategory: ticket.sub_category || ticket.subCategory || "",
+          subject: ticket.subject || ticket.category || ticket.type || "",
+          message: ticket.message || "",
+          status: ticket.status || "open",
+          replyMessage: ticket.reply_message || ticket.replyMessage || "",
+          replyAt: ticket.replied_at || ticket.repliedAt || "",
+        };
+        setLastTicket(ticketSnapshot);
+        localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
+      } catch (error) {
+        console.warn("[Support] Failed to fetch tickets", error);
+      }
+    };
+    loadTickets();
+    return () => {
+      isActive = false;
+    };
+  }, [user, lang]);
 
   useEffect(() => {
     if (!selectedCategory) {
@@ -370,6 +432,9 @@ export default function SupportPage() {
         subCategory: subLabelAr || subLabelEn || "",
         subject,
         message: description.trim(),
+        status: "open",
+        replyMessage: "",
+        replyAt: "",
       };
       localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
       setLastTicket(ticketSnapshot);
@@ -620,8 +685,20 @@ export default function SupportPage() {
                 <>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">{labels.ticketTime}</span>
-                    <span>{new Date(lastTicket.timestamp).toLocaleString()}</span>
+                    <span>{formatTicketTime(lastTicket.timestamp)}</span>
                   </div>
+                  {lastTicket.status ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{labels.ticketStatus}</span>
+                      <span>
+                        {lastTicket.status === "closed"
+                          ? labels.ticketStatusClosed
+                          : lastTicket.status === "open"
+                          ? labels.ticketStatusOpen
+                          : lastTicket.status}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">{labels.ticketCategory}</span>
                     <span>{lastTicket.category}</span>
@@ -639,6 +716,21 @@ export default function SupportPage() {
                   <div className="space-y-1">
                     <span className="text-muted-foreground">{labels.ticketMessage}</span>
                     <p className="whitespace-pre-wrap">{lastTicket.message}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-muted-foreground">{labels.ticketReply}</span>
+                    {lastTicket.replyMessage ? (
+                      <>
+                        <p className="whitespace-pre-wrap">{lastTicket.replyMessage}</p>
+                        {lastTicket.replyAt ? (
+                          <p className="text-xs text-muted-foreground">
+                            {formatTicketTime(lastTicket.replyAt)}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-muted-foreground">{labels.ticketReplyEmpty}</p>
+                    )}
                   </div>
                 </>
               )}

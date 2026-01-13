@@ -26,6 +26,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomUUID } from "crypto";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
+const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
@@ -348,6 +349,7 @@ const normalizeInvoiceRow = (row: any) => ({
   invoiceNumber: row.invoice_number ?? row.invoiceNumber ?? null,
   userId: row.user_id ?? row.userId ?? null,
   serviceRequestId: row.service_request_id ?? row.serviceRequestId ?? null,
+  orderId: row.order_id ?? row.orderId ?? null,
   subtotal: row.subtotal,
   taxRate: row.tax_rate ?? row.taxRate,
   taxAmount: row.tax_amount ?? row.taxAmount,
@@ -463,13 +465,58 @@ let roleCache: { byName: Record<string, Role>; lastFetched?: number } = {
   byName: {},
 };
 
+const DEFAULT_ROLES = [
+  "admin",
+  "project_manager",
+  "technician",
+  "marketing",
+  "sales",
+  "support",
+];
+
+async function loadRolesFromDb(): Promise<Role[]> {
+  try {
+    return await storage.getAllRoles();
+  } catch (error) {
+    console.warn("[ROLES][LIST] storage failed, falling back to REST", error);
+    const { resp, data } = await pgFetch("/roles?order=created_at.desc");
+    if (!resp.ok) {
+      console.warn("[ROLES][LIST] REST failed", { status: resp.status, body: data });
+      return [];
+    }
+    return Array.isArray(data) ? (data as Role[]) : [];
+  }
+}
+
+async function ensureDefaultRoles(): Promise<void> {
+  const roles = await loadRolesFromDb();
+  const existing = new Set((roles || []).map((role) => role.name));
+  const missing = DEFAULT_ROLES.filter((name) => !existing.has(name));
+  if (missing.length === 0) return;
+
+  for (const name of missing) {
+    try {
+      const { resp } = await pgFetch("/roles", {
+        method: "POST",
+        body: [{ name, description: `${name} role` }],
+        headers: { Prefer: "return=representation" },
+      });
+      if (!resp.ok) {
+        console.warn("[ROLES][CREATE] Failed", { name, status: resp.status });
+      }
+    } catch (error) {
+      console.warn("[ROLES][CREATE] Error", { name, error });
+    }
+  }
+}
+
 async function getRoleByName(name: string): Promise<Role | undefined> {
   const now = Date.now();
   const cacheHit =
     roleCache.byName[name] && roleCache.lastFetched && now - roleCache.lastFetched < 5 * 60 * 1000;
   if (cacheHit) return roleCache.byName[name];
 
-  const roles = await storage.getAllRoles();
+  const roles = await loadRolesFromDb();
   roleCache = {
     byName: roles.reduce((acc, r) => {
       acc[r.name] = r;
@@ -483,7 +530,16 @@ async function getRoleByName(name: string): Promise<Role | undefined> {
 async function ensureRoleAssignment(userUuid: string, roleName: string, assignerId: string) {
   let role = await getRoleByName(roleName);
   if (!role) {
-    role = await storage.createRole({ name: roleName as any, description: `${roleName} role` });
+    const { resp, data } = await pgFetch("/roles", {
+      method: "POST",
+      body: [{ name: roleName, description: `${roleName} role` }],
+      headers: { Prefer: "return=representation" },
+    });
+    if (!resp.ok) {
+      throw new Error(`Failed to create role ${roleName}`);
+    }
+    const created = Array.isArray(data) ? data[0] : data;
+    role = created as Role;
     // refresh cache
     roleCache.byName[roleName] = role;
     roleCache.lastFetched = Date.now();
@@ -494,15 +550,40 @@ async function ensureRoleAssignment(userUuid: string, roleName: string, assigner
     if (err?.message?.includes("already has this role")) {
       return;
     }
-    throw err;
+    try {
+      const { resp: existingResp, data: existingData } = await pgFetch(
+        `/user_roles?user_id=eq.${encodeURIComponent(userUuid)}&role_id=eq.${encodeURIComponent(role.id)}&limit=1`,
+      );
+      if (existingResp.ok) {
+        const existing = Array.isArray(existingData) ? existingData[0] : existingData?.[0];
+        if (existing) return;
+      }
+      await pgFetch("/user_roles", {
+        method: "POST",
+        body: [{ user_id: userUuid, role_id: role.id, assigned_by: assignerId }],
+        headers: { Prefer: "return=representation" },
+      });
+    } catch (fallbackError) {
+      throw fallbackError;
+    }
   }
 }
 
 async function userHasRole(userUuid: string, roleName: string): Promise<boolean> {
   const role = await getRoleByName(roleName);
   if (!role) return false;
-  const userRoles = await storage.getUserRoles(userUuid);
-  return userRoles.some((ur) => ur.roleId === role.id);
+  try {
+    const userRoles = await storage.getUserRoles(userUuid);
+    return userRoles.some((ur) => ur.roleId === role.id);
+  } catch (error) {
+    console.warn("[ROLES][USER] storage failed, falling back to REST", error);
+    const { resp, data } = await pgFetch(
+      `/user_roles?user_id=eq.${encodeURIComponent(userUuid)}&select=id,role_id`,
+    );
+    if (!resp.ok) return false;
+    const roles = Array.isArray(data) ? data : [];
+    return roles.some((ur: any) => ur.role_id === role.id);
+  }
 }
 
 async function requireRoleOrAdmin(
@@ -525,6 +606,79 @@ async function requireRoleOrAdmin(
     return { ok: false, userUuid, auth };
   }
   return { ok: true, userUuid, auth };
+}
+
+async function requireAnyRoleOrAdmin(
+  req: any,
+  res: any,
+  roleNames: string[],
+): Promise<{ ok: true; userUuid: string; auth: AuthContext }> {
+  const auth = getAuthContext(req);
+  if (!auth) {
+    res.status(401).json({ message: "Unauthorized" });
+    return { ok: false, userUuid: "", auth: null as any };
+  }
+  const userUuid = await ensureUserUuid(auth);
+  if (auth.isAdmin) {
+    return { ok: true, userUuid, auth };
+  }
+  for (const roleName of roleNames) {
+    const has = await userHasRole(userUuid, roleName);
+    if (has) {
+      return { ok: true, userUuid, auth };
+    }
+  }
+  res.status(403).json({ message: "Forbidden" });
+  return { ok: false, userUuid, auth };
+}
+
+async function ensureTechnicianProfile(
+  userId: string,
+  updates: { status?: string; is_active?: boolean; is_available?: boolean } = {},
+) {
+  const { resp, data } = await pgFetch(
+    `/technicians?user_id=eq.${encodeURIComponent(userId)}&limit=1`,
+  );
+  if (resp.ok) {
+    const existing = Array.isArray(data) ? data[0] : data?.[0];
+    if (existing?.id) {
+      const patch: Record<string, any> = {};
+      if (updates.status && existing.status !== updates.status) patch.status = updates.status;
+      if (typeof updates.is_active === "boolean" && existing.is_active !== updates.is_active) {
+        patch.is_active = updates.is_active;
+      }
+      if (typeof updates.is_available === "boolean" && existing.is_available !== updates.is_available) {
+        patch.is_available = updates.is_available;
+      }
+      if (Object.keys(patch).length > 0) {
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(existing.id)}`,
+          { method: "PATCH", body: patch, headers: { Prefer: "return=representation" } },
+        );
+        if (updResp.ok) {
+          return Array.isArray(updData) ? updData[0] : updData;
+        }
+      }
+      return existing;
+    }
+  }
+
+  const payload = {
+    user_id: userId,
+    status: updates.status ?? "approved",
+    is_active: updates.is_active ?? true,
+    is_available: updates.is_available ?? true,
+  };
+  const { resp: createResp, data: createData } = await pgFetch("/technicians", {
+    method: "POST",
+    body: [payload],
+    headers: { Prefer: "return=representation" },
+  });
+  if (!createResp.ok) {
+    console.log("[TECH][UPSERT][FAILED]", { status: createResp.status, body: createData });
+    return null;
+  }
+  return Array.isArray(createData) ? createData[0] : createData;
 }
 
 function getAuthContext(req: any): AuthContext | null {
@@ -1112,6 +1266,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating support ticket:", error);
       res.status(500).json({ message: "Failed to submit support ticket" });
+    }
+  });
+
+  app.get("/api/support/tickets", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const { resp, data } = await pgFetch(
+        `/support_tickets?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+      if (!resp.ok) {
+        console.log("[SUPPORT][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("[SUPPORT][LIST] Error:", error);
+      res.json([]);
     }
   });
 
@@ -1992,7 +2165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const srUserId = sr.user_id || sr.userId;
       const isOwner = srUserId && (srUserId === userUuid || (auth && srUserId === auth.userId));
       const isAdmin = auth?.isAdmin === true;
-      if (!isOwner && !isAdmin) {
+      if (!ALLOW_ALL_BOOKINGS && !isOwner && !isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -2300,7 +2473,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
-      res.status(201).json(order);
+      let invoice: any = null;
+      if (order?.id) {
+        try {
+          const { resp: existingResp, data: existingData } = await pgFetch(
+            `/invoices?order_id=eq.${encodeURIComponent(order.id)}&limit=1`,
+          );
+          if (existingResp.ok) {
+            const existing = Array.isArray(existingData) ? existingData[0] : existingData?.[0];
+            if (existing) {
+              invoice = existing;
+            }
+          }
+        } catch {
+          // ignore lookup errors
+        }
+
+        if (!invoice) {
+          const invoiceNumber = `INV-SHOP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const invoiceData = validateSchema(insertInvoiceSchema, {
+            invoiceNumber,
+            userId: userUuid,
+            orderId: order.id,
+            subtotal: safeSubtotal,
+            taxRate: safeTaxRate,
+            taxAmount: safeTaxAmount,
+            total: safeTotal,
+            status: "paid",
+            issuedDate: new Date(),
+            paidDate: new Date(),
+            items: normalizedItems.map((item: any) => ({
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+            })),
+          }, req);
+
+          try {
+            invoice = await storage.createInvoice(invoiceData as any);
+          } catch (error) {
+            const restPayload: Record<string, any> = {
+              invoice_number: invoiceData.invoiceNumber,
+              user_id: invoiceData.userId,
+              order_id: invoiceData.orderId,
+              subtotal: invoiceData.subtotal,
+              tax_rate: invoiceData.taxRate,
+              tax_amount: invoiceData.taxAmount,
+              total: invoiceData.total,
+              description: invoiceData.description,
+              items: invoiceData.items,
+              status: invoiceData.status,
+              issued_date: invoiceData.issuedDate,
+              due_date: invoiceData.dueDate,
+              paid_date: invoiceData.paidDate,
+            };
+            Object.keys(restPayload).forEach((key) => {
+              if (restPayload[key] === undefined) delete restPayload[key];
+            });
+
+            let { resp: invResp, data: invData } = await pgFetch("/invoices", {
+              method: "POST",
+              body: [restPayload],
+              headers: { Prefer: "return=representation" },
+            });
+            if (!invResp.ok) {
+              const message = typeof invData?.message === "string" ? invData.message : "";
+              if (message.includes("order_id")) {
+                const retryPayload = { ...restPayload };
+                delete retryPayload.order_id;
+                ({ resp: invResp, data: invData } = await pgFetch("/invoices", {
+                  method: "POST",
+                  body: [retryPayload],
+                  headers: { Prefer: "return=representation" },
+                }));
+              }
+            }
+            if (invResp.ok) {
+              invoice = Array.isArray(invData) ? invData[0] : invData;
+            }
+          }
+        }
+      }
+
+      const enrichedOrder = invoice
+        ? {
+            ...order,
+            invoiceId: invoice.id ?? invoice.invoice_id,
+            invoiceNumber: invoice.invoice_number ?? invoice.invoiceNumber,
+            invoiceStatus: invoice.status,
+          }
+        : order;
+
+      res.status(201).json(enrichedOrder);
     } catch (error) {
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;
@@ -2871,8 +3136,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  // Support tickets (admin)
-  app.get("/api/admin/support-tickets", isAuthenticated, isAdmin, async (_req, res) => {
+  // Support tickets (admin/support)
+  app.get("/api/admin/support-tickets", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["support", "project_manager"]);
+    if (!guard.ok) return;
     try {
       const { resp, data } = await pgFetch("/support_tickets?order=created_at.desc");
       if (!resp.ok) {
@@ -2883,6 +3150,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[ADMIN][SUPPORT][LIST] Error:", error);
       res.json([]);
+    }
+  });
+
+  app.patch("/api/admin/support-tickets/:id/status", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["support", "project_manager"]);
+    if (!guard.ok) return;
+    const status = typeof req.body?.status === "string" ? req.body.status : "";
+    if (!["open", "closed"].includes(status)) {
+      return res.status(400).json({ message: "status must be open or closed" });
+    }
+    try {
+      const { resp, data } = await pgFetch(
+        `/support_tickets?id=eq.${encodeURIComponent(req.params.id)}`,
+        {
+          method: "PATCH",
+          body: { status, updated_at: new Date().toISOString() },
+          headers: { Prefer: "return=representation" },
+        },
+      );
+      if (!resp.ok) {
+        console.log("[ADMIN][SUPPORT][STATUS][FAILED]", { status: resp.status, body: data });
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const updated = Array.isArray(data) ? data[0] : data;
+      res.json(updated);
+    } catch (error) {
+      console.error("[ADMIN][SUPPORT][STATUS] Error:", error);
+      res.status(500).json({ message: "Failed to update ticket status" });
+    }
+  });
+
+  app.post("/api/admin/support-tickets/:id/reply", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["support", "project_manager"]);
+    if (!guard.ok) return;
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message) {
+      return res.status(400).json({ message: "message is required" });
+    }
+    try {
+      const { userUuid } = guard;
+      const payload = {
+        reply_message: message,
+        replied_at: new Date().toISOString(),
+        replied_by: userUuid,
+        status: "closed",
+        updated_at: new Date().toISOString(),
+      };
+      const { resp, data } = await pgFetch(
+        `/support_tickets?id=eq.${encodeURIComponent(req.params.id)}`,
+        { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
+      );
+      if (!resp.ok) {
+        console.log("[ADMIN][SUPPORT][REPLY][FAILED]", { status: resp.status, body: data });
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const updated = Array.isArray(data) ? data[0] : data;
+      res.json(updated);
+    } catch (error) {
+      console.error("[ADMIN][SUPPORT][REPLY] Error:", error);
+      res.status(500).json({ message: "Failed to reply to ticket" });
     }
   });
 
@@ -2903,7 +3230,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/parts", isAuthenticated, isAdmin, async (_req, res) => {
+  app.get("/api/admin/parts", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+    if (!guard.ok) return;
     try {
       const { resp, data } = await pgFetch("/parts?order=created_at.desc");
       if (!resp.ok) {
@@ -2921,9 +3250,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/admin/parts",
     isAuthenticated,
-    isAdmin,
     partImageUpload,
     async (req: any, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+      if (!guard.ok) return;
       try {
         console.log("[ADMIN][PARTS][CREATE] start");
         
@@ -2998,9 +3328,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/admin/parts/:id/image",
     isAuthenticated,
-    isAdmin,
     partImageUpload,
     async (req: any, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+      if (!guard.ok) return;
       try {
         const partId = req.params.id;
         const file = req.file as Express.Multer.File;
@@ -3056,8 +3387,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch(
     "/api/admin/parts/:id",
     isAuthenticated,
-    isAdmin,
     async (req: any, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+      if (!guard.ok) return;
       try {
         const partId = req.params.id;
         const { resp: partResp, data: partData } = await pgFetch(`/parts?id=eq.${encodeURIComponent(partId)}&select=id`);
@@ -3101,8 +3433,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete(
     "/api/admin/parts/:id",
     isAuthenticated,
-    isAdmin,
     async (req: any, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+      if (!guard.ok) return;
       try {
         const partId = req.params.id;
         const { resp: delResp, data: delData } = await pgFetch(
@@ -3121,8 +3454,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Admin routes - Protected with isAdmin middleware
-  app.get("/api/admin/users", isAuthenticated, isAdmin, async (req, res) => {
+  // Admin routes - Protected with role-aware guards
+  app.get("/api/admin/users", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+    if (!guard.ok) return;
     try {
       const users = await storage.getAllUsers();
       res.json(users);
@@ -3143,7 +3478,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/bikes", isAuthenticated, isAdmin, async (req, res) => {
+  app.get("/api/roles/me", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const roles = await loadRolesFromDb();
+      const roleById = new Map(roles.map((role) => [role.id, role.name]));
+      let userRoleIds: string[] = [];
+      try {
+        const storageRoles = await storage.getUserRoles(userUuid);
+        userRoleIds = storageRoles.map((item) => item.roleId);
+      } catch (error) {
+        const { resp, data } = await pgFetch(
+          `/user_roles?user_id=eq.${encodeURIComponent(userUuid)}&select=role_id`,
+        );
+        if (resp.ok) {
+          userRoleIds = (Array.isArray(data) ? data : []).map((row: any) => row.role_id);
+        }
+      }
+      const roleNames = userRoleIds
+        .map((id) => roleById.get(id))
+        .filter((name): name is string => !!name);
+      res.json({ isAdmin: auth.isAdmin === true, roles: roleNames });
+    } catch (error) {
+      console.error("[ROLES][ME] Error:", error);
+      res.json({ isAdmin: false, roles: [] });
+    }
+  });
+
+  app.get("/api/admin/bikes", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+    if (!guard.ok) return;
     try {
       const { resp, data } = await pgFetch("/bikes?order=created_at.desc");
       if (!resp.ok) {
@@ -3160,8 +3526,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/technicians",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+      if (!guard.ok) return;
       try {
         const { resp, data } = await pgFetch("/technicians?select=*,user:users(email,first_name,last_name)&order=created_at.desc");
       if (!resp.ok) {
@@ -3179,8 +3546,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/technicians/pending",
     isAuthenticated,
-    isAdmin,
     async (_req, res) => {
+      const guard = await requireAnyRoleOrAdmin(_req, res, ["project_manager"]);
+      if (!guard.ok) return;
       try {
         const { resp, data } = await pgFetch("/technicians?status=eq.pending&order=created_at.desc&select=*,user:users(email,first_name,last_name)");
       if (!resp.ok) {
@@ -3201,20 +3569,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     isAdmin,
     async (req, res) => {
       try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const assignerId = await ensureUserUuid(auth);
         const techId = req.params.id;
         console.log("[ADMIN][TECH][APPROVE]", { techId });
-        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
-          method: "PATCH",
-          body: { status: "approved", is_active: true },
-          headers: { Prefer: "return=representation" },
-        });
-        if (!resp.ok) {
-          console.log("[ADMIN][TECH][APPROVE][FAILED]", { status: resp.status, body: data });
+        const { resp: fetchResp, data: fetchData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(techId)}&limit=1`,
+        );
+        if (!fetchResp.ok) {
+          console.log("[ADMIN][TECH][APPROVE][FETCH_FAILED]", { status: fetchResp.status, body: fetchData });
           return res.status(404).json({ message: "Technician not found" });
         }
-        const technician = Array.isArray(data) ? data[0] : data;
+        const existing = Array.isArray(fetchData) ? fetchData[0] : fetchData?.[0];
+        if (!existing) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+
+        let technician = existing;
+        if (existing.status !== "approved" || existing.is_active !== true) {
+          const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
+            method: "PATCH",
+            body: { status: "approved", is_active: true },
+            headers: { Prefer: "return=representation" },
+          });
+          if (!resp.ok) {
+            console.log("[ADMIN][TECH][APPROVE][FAILED]", { status: resp.status, body: data });
+            return res.status(404).json({ message: "Technician not found" });
+          }
+          technician = Array.isArray(data) ? data[0] : data;
+        }
+
         // Flag user as technician
         if (technician?.user_id) {
+          await ensureRoleAssignment(technician.user_id, "technician", assignerId);
+          await ensureTechnicianProfile(technician.user_id, {
+            status: "approved",
+            is_active: true,
+            is_available: true,
+          });
           await pgFetch(`/users?id=eq.${encodeURIComponent(technician.user_id)}`, {
             method: "PATCH",
             body: { is_technician: true },
@@ -3306,8 +3699,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/technicians/:id/documents",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+      if (!guard.ok) return;
       try {
         const { resp, data } = await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(req.params.id)}`);
         if (!resp.ok) {
@@ -3325,8 +3719,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/technicians/:id",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+      if (!guard.ok) return;
       try {
         const techId = req.params.id;
         const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}&select=*,user:users(email,first_name,last_name)`);
@@ -3382,8 +3777,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/service-requests",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+      if (!guard.ok) return;
       try {
         const { resp, data } = await pgFetch("/service_requests?order=created_at.desc");
         if (!resp.ok) {
@@ -3423,6 +3819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Roles Management API
   app.get("/api/admin/roles", isAuthenticated, isAdmin, async (_req, res) => {
     try {
+      await ensureDefaultRoles();
       const { resp, data } = await pgFetch("/roles?order=created_at.desc");
       if (!resp.ok) {
         console.log("[ADMIN][ROLES][LIST][FAILED]", { status: resp.status, body: data });
@@ -3471,6 +3868,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .json({ message: "userId and roleId are required" });
         }
 
+        await ensureDefaultRoles();
+        const roles = await loadRolesFromDb();
+        const roleName = roles.find((role) => role.id === roleId)?.name;
+
         const payload = [{
           user_id: userId,
           role_id: roleId,
@@ -3497,6 +3898,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const created = Array.isArray(data) ? data[0] : data;
+
+        if (roleName === "technician") {
+          await ensureTechnicianProfile(userId, {
+            status: "approved",
+            is_active: true,
+            is_available: true,
+          });
+          await pgFetch(`/users?id=eq.${encodeURIComponent(userId)}`, {
+            method: "PATCH",
+            body: { is_technician: true },
+            headers: { Prefer: "return=representation" },
+          });
+        }
+
         res.status(201).json(created);
       } catch (error: any) {
         const handled = handleRouteError(error, req, res);
@@ -3550,6 +3965,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           body: { is_technician: true },
           headers: { Prefer: "return=representation" },
         });
+        await ensureTechnicianProfile(userId, {
+          status: "approved",
+          is_active: true,
+          is_available: true,
+        });
         res.json({ message: "Technician mode enabled", userId });
       } catch (error) {
         console.error("[ADMIN][MOCK_TECH] Error:", error);
@@ -3574,7 +3994,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Invoice routes - Admin only
-  app.get("/api/admin/invoices", isAuthenticated, isAdmin, async (req, res) => {
+  app.get("/api/admin/invoices", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["sales", "project_manager"]);
+    if (!guard.ok) return;
     try {
       const invoices = await storage.getAllInvoices();
       res.json(invoices);
@@ -3696,8 +4118,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
-      const orders = await storage.getUserOrders(userUuid);
-      res.json(orders);
+      let orders: any[] = [];
+      const { resp, data } = await pgFetch(
+        `/orders?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+      if (resp.ok) {
+        orders = Array.isArray(data) ? data.map(normalizeOrderRow) : [];
+      } else {
+        orders = await storage.getUserOrders(userUuid);
+      }
+
+      const orderIds = orders.map((order) => order.id).filter(Boolean);
+      let invoiceByOrderId = new Map<string, any>();
+      if (orderIds.length > 0) {
+        const { resp: invResp, data: invData } = await pgFetch(
+          `/invoices?order_id=in.(${orderIds.map((id) => encodeURIComponent(id)).join(",")})`,
+        );
+        if (invResp.ok && Array.isArray(invData)) {
+          invoiceByOrderId = new Map(
+            invData.map((invoice: any) => [invoice.order_id ?? invoice.orderId, invoice]),
+          );
+        }
+      }
+
+      const enriched = orders.map((order) => {
+        const invoice = invoiceByOrderId.get(order.id);
+        if (!invoice) return order;
+        return {
+          ...order,
+          invoiceId: invoice.id ?? invoice.invoice_id,
+          invoiceNumber: invoice.invoice_number ?? invoice.invoiceNumber,
+          invoiceStatus: invoice.status,
+        };
+      });
+
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching shop orders:", error);
       res.status(500).json({ message: "Failed to fetch orders" });
@@ -3888,7 +4343,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin Orders API
-  app.get("/api/admin/orders", isAuthenticated, isAdmin, async (req, res) => {
+  app.get("/api/admin/orders", isAuthenticated, async (req, res) => {
+    const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
+    if (!guard.ok) return;
     try {
       const orders = await storage.getAllOrders();
       res.json(orders);
@@ -3913,8 +4370,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get(
     "/api/admin/discount-codes",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
+      if (!guard.ok) return;
       try {
         const codes = await storage.getAllDiscountCodes();
         res.json(codes);
@@ -3939,8 +4397,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/admin/discount-codes",
     isAuthenticated,
-    isAdmin,
     async (req: any, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
+      if (!guard.ok) return;
       try {
         const codeData = validateSchema(insertDiscountCodeSchema, req.body, req);
         const auth = getAuthContext(req);
@@ -3962,8 +4421,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch(
     "/api/admin/discount-codes/:id",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
+      if (!guard.ok) return;
       try {
         const code = await storage.updateDiscountCode(req.params.id, req.body);
         res.json(code);
@@ -3977,8 +4437,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete(
     "/api/admin/discount-codes/:id",
     isAuthenticated,
-    isAdmin,
     async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
+      if (!guard.ok) return;
       try {
         await storage.deleteDiscountCode(req.params.id);
         res.status(204).send();

@@ -335,6 +335,7 @@ export const invoices = pgTable("invoices", {
   invoiceNumber: varchar("invoice_number").notNull().unique(), // INV-2024-XXXX format
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   serviceRequestId: varchar("service_request_id").references(() => serviceRequests.id, { onDelete: 'set null' }),
+  orderId: varchar("order_id"),
   
   // Amounts
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(), // المبلغ قبل الضريبة

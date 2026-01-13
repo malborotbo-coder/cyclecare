@@ -98,6 +98,47 @@ export default function OrdersPage() {
     void generateInvoicePDF(invoice, pdfUser, lang as "ar" | "en", meta);
   };
 
+  const downloadShopInvoice = (order: Order) => {
+    const invoiceNumber = (order as any).invoiceNumber ?? (order as any).invoice_number;
+    if (!invoiceNumber) return;
+    const items = parseJsonArray((order as any).items ?? []);
+    const subtotal = Number((order as any).subtotal ?? 0);
+    const taxRate = Number((order as any).taxRate ?? (order as any).tax_rate ?? 15);
+    const taxAmount = Number((order as any).taxAmount ?? (order as any).tax_amount ?? 0);
+    const total = Number(order.total ?? 0);
+
+    const invoice = {
+      invoiceNumber,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      issuedDate: (order as any).createdAt ?? (order as any).created_at ?? new Date().toISOString(),
+      status: "PAID",
+      items,
+    };
+
+    const meta = {
+      orderId: order.orderNumber,
+      serviceName: lang === "ar" ? "طلب متجر" : "Shop Order",
+      paymentMethod: paymentMethodLabels[(order as any).paymentMethod || "mock"] || (order as any).paymentMethod,
+      bookingDate: (order as any).createdAt ?? (order as any).created_at,
+      location: (order as any).deliveryAddress ?? (order as any).delivery_address,
+      notes: (order as any).notes,
+    };
+
+    const pdfUser = user
+      ? {
+          firstName: user.firstName ?? undefined,
+          lastName: user.lastName ?? undefined,
+          email: user.email ?? undefined,
+          phone: user.phone ?? undefined,
+        }
+      : undefined;
+
+    void generateInvoicePDF(invoice, pdfUser, lang as "ar" | "en", meta);
+  };
+
   const formatDate = (value: string) =>
     new Date(value).toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
 
@@ -397,6 +438,7 @@ export default function OrdersPage() {
             {shopOrders.map((order) => {
               const tracking = normalizeTrackingSteps((order as any).trackingSteps ?? (order as any).tracking_steps);
               const items = parseJsonArray((order as any).items ?? []);
+              const invoiceNumber = (order as any).invoiceNumber ?? (order as any).invoice_number;
               return (
                 <Card key={order.id} className="bg-white/85 dark:bg-slate-950/70 backdrop-blur border border-white/20">
                   <CardHeader className="space-y-2">
@@ -405,6 +447,11 @@ export default function OrdersPage() {
                         <CardTitle className="text-lg font-semibold">
                           {lang === "ar" ? "طلب متجر" : "Shop Order"} {order.orderNumber}
                         </CardTitle>
+                        {invoiceNumber ? (
+                          <p className="text-sm text-muted-foreground">
+                            {lang === "ar" ? "فاتورة" : "Invoice"} {invoiceNumber}
+                          </p>
+                        ) : null}
                         <p className="text-sm text-muted-foreground">
                           {shopDeliveryLabel((order as any).deliveryOption ?? (order as any).delivery_option)}
                         </p>
@@ -427,6 +474,16 @@ export default function OrdersPage() {
                   </CardHeader>
 
                   <CardContent className="space-y-4">
+                    {invoiceNumber ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => downloadShopInvoice(order)}
+                        data-testid={`button-download-shop-${order.id}`}
+                      >
+                        <Download className="w-4 h-4 ml-2" />
+                        {lang === "ar" ? "تحميل فاتورة المتجر" : "Download Shop Invoice"}
+                      </Button>
+                    ) : null}
                     <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-2">
                       <div className="flex items-center gap-2">
                         <Package className="w-4 h-4 text-primary" />
