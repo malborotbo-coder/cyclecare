@@ -23,6 +23,7 @@ import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { randomUUID } from "crypto";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const DEFAULT_LAT = 24.7136;
@@ -481,6 +482,22 @@ async function ensureUserUuid(auth: AuthContext): Promise<string> {
   return created.id;
 }
 
+async function ensureGuestUserId(): Promise<string> {
+  const guestToken = `guest_${randomUUID()}`;
+  const guest = await storage.createUser({
+    authProvider: "guest",
+    authProviderId: guestToken,
+    firstName: "Guest",
+    lastName: null,
+    email: null,
+    phone: null,
+    profileImageUrl: null,
+    isAdmin: false,
+    isTechnician: false,
+  });
+  return guest.id;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Firebase Auth + Twilio OTP for phone authentication
   // IMPORTANT: Must be registered BEFORE Google Auth so Firebase middleware runs on all /api routes
@@ -803,14 +820,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/support/tickets", isAuthenticated, upload.single("attachment"), async (req: any, res) => {
+  app.post("/api/support/tickets", upload.single("attachment"), async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) {
-        return res.status(401).json({ message: "Unauthorized" });
+      let userUuid: string | null = null;
+      if (auth) {
+        try {
+          userUuid = await ensureUserUuid(auth);
+        } catch (error) {
+          console.error("[Support] Failed to resolve user ID; using guest ID", error);
+        }
       }
-
-      const userUuid = await ensureUserUuid(auth);
+      if (!userUuid) {
+        userUuid = randomUUID();
+      }
       const getText = (value: any) => {
         if (typeof value === "string") return value.trim();
         if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
@@ -828,20 +851,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userName = getText(rawBody.userName) || null;
       const emailRaw = getText(rawBody.email);
-      const userEmail = emailRaw || auth.email || null;
+      const userEmail = emailRaw || auth?.email || null;
 
       let screenshotUrl: string | null = null;
       const attachmentFile = (req as any).file as Express.Multer.File | undefined;
-      if (attachmentFile) {
-        if (!attachmentFile.mimetype?.startsWith("image/")) {
-          return res.status(400).json({ message: "Invalid screenshot type" });
+      if (attachmentFile && attachmentFile.mimetype?.startsWith("image/")) {
+        try {
+          const timestamp = Date.now();
+          const safeName = attachmentFile.originalname
+            ? attachmentFile.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")
+            : `screenshot_${timestamp}.jpg`;
+          const path = `support-tickets/${userUuid}/${timestamp}-${safeName}`;
+          screenshotUrl = await uploadBufferToStorage({ file: attachmentFile, path });
+        } catch (error) {
+          console.error("[Support] Screenshot upload failed; continuing without it", error);
         }
-        const timestamp = Date.now();
-        const safeName = attachmentFile.originalname
-          ? attachmentFile.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")
-          : `screenshot_${timestamp}.jpg`;
-        const path = `support-tickets/${userUuid}/${timestamp}-${safeName}`;
-        screenshotUrl = await uploadBufferToStorage({ file: attachmentFile, path });
       }
 
       const payload = {
@@ -1562,10 +1586,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Nearby technicians endpoint (online only)
-  app.get("/api/technicians/nearby", isAuthenticated, async (req: any, res) => {
+  app.get("/api/technicians/nearby", async (req: any, res) => {
     try {
-      const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const lat = Number(req.query.lat);
       const lng = Number(req.query.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -1695,7 +1717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing quote (centralized engine)
-  app.post("/api/pricing/quote", isAuthenticated, async (req: any, res) => {
+  app.post("/api/pricing/quote", async (req: any, res) => {
     try {
       const { serviceBase, serviceId, serviceName, distanceKm, parts, installAccessory, installSpare } = req.body || {};
       const breakdown = computePricing({
@@ -2168,11 +2190,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
+  app.post("/api/service-requests", async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const userId = await ensureUserUuid(auth);
+      const userId = auth ? await ensureUserUuid(auth) : await ensureGuestUserId();
       const body = req.body || {};
       const technicianId = body.technicianId;
 
