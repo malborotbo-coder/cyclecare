@@ -70,6 +70,9 @@ export async function fetchWithFirebaseAuth(
   }
 
   const body = await buildRequestBody(request, headers, init);
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    headers.delete("content-type");
+  }
 
   const baseInit: RequestInit = {
     method: request.method,

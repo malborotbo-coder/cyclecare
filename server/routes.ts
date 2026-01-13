@@ -35,7 +35,7 @@ const upload = multer({
   limits: {
     fileSize: 20 * 1024 * 1024, // 20MB to accommodate large mobile photos/HEIC
     fieldSize: 20 * 1024 * 1024,
-    files: 1,
+    files: 10,
   },
   storage: multer.memoryStorage(),
 });
@@ -1411,14 +1411,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Technician apply (PostgREST + Storage REST)
   app.post(
     "/api/technicians/apply",
-    isAuthenticated,
     upload.array("documents"),
     async (req: any, res) => {
       try {
         const auth = getAuthContext(req);
-        if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const userUuid = await ensureUserUuid(auth);
-        console.log("[TECH][APPLY][USER]", { uuid: userUuid, externalId: auth.userId });
+        const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId();
+        console.log("[TECH][APPLY][USER]", {
+          uuid: userUuid,
+          externalId: auth?.userId || "guest",
+        });
 
         const files: Express.Multer.File[] = req.files || [];
         const errors: Record<string, string> = {};

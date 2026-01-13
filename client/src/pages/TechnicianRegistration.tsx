@@ -15,7 +15,6 @@ import { queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { setPostLoginRedirect } from "@/lib/authRedirect";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
 type FieldErrors = Record<string, string>;
@@ -24,7 +23,7 @@ export default function TechnicianRegistration() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { lang, toggleLanguage, t } = useLanguage();
-  const { user, exitGuestMode } = useFirebaseAuth();
+  const { user } = useFirebaseAuth();
   const isRTL = lang === "ar";
   const [errors, setErrors] = useState<FieldErrors>({});
   const [successMessage, setSuccessMessage] = useState("");
@@ -160,21 +159,6 @@ export default function TechnicianRegistration() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      saveDraft();
-      setPostLoginRedirect("/technician/register");
-      exitGuestMode();
-      toast({
-        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
-        description:
-          lang === "ar"
-            ? "يرجى تسجيل الدخول لإرسال طلب التسجيل كفني."
-            : "Please sign in to submit your technician application.",
-        variant: "destructive",
-      });
-      navigate("/");
-      return;
-    }
     const newErrors: FieldErrors = {};
     const docs = gatherDocuments();
 

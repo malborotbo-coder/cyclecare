@@ -31,6 +31,7 @@ function PartCard({ part, onAddToCart }: PartCardProps) {
       addToCart: "Add to Cart",
     },
   };
+  const isInStock = part.inStock ?? (part as any).in_stock ?? false;
 
   return (
     <Card
@@ -54,8 +55,8 @@ function PartCard({ part, onAddToCart }: PartCardProps) {
         </h3>
         <div className="flex items-center justify-between mt-2 gap-2">
           <span className="text-lg font-bold text-primary">{part.price}</span>
-          <Badge variant={part.inStock ? "default" : "secondary"}>
-            {part.inStock
+          <Badge variant={isInStock ? "default" : "secondary"}>
+            {isInStock
               ? t[lang as keyof typeof t].inStock
               : t[lang as keyof typeof t].outOfStock}
           </Badge>
@@ -63,7 +64,7 @@ function PartCard({ part, onAddToCart }: PartCardProps) {
         <Button
           className="w-full mt-3"
           size="sm"
-          disabled={!part.inStock}
+          disabled={!isInStock}
           onClick={() => onAddToCart(part)}
           data-testid={`button-add-${part.id}`}
         >
