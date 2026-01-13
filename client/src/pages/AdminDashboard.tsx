@@ -4,10 +4,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save } from "lucide-react";
+import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -15,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { useToast } from "@/hooks/use-toast";
@@ -34,6 +35,19 @@ interface TechnicianDocument {
 interface TechnicianWithUser extends Technician {
   userName?: string | null;
   userEmail?: string | null;
+}
+
+interface SupportTicket {
+  id: string;
+  user_id?: string | null;
+  user_email?: string | null;
+  user_name?: string | null;
+  type?: string | null;
+  category?: string | null;
+  message?: string | null;
+  screenshot_url?: string | null;
+  status?: string | null;
+  created_at?: string | null;
 }
 
 type InvoiceWithConvoy = Invoice & {
@@ -56,6 +70,7 @@ export default function AdminDashboard() {
   const [editingPartId, setEditingPartId] = useState<string | null>(null);
   const [editingPrice, setEditingPrice] = useState<string>("");
   const [editingCategory, setEditingCategory] = useState<string>("");
+  const [expandedSupportTicketId, setExpandedSupportTicketId] = useState<string | null>(null);
 
   const normalizeTechnician = (tech: any) => {
     const user = tech?.user;
@@ -195,6 +210,15 @@ export default function AdminDashboard() {
       downloadPDF: "تحميل PDF",
       convoy: "الموكب",
       allConvoys: "كل المواكب",
+      supportTickets: "طلبات الدعم الفني",
+      supportType: "النوع",
+      supportCategory: "التصنيف",
+      supportMessage: "الرسالة",
+      supportCreatedAt: "تاريخ الإنشاء",
+      supportActions: "إجراء",
+      supportView: "عرض",
+      supportNoData: "لا توجد طلبات دعم",
+      supportScreenshot: "لقطة الشاشة",
     },
     en: {
       title: "Owner Dashboard",
@@ -272,6 +296,15 @@ export default function AdminDashboard() {
       inStock: "In Stock",
       addPart: "Add Part",
       addCode: "Add Code",
+      supportTickets: "Support Tickets",
+      supportType: "Type",
+      supportCategory: "Category",
+      supportMessage: "Message",
+      supportCreatedAt: "Created",
+      supportActions: "Actions",
+      supportView: "View",
+      supportNoData: "No support tickets yet",
+      supportScreenshot: "Screenshot",
     },
   };
   
@@ -351,6 +384,15 @@ export default function AdminDashboard() {
     inStock: "متوفر",
     addPart: "إضافة قطعة",
     addCode: "إضافة كود",
+    supportTickets: "طلبات الدعم الفني",
+    supportType: "النوع",
+    supportCategory: "التصنيف",
+    supportMessage: "الرسالة",
+    supportCreatedAt: "تاريخ الإنشاء",
+    supportActions: "إجراء",
+    supportView: "عرض",
+    supportNoData: "لا توجد طلبات دعم",
+    supportScreenshot: "لقطة الشاشة",
   } : translations['en'];
 
   const convoys = [
@@ -383,6 +425,10 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/service-requests"],
   });
 
+  const { data: supportTickets, isLoading: supportTicketsLoading } = useQuery<SupportTicket[]>({
+    queryKey: ["/api/admin/support-tickets"],
+  });
+
   const { data: roles, isLoading: rolesLoading } = useQuery<Role[]>({
     queryKey: ["/api/admin/roles"],
   });
@@ -412,6 +458,7 @@ export default function AdminDashboard() {
   const safeBikes = Array.isArray(bikes) ? bikes : [];
   const safeTechnicians = Array.isArray(technicians) ? technicians : [];
   const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
+  const safeSupportTickets = Array.isArray(supportTickets) ? supportTickets : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
@@ -512,6 +559,20 @@ export default function AdminDashboard() {
       return String((error as any).message);
     }
     return lang === 'ar' ? fallbackAr : fallbackEn;
+  };
+
+  const getSupportMessagePreview = (message?: string | null) => {
+    const text = (message || "").trim();
+    if (!text) return "-";
+    if (text.length <= 80) return text;
+    return `${text.slice(0, 80)}...`;
+  };
+
+  const formatSupportDate = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
   const approveTechnicianMutation = useMutation({
@@ -947,6 +1008,10 @@ export default function AdminDashboard() {
                 <ClipboardList className="w-4 h-4 mr-2" />
                 {txt.serviceRequests}
               </TabsTrigger>
+              <TabsTrigger value="support-tickets" className="w-full justify-start" data-testid="tab-support-tickets">
+                <Headset className="w-4 h-4 mr-2" />
+                {txt.supportTickets}
+              </TabsTrigger>
               <TabsTrigger value="roles" className="w-full justify-start" data-testid="tab-roles">
                 <UserCog className="w-4 h-4 mr-2" />
                 {txt.userRoles}
@@ -1248,6 +1313,104 @@ export default function AdminDashboard() {
                           </Badge>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="support-tickets" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{txt.supportTickets}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[500px]">
+                  {supportTicketsLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
+                  ) : safeSupportTickets.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">{txt.supportNoData}</div>
+                  ) : (
+                    <div className="w-full overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{txt.name}</TableHead>
+                            <TableHead>{txt.email}</TableHead>
+                            <TableHead>{txt.supportType}</TableHead>
+                            <TableHead>{txt.supportCategory}</TableHead>
+                            <TableHead>{txt.supportMessage}</TableHead>
+                            <TableHead>{txt.status}</TableHead>
+                            <TableHead>{txt.supportCreatedAt}</TableHead>
+                            <TableHead>{txt.supportActions}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {safeSupportTickets.map((ticket) => {
+                            const isExpanded = expandedSupportTicketId === ticket.id;
+                            const statusLabel = ticket.status || "open";
+                            return (
+                              <Fragment key={ticket.id}>
+                                <TableRow>
+                                  <TableCell className="font-medium">{ticket.user_name || "-"}</TableCell>
+                                  <TableCell>{ticket.user_email || "-"}</TableCell>
+                                  <TableCell>{ticket.type || "-"}</TableCell>
+                                  <TableCell>{ticket.category || "-"}</TableCell>
+                                  <TableCell title={ticket.message || ""} className="max-w-[220px] truncate">
+                                    {getSupportMessagePreview(ticket.message)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={statusLabel === "open" ? "secondary" : "default"}>
+                                      {statusLabel}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{formatSupportDate(ticket.created_at)}</TableCell>
+                                  <TableCell>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        setExpandedSupportTicketId(isExpanded ? null : ticket.id)
+                                      }
+                                    >
+                                      <Eye className="w-4 h-4 mr-1" />
+                                      {txt.supportView}
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                                {isExpanded && (
+                                  <TableRow>
+                                    <TableCell colSpan={8} className="bg-muted/30">
+                                      <div className="space-y-3">
+                                        <div>
+                                          <div className="text-sm text-muted-foreground">{txt.supportMessage}</div>
+                                          <p className="whitespace-pre-wrap text-sm">{ticket.message || "-"}</p>
+                                        </div>
+                                        {ticket.screenshot_url ? (
+                                          <div>
+                                            <div className="text-sm text-muted-foreground">
+                                              {txt.supportScreenshot}
+                                            </div>
+                                            <a
+                                              href={ticket.screenshot_url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="text-primary underline text-sm"
+                                            >
+                                              {lang === "ar" ? "عرض الملف" : "View file"}
+                                            </a>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </ScrollArea>

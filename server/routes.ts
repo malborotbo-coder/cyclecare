@@ -23,7 +23,6 @@ import type { Role } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { sendSupportEmail } from "./supportEmail";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const DEFAULT_LAT = 24.7136;
@@ -804,10 +803,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/support/tickets", upload.single("attachment"), async (req: any, res) => {
+  app.post("/api/support/tickets", isAuthenticated, upload.single("attachment"), async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
+      if (!auth) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
+      const userUuid = await ensureUserUuid(auth);
       const getText = (value: any) => {
         if (typeof value === "string") return value.trim();
         if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
@@ -823,55 +826,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "type, category, and message are required" });
       }
 
-      const categoryLabel = getText(rawBody.categoryLabel) || category;
-      const categoryLabelEn = getText(rawBody.categoryLabelEn);
-      const subCategory = getText(rawBody.subCategory);
-      const subCategoryLabel = getText(rawBody.subCategoryLabel) || subCategory;
-      const subCategoryLabelEn = getText(rawBody.subCategoryLabelEn);
-      const subject =
-        getText(rawBody.subject) ||
-        [categoryLabel, subCategoryLabel].filter(Boolean).join(" - ");
-      const userName = getText(rawBody.userName) || undefined;
+      const userName = getText(rawBody.userName) || null;
       const emailRaw = getText(rawBody.email);
-      const phone = getText(rawBody.phone) || undefined;
-      const platform =
-        getText(rawBody.platform) ||
-        getText(req.headers["x-platform"]) ||
-        "web";
+      const userEmail = emailRaw || auth.email || null;
 
-      const ticket = {
-        firebaseUid: auth?.userId || "anonymous",
-        userName: userName || null,
-        email: emailRaw || null,
-        phone: phone || null,
-        category: categoryLabel || category,
-        categoryEn: categoryLabelEn || null,
-        subCategory: subCategoryLabel || subCategory || null,
-        subCategoryEn: subCategoryLabelEn || null,
-        subject: subject || category,
-        description: message,
-        platform: platform || "web",
-        timestamp: new Date().toISOString(),
-      };
-
+      let screenshotUrl: string | null = null;
       const attachmentFile = (req as any).file as Express.Multer.File | undefined;
-      const attachment = attachmentFile
-        ? {
-            filename: attachmentFile.originalname,
-            content: attachmentFile.buffer,
-            contentType: attachmentFile.mimetype,
-          }
-        : undefined;
-
-      const ticketId = `support_${Date.now()}`;
-      try {
-        void sendSupportEmail(ticket, attachment).catch((error) => {
-          console.error("[Support] Email send failed:", error);
-        });
-      } catch (error) {
-        console.error("[Support] Email send crashed:", error);
+      if (attachmentFile) {
+        if (!attachmentFile.mimetype?.startsWith("image/")) {
+          return res.status(400).json({ message: "Invalid screenshot type" });
+        }
+        const timestamp = Date.now();
+        const safeName = attachmentFile.originalname
+          ? attachmentFile.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")
+          : `screenshot_${timestamp}.jpg`;
+        const path = `support-tickets/${userUuid}/${timestamp}-${safeName}`;
+        screenshotUrl = await uploadBufferToStorage({ file: attachmentFile, path });
       }
 
+      const payload = {
+        user_id: userUuid,
+        user_email: userEmail,
+        user_name: userName,
+        type,
+        category,
+        message,
+        screenshot_url: screenshotUrl,
+      };
+
+      const { resp, data } = await pgFetch("/support_tickets", {
+        method: "POST",
+        body: [payload],
+        headers: { Prefer: "return=representation" },
+      });
+
+      if (!resp.ok) {
+        console.error("[Support] Failed to create ticket", { status: resp.status, body: data });
+        return res.status(500).json({ message: "Failed to submit support ticket" });
+      }
+
+      const ticketId = Array.isArray(data) ? data[0]?.id : data?.[0]?.id;
       res.status(202).json({ success: true, ticketId });
     } catch (error) {
       console.error("Error creating support ticket:", error);
@@ -2359,6 +2353,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  // Support tickets (admin)
+  app.get("/api/admin/support-tickets", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const { resp, data } = await pgFetch("/support_tickets?order=created_at.desc");
+      if (!resp.ok) {
+        console.log("[ADMIN][SUPPORT][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("[ADMIN][SUPPORT][LIST] Error:", error);
+      res.json([]);
+    }
+  });
 
   // Parts routes
   app.get("/api/parts", async (req, res) => {
