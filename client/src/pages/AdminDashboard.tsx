@@ -26,6 +26,8 @@ import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole
 import type { Language } from "@/lib/i18n";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart as RePieChart, XAxis, YAxis } from "recharts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
 
 interface TechnicianDocument {
   id: string;
@@ -43,6 +45,7 @@ interface TechnicianWithUser extends Technician {
 
 interface SupportTicket {
   id: string;
+  ticket_number?: string | null;
   user_id?: string | null;
   user_email?: string | null;
   user_name?: string | null;
@@ -83,6 +86,8 @@ export default function AdminDashboard() {
   const [supportReplyDrafts, setSupportReplyDrafts] = useState<Record<string, string>>({});
   const [orderRange, setOrderRange] = useState<"day" | "week" | "month">("week");
   const [activeTab, setActiveTab] = useState<string>("overview");
+  const [selectedServiceRequest, setSelectedServiceRequest] = useState<ServiceRequest | null>(null);
+  const [selectedShopOrder, setSelectedShopOrder] = useState<Order | null>(null);
   const [reportStartDate, setReportStartDate] = useState<string>(() => {
     const start = new Date();
     start.setDate(start.getDate() - 30);
@@ -250,6 +255,7 @@ export default function AdminDashboard() {
       supportType: "النوع",
       supportCategory: "التصنيف",
       supportMessage: "الرسالة",
+      ticketNumber: "رقم الطلب",
       supportCreatedAt: "تاريخ الإنشاء",
       supportActions: "إجراء",
       supportView: "عرض",
@@ -372,6 +378,7 @@ export default function AdminDashboard() {
       supportType: "Type",
       supportCategory: "Category",
       supportMessage: "Message",
+      ticketNumber: "Ticket Number",
       supportCreatedAt: "Created",
       supportActions: "Actions",
       supportView: "View",
@@ -496,6 +503,7 @@ export default function AdminDashboard() {
     supportType: "النوع",
     supportCategory: "التصنيف",
     supportMessage: "الرسالة",
+    ticketNumber: "رقم الطلب",
     supportCreatedAt: "تاريخ الإنشاء",
     supportActions: "إجراء",
     supportView: "عرض",
@@ -700,6 +708,19 @@ export default function AdminDashboard() {
   };
 
   const parseItems = (raw: any) => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const parseTrackingSteps = (raw: any) => {
     if (Array.isArray(raw)) return raw;
     if (typeof raw === "string") {
       try {
@@ -967,7 +988,33 @@ export default function AdminDashboard() {
 
   const formatCurrency = (value: number) => {
     const safeValue = Number.isFinite(value) ? value : 0;
-    return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
+      return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
+  };
+
+  const renderOrderItems = (items: any[]) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      return <p className="text-sm text-muted-foreground">{txt.noData}</p>;
+    }
+    return (
+      <div className="space-y-2">
+        {items.map((item: any, index: number) => (
+          <div key={`${item.name || item.partId || index}`} className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              {item.feeType === "delivery"
+                ? lang === "ar"
+                  ? "رسوم التوصيل"
+                  : "Delivery fee"
+                : item.feeType === "installation"
+                ? lang === "ar"
+                  ? "رسوم التركيب"
+                  : "Installation fee"
+                : item.name || item.partName || item.part_id || "-"}
+            </span>
+            <span>{formatCurrency(Number(item.total || 0))}</span>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const approveTechnicianMutation = useMutation({
@@ -1859,33 +1906,42 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="space-y-3">
-                      {safeServiceRequests.map((request) => (
-                        <div
-                          key={request.id}
-                          className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
-                          data-testid={`request-item-${request.id}`}
-                        >
-                          <div className="space-y-1">
-                            <p className="font-medium text-foreground">
-                              {request.serviceType?.replace('_', ' ').toUpperCase() || 'N/A'}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {request.createdAt ? new Date(request.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US') : 'N/A'}
-                            </p>
-                          </div>
-                          <Badge
-                            variant={
-                              request.status === 'completed'
-                                ? 'default'
-                                : request.status === 'in_progress'
-                                ? 'secondary'
-                                : 'outline'
-                            }
-                          >
-                            {request.status}
-                          </Badge>
-                        </div>
-                      ))}
+                          {safeServiceRequests.map((request) => (
+                            <div
+                              key={request.id}
+                              className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
+                              data-testid={`request-item-${request.id}`}
+                            >
+                              <div className="space-y-1">
+                                <p className="font-medium text-foreground">
+                                  {request.serviceType?.replace('_', ' ').toUpperCase() || 'N/A'}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  {request.createdAt ? new Date(request.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US') : 'N/A'}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Badge
+                                  variant={
+                                    request.status === 'completed'
+                                      ? 'default'
+                                      : request.status === 'in_progress'
+                                      ? 'secondary'
+                                      : 'outline'
+                                  }
+                                >
+                                  {request.status}
+                                </Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setSelectedServiceRequest(request)}
+                                >
+                                  {lang === "ar" ? "عرض" : "View"}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
                     </div>
                   )}
                 </ScrollArea>
@@ -1925,6 +1981,13 @@ export default function AdminDashboard() {
                             <span className="font-semibold text-primary">
                               {Number(order.total || 0).toFixed(2)}
                             </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSelectedShopOrder(order)}
+                            >
+                              {lang === "ar" ? "عرض" : "View"}
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -1953,6 +2016,7 @@ export default function AdminDashboard() {
                           <TableRow>
                             <TableHead>{txt.name}</TableHead>
                             <TableHead>{txt.email}</TableHead>
+                            <TableHead>{txt.ticketNumber}</TableHead>
                             <TableHead>{txt.supportType}</TableHead>
                             <TableHead>{txt.supportCategory}</TableHead>
                             <TableHead>{txt.supportMessage}</TableHead>
@@ -1974,6 +2038,7 @@ export default function AdminDashboard() {
                                 <TableRow>
                                   <TableCell className="font-medium">{ticket.user_name || "-"}</TableCell>
                                   <TableCell>{ticket.user_email || "-"}</TableCell>
+                                  <TableCell>{ticket.ticket_number || (ticket as any).ticketNumber || "-"}</TableCell>
                                   <TableCell>{ticket.type || "-"}</TableCell>
                                   <TableCell>{ticket.category || "-"}</TableCell>
                                   <TableCell title={ticket.message || ""} className="max-w-[220px] truncate">
@@ -2000,7 +2065,7 @@ export default function AdminDashboard() {
                                 </TableRow>
                                 {isExpanded && (
                                   <TableRow>
-                                    <TableCell colSpan={8} className="bg-muted/30">
+                                  <TableCell colSpan={9} className="bg-muted/30">
                                       <div className="space-y-3">
                                         <div className="flex flex-wrap items-center gap-3">
                                           <div className="text-sm text-muted-foreground">{txt.supportStatus}</div>
@@ -2673,6 +2738,112 @@ export default function AdminDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <Dialog open={!!selectedServiceRequest} onOpenChange={(open) => !open && setSelectedServiceRequest(null)}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{lang === "ar" ? "تفاصيل طلب الخدمة" : "Service Request Details"}</DialogTitle>
+              </DialogHeader>
+              {selectedServiceRequest && (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.service}</span>
+                      <span>{selectedServiceRequest.serviceType || "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.status}</span>
+                      <span>{selectedServiceRequest.status || "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.location}</span>
+                      <span>{selectedServiceRequest.location || "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.client}</span>
+                      <span>{selectedServiceRequest.userId || "-"}</span>
+                    </div>
+                  </div>
+                  {selectedServiceRequest.notes && (
+                    <div className="rounded-lg border border-border/60 p-3 text-sm">
+                      <p className="text-muted-foreground">{lang === "ar" ? "ملاحظات" : "Notes"}</p>
+                      <p className="mt-2 whitespace-pre-wrap">{selectedServiceRequest.notes}</p>
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <h4 className="font-semibold mb-2">{lang === "ar" ? "تتبع الطلب" : "Tracking"}</h4>
+                    <OrderTrackingTimeline
+                      steps={parseTrackingSteps(
+                        (selectedServiceRequest as any).trackingSteps ??
+                          (selectedServiceRequest as any).tracking_steps ??
+                          [],
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={!!selectedShopOrder} onOpenChange={(open) => !open && setSelectedShopOrder(null)}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{lang === "ar" ? "تفاصيل طلب المتجر" : "Shop Order Details"}</DialogTitle>
+              </DialogHeader>
+              {selectedShopOrder && (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{lang === "ar" ? "رقم الطلب" : "Order Number"}</span>
+                      <span>{selectedShopOrder.orderNumber || "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.status}</span>
+                      <span>{selectedShopOrder.status || "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.deliveryOption}</span>
+                      <span>{formatDeliveryOption(selectedShopOrder)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{lang === "ar" ? "العنوان" : "Address"}</span>
+                      <span>{(selectedShopOrder as any).deliveryAddress ?? (selectedShopOrder as any).delivery_address ?? "-"}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <h4 className="font-semibold mb-2">{lang === "ar" ? "العناصر" : "Items"}</h4>
+                    {renderOrderItems(
+                      parseItems((selectedShopOrder as any).items ?? (selectedShopOrder as any).items_json ?? []),
+                    )}
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.subtotal}</span>
+                      <span>{formatCurrency(Number((selectedShopOrder as any).subtotal || 0))}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{txt.taxAmount}</span>
+                      <span>{formatCurrency(Number((selectedShopOrder as any).taxAmount ?? (selectedShopOrder as any).tax_amount ?? 0))}</span>
+                    </div>
+                    <div className="flex items-center justify-between font-semibold">
+                      <span className="text-muted-foreground">{txt.total}</span>
+                      <span>{formatCurrency(Number(selectedShopOrder.total || 0))}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <h4 className="font-semibold mb-2">{lang === "ar" ? "تتبع الطلب" : "Tracking"}</h4>
+                    <OrderTrackingTimeline
+                      steps={parseTrackingSteps(
+                        (selectedShopOrder as any).trackingSteps ??
+                          (selectedShopOrder as any).tracking_steps ??
+                          [],
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
 
             </div>
           </div>

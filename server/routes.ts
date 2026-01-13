@@ -1240,6 +1240,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const now = new Date();
+      const ticketNumber = `SUP-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
       const payload = {
         user_id: userUuid,
         user_email: userEmail,
@@ -1248,6 +1250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category,
         message,
         screenshot_url: screenshotUrl,
+        ticket_number: ticketNumber,
       };
 
       const { resp, data } = await pgFetch("/support_tickets", {
@@ -1262,7 +1265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const ticketId = Array.isArray(data) ? data[0]?.id : data?.[0]?.id;
-      res.status(202).json({ success: true, ticketId });
+      res.status(202).json({ success: true, ticketId, ticketNumber });
     } catch (error) {
       console.error("Error creating support ticket:", error);
       res.status(500).json({ message: "Failed to submit support ticket" });
@@ -1821,12 +1824,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
-      const { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
+      let { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
       if (!resp.ok) {
         console.log("[TECH][ME][FAILED]", { status: resp.status, body: data });
         return res.json(null);
       }
-      const technician = Array.isArray(data) ? data[0] : data?.[0] || null;
+      let technician = Array.isArray(data) ? data[0] : data?.[0] || null;
+
+      if (!technician) {
+        const guestToken = getGuestToken(req);
+        if (guestToken) {
+          const guestUserId = await ensureGuestUserId(guestToken);
+          const { resp: guestResp, data: guestData } = await pgFetch(
+            `/technicians?user_id=eq.${encodeURIComponent(guestUserId)}&limit=1`,
+          );
+          if (guestResp.ok) {
+            const guestTechnician = Array.isArray(guestData) ? guestData[0] : guestData?.[0];
+            if (guestTechnician?.id) {
+              const { resp: linkResp, data: linkData } = await pgFetch(
+                `/technicians?id=eq.${encodeURIComponent(guestTechnician.id)}`,
+                {
+                  method: "PATCH",
+                  body: { user_id: userUuid },
+                  headers: { Prefer: "return=representation" },
+                },
+              );
+              if (linkResp.ok) {
+                technician = Array.isArray(linkData) ? linkData[0] : linkData?.[0];
+                try {
+                  await ensureRoleAssignment(userUuid, "technician", userUuid);
+                  await pgFetch(`/users?id=eq.${encodeURIComponent(userUuid)}`, {
+                    method: "PATCH",
+                    body: { is_technician: true },
+                    headers: { Prefer: "return=representation" },
+                  }).catch(() => {});
+                } catch (error) {
+                  console.warn("[TECH][LINK] Failed to assign role", error);
+                }
+              } else {
+                console.warn("[TECH][LINK] Failed to relink guest technician", { status: linkResp.status });
+              }
+            }
+          }
+        }
+      }
+
       res.json(technician || null);
     } catch (error) {
       console.error("Error fetching technician:", error);
@@ -1853,7 +1895,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
         if (!technician) return res.status(404).json({ message: "Technician not found" });
-        if (technician.status !== "approved" || technician.is_active === false) {
+        const status = technician.status;
+        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        if (!isApprovedStatus || technician.is_active === false) {
           return res.status(403).json({ message: "Technician not active" });
         }
         const { resp: updResp, data: updData } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
@@ -1896,7 +1940,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
         if (!technician) return res.status(404).json({ message: "Technician not found" });
-        if (technician.status !== "approved" && !guard.auth.isAdmin) {
+        const status = technician.status;
+        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        if (!isApprovedStatus && !guard.auth.isAdmin) {
           return res.status(403).json({ message: "Technician not active" });
         }
         const { resp: updResp, data: updData } = await pgFetch(
@@ -2973,7 +3019,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json([]);
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
-        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+        const status = technician?.status;
+        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        if (!technician || !isApprovedStatus || technician.is_active !== true) {
           return res.json([]);
         }
         const requests = await storage.getTechnicianServiceRequests(technician.id);
@@ -2998,7 +3046,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
       const technician = Array.isArray(data) ? data[0] : data?.[0];
-      if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+      const status = technician?.status;
+      const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+      if (!technician || !isApprovedStatus || technician.is_active !== true) {
         return res.json([]);
       }
       const requests = await storage.getTechnicianServiceRequests(technician.id);

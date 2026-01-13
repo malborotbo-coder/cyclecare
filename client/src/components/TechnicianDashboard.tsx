@@ -171,10 +171,11 @@ export default function TechnicianDashboard() {
   const status = (technician as any)?.status;
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
   const currentAvailability = (technician as any)?.is_available ?? (technician as any)?.isAvailable;
+  const isApprovedStatus = ["approved", "online", "offline"].includes(status);
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<ServiceRequest[]>({
     queryKey: ['/api/technician/orders'],
-    enabled: status === 'approved' && isActive === true,
+    enabled: isApprovedStatus && isActive === true,
   });
   const safeRequests = Array.isArray(requests) ? requests : [];
 
@@ -286,7 +287,7 @@ export default function TechnicianDashboard() {
     );
   }
 
-  if (status === 'approved' && isActive === false) {
+  if (isApprovedStatus && isActive === false) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md text-center">

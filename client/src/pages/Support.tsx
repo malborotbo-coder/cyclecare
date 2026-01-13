@@ -119,6 +119,7 @@ export default function SupportPage() {
       lastTicketTitle: "آخر طلب دعم",
       lastTicketEmpty: "لا يوجد طلبات دعم سابقة على هذا الجهاز.",
       ticketTime: "الوقت",
+      ticketNumber: "رقم الطلب",
       ticketStatus: "الحالة",
       ticketCategory: "التصنيف",
       ticketSubcategory: "التصنيف الفرعي",
@@ -165,6 +166,7 @@ export default function SupportPage() {
       lastTicketTitle: "Latest Support Ticket",
       lastTicketEmpty: "No previous support tickets on this device.",
       ticketTime: "Time",
+      ticketNumber: "Ticket Number",
       ticketStatus: "Status",
       ticketCategory: "Category",
       ticketSubcategory: "Sub-category",
@@ -201,6 +203,7 @@ export default function SupportPage() {
     status?: string;
     replyMessage?: string;
     replyAt?: string;
+    ticketNumber?: string;
   } | null>(null);
 
   const orders = useMemo<StoredOrder[]>(() => {
@@ -252,7 +255,6 @@ export default function SupportPage() {
   }, []);
 
   useEffect(() => {
-    if (!user && !auth.currentUser) return;
     let isActive = true;
     const loadTickets = async () => {
       try {
@@ -278,6 +280,7 @@ export default function SupportPage() {
           status: ticket.status || "open",
           replyMessage: ticket.reply_message || ticket.replyMessage || "",
           replyAt: ticket.replied_at || ticket.repliedAt || "",
+          ticketNumber: ticket.ticket_number || ticket.ticketNumber || "",
         };
         setLastTicket(ticketSnapshot);
         localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
@@ -289,7 +292,7 @@ export default function SupportPage() {
     return () => {
       isActive = false;
     };
-  }, [user, lang]);
+  }, [lang]);
 
   useEffect(() => {
     if (!selectedCategory) {
@@ -399,7 +402,7 @@ export default function SupportPage() {
       headers.set("Accept-Language", lang);
       headers.set("X-Lang", lang);
 
-      await new Promise<void>((resolve, reject) => {
+      const responsePayload = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", buildApiUrl("/api/support/tickets"), true);
         xhr.withCredentials = !Capacitor.isNativePlatform();
@@ -410,7 +413,12 @@ export default function SupportPage() {
         xhr.setRequestHeader("X-Lang", lang);
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
+            try {
+              const payload = JSON.parse(xhr.responseText || "{}");
+              resolve(payload);
+            } catch {
+              resolve({});
+            }
             return;
           }
           let message = labels.submitErrorBody;
@@ -435,6 +443,7 @@ export default function SupportPage() {
         status: "open",
         replyMessage: "",
         replyAt: "",
+        ticketNumber: responsePayload?.ticketNumber || responsePayload?.ticket_number || "",
       };
       localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
       setLastTicket(ticketSnapshot);
@@ -687,6 +696,12 @@ export default function SupportPage() {
                     <span className="text-muted-foreground">{labels.ticketTime}</span>
                     <span>{formatTicketTime(lastTicket.timestamp)}</span>
                   </div>
+                  {lastTicket.ticketNumber ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{labels.ticketNumber}</span>
+                      <span>{lastTicket.ticketNumber}</span>
+                    </div>
+                  ) : null}
                   {lastTicket.status ? (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">{labels.ticketStatus}</span>

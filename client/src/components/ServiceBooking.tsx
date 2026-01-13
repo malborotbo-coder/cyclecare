@@ -537,7 +537,7 @@ export default function ServiceBooking() {
                                 )}
                               </div>
                             </div>
-                            <Badge>{tech.isAvailable ? "متاح" : "مشغول"}</Badge>
+                            <Badge>{tech.isAvailable || (tech as any).is_available ? "متاح" : "مشغول"}</Badge>
                           </div>
                         </Label>
                       ))
