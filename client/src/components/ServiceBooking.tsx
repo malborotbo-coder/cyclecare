@@ -521,6 +521,20 @@ export default function ServiceBooking() {
                                 <span>⭐ {tech.rating || "0.0"}</span>
                                 <span>•</span>
                                 <span>{tech.reviewCount || 0} تقييم</span>
+                                {Number(tech.yearsOfExperience ?? (tech as any).years_of_experience ?? 0) > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span>
+                                      {Number(tech.yearsOfExperience ?? (tech as any).years_of_experience)} سنة خبرة
+                                    </span>
+                                  </>
+                                )}
+                                {tech.distanceKm !== undefined && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{Number(tech.distanceKm).toFixed(1)} كم</span>
+                                  </>
+                                )}
                               </div>
                             </div>
                             <Badge>{tech.isAvailable ? "متاح" : "مشغول"}</Badge>
@@ -569,6 +583,21 @@ export default function ServiceBooking() {
                             <span>•</span>
                             <span>{selectedTechnician.reviewCount ?? 0} تقييم</span>
                             <span>•</span>
+                            {Number(
+                              selectedTechnician.yearsOfExperience ??
+                                (selectedTechnician as any).years_of_experience ??
+                                0,
+                            ) > 0 && (
+                              <>
+                                <span>
+                                  {Number(
+                                    selectedTechnician.yearsOfExperience ??
+                                      (selectedTechnician as any).years_of_experience,
+                                  )} سنة خبرة
+                                </span>
+                                <span>•</span>
+                              </>
+                            )}
                             <span>{selectedTechnician.distanceKm ?? 0} كم</span>
                             <span>•</span>
                             <span>{selectedTechnician.etaMinutes ?? 0} دقيقة</span>

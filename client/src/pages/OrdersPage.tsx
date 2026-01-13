@@ -155,6 +155,16 @@ export default function OrdersPage() {
     return [];
   };
 
+  const resolveItemName = (item: any) => {
+    if (item?.feeType === "delivery") {
+      return lang === "ar" ? "رسوم التوصيل" : "Delivery fee";
+    }
+    if (item?.feeType === "installation") {
+      return lang === "ar" ? "رسوم التركيب" : "Installation fee";
+    }
+    return item?.name || "-";
+  };
+
   const normalizeTrackingSteps = (raw: any) => {
     if (Array.isArray(raw)) return raw as any[];
     if (typeof raw === "string") {
@@ -493,7 +503,7 @@ export default function OrdersPage() {
                         {Array.isArray(items) && items.length > 0 ? (
                           items.map((item: any, index: number) => (
                             <div key={`${order.id}-shop-item-${index}`} className="flex items-center justify-between">
-                              <span className="text-muted-foreground">{item.name}</span>
+                              <span className="text-muted-foreground">{resolveItemName(item)}</span>
                               <span>{formatCurrency(Number(item.total || 0))}</span>
                             </div>
                           ))

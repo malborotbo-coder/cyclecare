@@ -11,12 +11,17 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { MapPin, CheckCircle2, ExternalLink, Navigation } from "lucide-react";
 import PaymentOptions from "@/components/PaymentOptions";
+import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
 import type { PaymentMethod } from "@shared/schema";
 
 type CheckoutStep = "confirm" | "payment" | "success";
 
+const STORE_LOCATION = { lat: 24.7136, lng: 46.6753 };
+const DELIVERY_CONFIG = { base: 10, perKm: 2, min: 10, max: 60 };
+const INSTALL_FEE_PER_ITEM = 30;
+
 export default function Checkout() {
-  const { items, subtotal, tax, total, clearCart } = useCart();
+  const { items, subtotal, clearCart } = useCart();
   const { lang } = useLanguage();
   const [, setRoute] = useLocation();
   const { toast } = useToast();
@@ -43,11 +48,16 @@ export default function Checkout() {
       subtotal: "المجموع الفرعي",
       tax: "الضريبة",
       total: "الإجمالي",
+      itemsSubtotal: "إجمالي القطع",
+      deliveryFee: "رسوم التوصيل",
+      installFee: "رسوم التركيب",
       empty: "السلة فارغة",
       confirmTitle: "ملخص الطلب",
       paymentTitle: "اختيار طريقة الدفع",
       orderNumber: "رقم الطلب",
+      invoiceNumber: "رقم الفاتورة",
       viewProducts: "العودة للمنتجات",
+      viewOrders: "عرض طلباتي",
     },
     en: {
       title: "Order Confirmation",
@@ -64,15 +74,64 @@ export default function Checkout() {
       subtotal: "Subtotal",
       tax: "Tax",
       total: "Total",
+      itemsSubtotal: "Items subtotal",
+      deliveryFee: "Delivery fee",
+      installFee: "Installation fee",
       empty: "Cart is empty",
       confirmTitle: "Order Summary",
       paymentTitle: "Choose payment method",
       orderNumber: "Order Number",
+      invoiceNumber: "Invoice Number",
       viewProducts: "Back to products",
+      viewOrders: "My Orders",
     },
   };
 
   const labelsText = labels[lang as keyof typeof labels];
+
+  const totalQuantity = useMemo(
+    () => items.reduce((sum, item) => sum + item.quantity, 0),
+    [items],
+  );
+
+  const deliveryDistanceKm = useMemo(() => {
+    if (deliveryOption !== "delivery_installation") return 0;
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const lat1 = STORE_LOCATION.lat;
+    const lon1 = STORE_LOCATION.lng;
+    const lat2 = geoLocation.lat;
+    const lon2 = geoLocation.lng;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = 6371 * c;
+    return Number.isFinite(distance) ? Number(distance.toFixed(2)) : 0;
+  }, [deliveryOption, geoLocation]);
+
+  const deliveryFee = useMemo(() => {
+    if (deliveryOption !== "delivery_installation") return 0;
+    const raw = DELIVERY_CONFIG.base + deliveryDistanceKm * DELIVERY_CONFIG.perKm;
+    const bounded = Math.min(Math.max(raw, DELIVERY_CONFIG.min), DELIVERY_CONFIG.max);
+    return Number(bounded.toFixed(2));
+  }, [deliveryOption, deliveryDistanceKm]);
+
+  const installFee = useMemo(() => {
+    if (deliveryOption !== "delivery_installation") return 0;
+    return Number((totalQuantity * INSTALL_FEE_PER_ITEM).toFixed(2));
+  }, [deliveryOption, totalQuantity]);
+
+  const computedSubtotal = useMemo(
+    () => Number((subtotal + deliveryFee + installFee).toFixed(2)),
+    [subtotal, deliveryFee, installFee],
+  );
+  const computedTax = useMemo(() => Number((computedSubtotal * 0.15).toFixed(2)), [computedSubtotal]);
+  const computedTotal = useMemo(
+    () => Number((computedSubtotal + computedTax).toFixed(2)),
+    [computedSubtotal, computedTax],
+  );
 
   const mapQuery = useMemo(() => {
     if (deliveryAddress.trim()) {
@@ -95,6 +154,54 @@ export default function Checkout() {
     return [];
   }, [createdOrder]);
 
+  const successTracking = useMemo(() => {
+    const raw = createdOrder?.trackingSteps ?? createdOrder?.tracking_steps;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [createdOrder]);
+
+  const feeSummary = useMemo(() => {
+    return successItems.reduce(
+      (acc, item: any) => {
+        const value = Number(item.total || 0);
+        if (item.feeType === "delivery") {
+          acc.deliveryFee += value;
+        } else if (item.feeType === "installation") {
+          acc.installFee += value;
+        } else {
+          acc.itemsSubtotal += value;
+        }
+        return acc;
+      },
+      { itemsSubtotal: 0, deliveryFee: 0, installFee: 0 },
+    );
+  }, [successItems]);
+
+  const orderQuantity = useMemo(
+    () =>
+      successItems.reduce((sum: number, item: any) => {
+        if (item?.feeType) return sum;
+        return sum + (Number(item.quantity) || 0);
+      }, 0),
+    [successItems],
+  );
+
+  const orderSubtotalValue = Number(createdOrder?.subtotal ?? computedSubtotal);
+  const orderTaxValue = Number(createdOrder?.taxAmount ?? createdOrder?.tax_amount ?? computedTax);
+  const orderTotalValue = Number(createdOrder?.total ?? computedTotal);
+  const itemsSubtotalValue =
+    feeSummary.itemsSubtotal > 0
+      ? feeSummary.itemsSubtotal
+      : Number((orderSubtotalValue - feeSummary.deliveryFee - feeSummary.installFee).toFixed(2));
+
   const createOrderMutation = useMutation({
     mutationFn: async (method: PaymentMethod | "mock") => {
       const isDelivery = deliveryOption === "delivery_installation";
@@ -106,6 +213,9 @@ export default function Checkout() {
         deliveryType: isDelivery ? "delivery" : "pickup",
         deliveryOption,
         deliveryAddress: isDelivery ? deliveryAddress : null,
+        deliveryLat: isDelivery ? geoLocation.lat : null,
+        deliveryLng: isDelivery ? geoLocation.lng : null,
+        deliveryDistanceKm: isDelivery ? deliveryDistanceKm : 0,
         paymentMethod: method,
         items: items.map(item => ({
           partId: item.part.id,
@@ -114,10 +224,10 @@ export default function Checkout() {
           unitPrice: item.part.price,
           total: Number(item.part.price) * item.quantity,
         })),
-        subtotal: subtotal.toString(),
-        taxAmount: tax.toString(),
+        subtotal: computedSubtotal.toString(),
+        taxAmount: computedTax.toString(),
         taxRate: "15",
-        total: total.toString(),
+        total: computedTotal.toString(),
       };
 
       return await apiRequest("/api/shop/mock-checkout", "POST", orderData);
@@ -150,6 +260,9 @@ export default function Checkout() {
   }
 
   const canProceed = deliveryOption === "pickup" || deliveryAddress.trim().length > 0;
+  const invoiceNumber =
+    createdOrder?.invoiceNumber || createdOrder?.invoice_number || createdOrder?.invoiceId || "-";
+  const orderNumber = createdOrder?.orderNumber || createdOrder?.order_number || "-";
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20 pb-32">
@@ -270,16 +383,30 @@ export default function Checkout() {
                   ))}
                   <div className="border-t pt-3 space-y-2">
                     <div className="flex justify-between">
-                      <span>{labelsText.subtotal}</span>
+                      <span>{labelsText.itemsSubtotal}</span>
                       <span>{subtotal.toFixed(2)} {labelsText.currency}</span>
                     </div>
+                    {deliveryOption === "delivery_installation" && (
+                      <>
+                        <div className="flex justify-between">
+                          <span>{labelsText.deliveryFee}</span>
+                          <span>{deliveryFee.toFixed(2)} {labelsText.currency}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>
+                            {labelsText.installFee} ({totalQuantity})
+                          </span>
+                          <span>{installFee.toFixed(2)} {labelsText.currency}</span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between">
                       <span>{labelsText.tax}</span>
-                      <span>{tax.toFixed(2)} {labelsText.currency}</span>
+                      <span>{computedTax.toFixed(2)} {labelsText.currency}</span>
                     </div>
                     <div className="flex justify-between font-bold text-lg">
                       <span>{labelsText.total}</span>
-                      <span>{total.toFixed(2)} {labelsText.currency}</span>
+                      <span>{computedTotal.toFixed(2)} {labelsText.currency}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -316,7 +443,7 @@ export default function Checkout() {
           <Card className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
             <CardContent className="p-6">
               <PaymentOptions
-                amount={Number(total.toFixed(2))}
+                amount={Number(computedTotal.toFixed(2))}
                 serviceRequestId="shop"
                 onSelectMethod={(method) => createOrderMutation.mutate(method)}
                 onCancel={() => setStep("confirm")}
@@ -329,22 +456,33 @@ export default function Checkout() {
         {step === "success" && (
           <Card className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
             <CardContent className="p-6 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-full bg-emerald-500/15 text-emerald-600 flex items-center justify-center">
-                  <CheckCircle2 className="h-6 w-6" />
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-full bg-emerald-500/15 text-emerald-600 flex items-center justify-center">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">{labelsText.orderSuccess}</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {labelsText.orderNumber}: {orderNumber}
+                    </p>
+                    {invoiceNumber && invoiceNumber !== "-" && (
+                      <p className="text-sm text-muted-foreground">
+                        {labelsText.invoiceNumber}: {invoiceNumber}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold">{labelsText.orderSuccess}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {labelsText.orderNumber}: {createdOrder?.orderNumber || "-"}
-                  </p>
-                </div>
-              </div>
 
               <div className="space-y-2 text-sm">
                 {successItems.map((item: any, idx: number) => (
                   <div key={`${item.partId || item.name}-${idx}`} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{item.name}</span>
+                    <span className="text-muted-foreground">
+                      {item.feeType === "delivery"
+                        ? labelsText.deliveryFee
+                        : item.feeType === "installation"
+                        ? labelsText.installFee
+                        : item.name}
+                    </span>
                     <span>{Number(item.total || 0).toFixed(2)} {labelsText.currency}</span>
                   </div>
                 ))}
@@ -352,22 +490,46 @@ export default function Checkout() {
 
               <div className="border-t pt-3 space-y-2">
                 <div className="flex justify-between">
-                  <span>{labelsText.subtotal}</span>
-                  <span>{Number(createdOrder?.subtotal || subtotal).toFixed(2)} {labelsText.currency}</span>
+                  <span>{labelsText.itemsSubtotal}</span>
+                  <span>{itemsSubtotalValue.toFixed(2)} {labelsText.currency}</span>
                 </div>
+                {(feeSummary.deliveryFee > 0 || feeSummary.installFee > 0) && (
+                  <>
+                    <div className="flex justify-between">
+                      <span>{labelsText.deliveryFee}</span>
+                      <span>{feeSummary.deliveryFee.toFixed(2)} {labelsText.currency}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>
+                        {labelsText.installFee} ({orderQuantity || totalQuantity || 1})
+                      </span>
+                      <span>{feeSummary.installFee.toFixed(2)} {labelsText.currency}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between">
                   <span>{labelsText.tax}</span>
-                  <span>{Number(createdOrder?.taxAmount || tax).toFixed(2)} {labelsText.currency}</span>
+                  <span>{orderTaxValue.toFixed(2)} {labelsText.currency}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg">
                   <span>{labelsText.total}</span>
-                  <span>{Number(createdOrder?.total || total).toFixed(2)} {labelsText.currency}</span>
+                  <span>{orderTotalValue.toFixed(2)} {labelsText.currency}</span>
                 </div>
               </div>
+
+              {successTracking.length > 0 && (
+                <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-3">
+                  <h3 className="font-semibold">{lang === "ar" ? "تتبع الطلب" : "Order Tracking"}</h3>
+                  <OrderTrackingTimeline steps={successTracking} />
+                </div>
+              )}
 
               <div className="flex flex-col md:flex-row gap-3">
                 <Button className="flex-1" onClick={() => setRoute("/parts")}>
                   {labelsText.viewProducts}
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => setRoute("/orders")}>
+                  {labelsText.viewOrders}
                 </Button>
                 <Button variant="outline" className="flex-1" onClick={() => setRoute("/")}>
                   {lang === "ar" ? "الرئيسية" : "Home"}

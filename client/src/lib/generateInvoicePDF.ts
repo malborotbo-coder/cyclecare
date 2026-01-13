@@ -225,6 +225,20 @@ const collectTextSnapshot = (
   return pieces.filter(Boolean).join(" ");
 };
 
+const resolveInvoiceItemLabel = (
+  item: any,
+  index: number,
+  isArabic: boolean
+) => {
+  if (item?.feeType === "delivery") {
+    return isArabic ? "رسوم التوصيل" : "Delivery fee";
+  }
+  if (item?.feeType === "installation") {
+    return isArabic ? "رسوم التركيب" : "Installation fee";
+  }
+  return item?.name || item?.description || `Item ${index + 1}`;
+};
+
 const renderInvoiceHtmlToPdf = async (
   invoice: InvoiceLike,
   user: InvoiceUser | undefined,
@@ -349,7 +363,7 @@ const renderInvoiceHtmlToPdf = async (
         <tbody>
           ${items
             .map((item, index) => {
-              const name = item.name || item.description || `Item ${index + 1}`;
+              const name = resolveInvoiceItemLabel(item, index, isArabic);
               const quantity = item.quantity ?? 1;
               const unitPrice = item.unitPrice ?? item.price ?? item.total ?? 0;
               const total = item.total ?? Number(unitPrice) * quantity;
@@ -582,7 +596,7 @@ export async function generateInvoicePDF(
   doc.setTextColor(30, 30, 30);
 
   items.forEach((item, index) => {
-    const name = item.name || item.description || `Item ${index + 1}`;
+    const name = resolveInvoiceItemLabel(item, index, lang === "ar");
     const quantity = item.quantity ?? 1;
     const unitPrice = item.unitPrice ?? item.price ?? item.total ?? 0;
     const total = item.total ?? Number(unitPrice) * quantity;
