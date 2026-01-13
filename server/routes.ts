@@ -425,9 +425,13 @@ async function ensureUserUuid(auth: AuthContext): Promise<string> {
     return auth.userId;
   }
 
-  const existingById = await storage.getUser(auth.userId);
-  if (existingById?.id) {
-    return existingById.id;
+  try {
+    const existingById = await storage.getUser(auth.userId);
+    if (existingById?.id) {
+      return existingById.id;
+    }
+  } catch (error) {
+    console.warn("[USER][LOOKUP] Local DB lookup failed; continuing with Supabase", error);
   }
 
   const providerId = auth.userId;
