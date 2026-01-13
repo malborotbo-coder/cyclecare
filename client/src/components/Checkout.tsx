@@ -9,7 +9,7 @@ import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, CheckCircle2 } from "lucide-react";
+import { MapPin, CheckCircle2, ExternalLink, Navigation } from "lucide-react";
 import PaymentOptions from "@/components/PaymentOptions";
 import type { PaymentMethod } from "@shared/schema";
 
@@ -23,6 +23,8 @@ export default function Checkout() {
   const [step, setStep] = useState<CheckoutStep>("confirm");
   const [deliveryOption, setDeliveryOption] = useState<"pickup" | "delivery_installation">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [location, setLocation] = useState({ lat: 24.7136, lng: 46.6753 });
+  const [locationText, setLocationText] = useState(lang === "ar" ? "الرياض" : "Riyadh");
   const [createdOrder, setCreatedOrder] = useState<any>(null);
 
   const labels = {
@@ -73,9 +75,11 @@ export default function Checkout() {
   const labelsText = labels[lang as keyof typeof labels];
 
   const mapQuery = useMemo(() => {
-    const fallback = lang === "ar" ? "الرياض" : "Riyadh";
-    return encodeURIComponent(deliveryAddress.trim() || fallback);
-  }, [deliveryAddress, lang]);
+    if (deliveryAddress.trim()) {
+      return encodeURIComponent(deliveryAddress.trim());
+    }
+    return `${location.lat},${location.lng}`;
+  }, [deliveryAddress, location]);
 
   const successItems = useMemo(() => {
     const raw = createdOrder?.items;
@@ -195,21 +199,57 @@ export default function Checkout() {
                       <Input
                         placeholder={labelsText.address}
                         value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setDeliveryAddress(value);
+                          if (value.trim()) {
+                            setLocationText(value.trim());
+                          }
+                        }}
                         data-testid="input-address"
                       />
-                      <div className="rounded-xl border border-border/50 overflow-hidden bg-muted">
-                        <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground bg-background/70">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <MapPin className="w-4 h-4" />
-                          <span>{deliveryAddress.trim() || (lang === "ar" ? "حدد موقعك على الخريطة" : "Select your location")}</span>
+                          <span>{locationText}</span>
+                        </div>
+                        <Button variant="outline" size="sm" asChild>
+                          <a
+                            href={`https://maps.google.com/maps?q=${location.lat},${location.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {lang === "ar" ? "فتح في خرائط Google" : "Open in Google Maps"}
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      </div>
+                      <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-muted">
+                        <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-full bg-white/90 px-3 py-1 text-xs text-foreground shadow-sm dark:bg-black/60 dark:text-white">
+                          {locationText}
                         </div>
                         <iframe
                           title="delivery-map"
-                          className="w-full h-48"
+                          className="w-full h-56 border-0 md:h-72"
                           src={`https://maps.google.com/maps?q=${mapQuery}&z=15&output=embed`}
                           loading="lazy"
+                          allowFullScreen
                         />
                       </div>
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          navigator.geolocation.getCurrentPosition((p) => {
+                            setLocation({ lat: p.coords.latitude, lng: p.coords.longitude });
+                            const text = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`;
+                            setLocationText(text);
+                            setDeliveryAddress(text);
+                          })
+                        }
+                      >
+                        <Navigation className="ml-2" />
+                        {lang === "ar" ? "استخدم موقعي" : "Use my location"}
+                      </Button>
                     </div>
                   )}
                 </CardContent>

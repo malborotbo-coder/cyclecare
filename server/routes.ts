@@ -1520,7 +1520,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             file_name: file.originalname,
             file_url: fileUrl,
             file_size: file.size,
-            mime_type: file.mimetype,
           });
         }
 
@@ -2035,7 +2034,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         trackingSteps,
       }, req);
 
-      const order = await storage.createOrder(orderData);
+      let order;
+      try {
+        order = await storage.createOrder(orderData);
+      } catch (error: any) {
+        const message = error?.message || "";
+        if (message.includes("delivery_option") || message.includes("tracking_steps") || message.includes("column")) {
+          const { deliveryOption, trackingSteps, ...fallback } = orderData as any;
+          order = await storage.createOrder(fallback);
+        } else {
+          throw error;
+        }
+      }
       res.status(201).json(order);
     } catch (error) {
       const handled = handleRouteError(error, req, res);

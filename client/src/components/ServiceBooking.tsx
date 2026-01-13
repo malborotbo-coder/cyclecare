@@ -630,28 +630,60 @@ export default function ServiceBooking() {
                 amount={costBreakdown.total}
                 serviceRequestId={createdServiceRequestId}
                 isProcessing={processingPayment}
-                onSelectMethod={(method) => {
+                onSelectMethod={async (method) => {
                   setSelectedPaymentMethod(method);
-
                   if (!costBreakdown || !selectedTechnician) return;
+                  setProcessingPayment(true);
 
-                  const order = createMockOrder({
-                    serviceName: services.find((s) => s.id === selectedService)?.name || "خدمة",
-                    technicianName:
-                      selectedTechnician?.name ||
-                      `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
-                    technicianRating: Number(selectedTechnician.rating ?? 0),
-                    technicianDistanceKm: selectedTechnician.distanceKm ?? 0,
-                    technicianEtaMinutes: selectedTechnician.etaMinutes ?? 25,
-                    locationText,
-                    notes,
-                    paymentMethod: method,
-                    breakdown: costBreakdown,
-                  });
+                  try {
+                    const response = await apiRequest("/api/orders/mock-checkout", "POST", {
+                      serviceRequestId: createdServiceRequestId,
+                      technicianId: selectedTechnicianId,
+                      breakdown: costBreakdown,
+                      paymentMethod: method,
+                    });
 
-                  saveMockOrder(order);
-                  setConfirmedOrder(order);
-                  setCurrentStep(5);
+                    const order = response?.order || response;
+                    const invoice = response?.invoice || {};
+                    const baseOrder = createMockOrder({
+                      serviceName: services.find((s) => s.id === selectedService)?.name || "خدمة",
+                      technicianName:
+                        selectedTechnician?.name ||
+                        `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
+                      technicianRating: Number(selectedTechnician.rating ?? 0),
+                      technicianDistanceKm: selectedTechnician.distanceKm ?? 0,
+                      technicianEtaMinutes: selectedTechnician.etaMinutes ?? 25,
+                      locationText,
+                      notes,
+                      paymentMethod: method,
+                      breakdown: costBreakdown,
+                    });
+
+                    const normalized = {
+                      ...baseOrder,
+                      id: order?.id || baseOrder.id,
+                      orderNumber: order?.orderNumber || order?.order_number || baseOrder.orderNumber,
+                      invoiceNumber: invoice?.invoiceNumber || invoice?.invoice_number || baseOrder.invoiceNumber,
+                      createdAt: order?.createdAt || order?.created_at || baseOrder.createdAt,
+                      subtotal: Number(invoice?.subtotal ?? order?.subtotal ?? baseOrder.subtotal),
+                      taxRate: Number(invoice?.taxRate ?? order?.taxRate ?? baseOrder.taxRate),
+                      taxAmount: Number(invoice?.taxAmount ?? order?.taxAmount ?? baseOrder.taxAmount),
+                      total: Number(invoice?.total ?? order?.total ?? baseOrder.total),
+                      paymentMethod: method,
+                    };
+
+                    saveMockOrder(normalized);
+                    setConfirmedOrder(normalized);
+                    setCurrentStep(5);
+                  } catch (error: any) {
+                    toast({
+                      title: "خطأ في الدفع",
+                      description: error?.message || "فشل إتمام الدفع التجريبي",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setProcessingPayment(false);
+                  }
                 }}
                 onCancel={() => setCurrentStep(3)}
               />
