@@ -16,6 +16,7 @@ import { buildApiUrl } from "@/lib/apiConfig";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
 type FieldErrors = Record<string, string>;
 
@@ -98,8 +99,9 @@ export default function TechnicianRegistration() {
       formDataToSend.append("national_address", formData.nationalAddress);
       documents.forEach((file) => formDataToSend.append("documents", file));
 
-      const response = await fetch(buildApiUrl("/api/technicians/apply"), {
+      const response = await fetchWithFirebaseAuth(buildApiUrl("/api/technicians/apply"), {
         method: "POST",
+        credentials: "include",
         body: formDataToSend,
       });
 

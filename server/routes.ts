@@ -59,6 +59,21 @@ const bikePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+const partImageUpload = (req: any, res: any, next: any) => {
+  if (!req.is("multipart/form-data")) {
+    return next();
+  }
+  upload.single("image")(req, res, (err: any) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ code: "PART_IMAGE_TOO_LARGE", message: "Image too large (max 20MB)" });
+      }
+      return res.status(400).json({ code: "PART_IMAGE_UPLOAD_INVALID", message: err.message || "Invalid image upload" });
+    }
+    next();
+  });
+};
+
 function buildMockTech(lat: number, lng: number) {
   const mockDistance = 1.2;
   const pricePreview = computePricing({
@@ -2625,17 +2640,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/admin/parts",
     isAuthenticated,
     isAdmin,
-    upload.single("image"),
+    partImageUpload,
     async (req: any, res) => {
       try {
         console.log("[ADMIN][PARTS][CREATE] start");
         
+        const rawName = req.body.name;
+        const rawNameEn = req.body.nameEn || req.body.name_en || req.body.name;
+        const rawPrice = req.body.price;
+
         // Parse part data from form
         const partData = {
-          name: req.body.name,
-          nameEn: req.body.nameEn,
+          name: rawName,
+          nameEn: rawNameEn,
           category: req.body.category,
-          price: req.body.price,
+          price: rawPrice !== undefined && rawPrice !== null ? String(rawPrice) : rawPrice,
           inStock: req.body.inStock === "true" || req.body.inStock === true || req.body.inStock === "True",
           imageUrl: null as string | null,
         };
@@ -2698,7 +2717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/admin/parts/:id/image",
     isAuthenticated,
     isAdmin,
-    upload.single("image"),
+    partImageUpload,
     async (req: any, res) => {
       try {
         const partId = req.params.id;

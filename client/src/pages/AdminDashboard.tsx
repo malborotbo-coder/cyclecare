@@ -19,6 +19,7 @@ import {
 import { useState, useEffect, useRef, Fragment } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { useToast } from "@/hooks/use-toast";
 import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole, Invoice, Order } from "@shared/schema";
 import type { Language } from "@/lib/i18n";
@@ -563,6 +564,12 @@ export default function AdminDashboard() {
       ? convoyInvoices
       : convoyInvoices.filter((invoice) => invoice.convoyId === selectedConvoy);
   const safeParts = Array.isArray(parts as any) ? (parts as any) : [];
+  const normalizedParts = safeParts.map((part: any) => ({
+    ...part,
+    nameEn: part.nameEn ?? part.name_en ?? part.name,
+    inStock: part.inStock ?? part.in_stock ?? false,
+    imageUrl: part.imageUrl ?? part.image_url ?? null,
+  }));
   const safeDiscountCodes = Array.isArray(discountCodes as any) ? (discountCodes as any) : [];
 
   const normalizedTechnicians = safeTechnicians.map(normalizeTechnician);
@@ -810,17 +817,9 @@ export default function AdminDashboard() {
       const formData = new FormData();
       formData.append("image", file);
 
-      // Get auth token
-      const phoneSession = localStorage.getItem("phone_session");
-      const headers: HeadersInit = {};
-      if (phoneSession) {
-        headers["Authorization"] = `Bearer ${phoneSession}`;
-      }
-
-      const response = await fetch(`/api/admin/parts/${partId}/image`, {
+      const response = await fetchWithFirebaseAuth(buildApiUrl(`/api/admin/parts/${partId}/image`), {
         method: "POST",
         credentials: "include",
-        headers,
         body: formData,
       });
 
@@ -873,6 +872,25 @@ export default function AdminDashboard() {
     }
 
     try {
+      if (!newPartImage) {
+        await apiRequest("/api/admin/parts", "POST", {
+          name,
+          nameEn: name,
+          category,
+          price,
+          inStock,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["/api/parts"] });
+        toast({ title: lang === 'ar' ? "تمت إضافة القطعة بنجاح" : "Part added successfully" });
+        
+        (document.getElementById('part-name') as HTMLInputElement).value = '';
+        (document.getElementById('part-category-hidden') as HTMLInputElement).value = '';
+        (document.getElementById('part-price') as HTMLInputElement).value = '';
+        setNewPartImage(null);
+        return;
+      }
+
       const formData = new FormData();
       formData.append("name", name);
       formData.append("nameEn", name);
@@ -880,21 +898,11 @@ export default function AdminDashboard() {
       formData.append("price", price);
       formData.append("inStock", inStock.toString());
       
-      if (newPartImage) {
-        formData.append("image", newPartImage);
-      }
+      formData.append("image", newPartImage);
 
-      // Get auth token
-      const phoneSession = localStorage.getItem("phone_session");
-      const headers: HeadersInit = {};
-      if (phoneSession) {
-        headers["Authorization"] = `Bearer ${phoneSession}`;
-      }
-
-      const response = await fetch(buildApiUrl("/api/admin/parts"), {
+      const response = await fetchWithFirebaseAuth(buildApiUrl("/api/admin/parts"), {
         method: "POST",
         credentials: "include",
-        headers,
         body: formData,
       });
 
@@ -1844,11 +1852,11 @@ export default function AdminDashboard() {
                   <div className="space-y-3">
                     {partsLoading ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                    ) : safeParts.length === 0 ? (
+                    ) : normalizedParts.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                     ) : (
-                      safeParts.map((part: any) => {
-                        const img = part.imageUrl || part.image_url;
+                      normalizedParts.map((part: any) => {
+                        const img = part.imageUrl;
                         return (
                           <div 
                             key={part.id} 
