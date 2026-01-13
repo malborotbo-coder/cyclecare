@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,9 +10,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import Logo from "@/components/Logo";
 import LanguageToggle from "@/components/LanguageToggle";
+import ThemeToggle from "@/components/ThemeToggle";
 import { queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 type FieldErrors = Record<string, string>;
 
@@ -20,9 +23,12 @@ export default function TechnicianRegistration() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { lang, toggleLanguage, t } = useLanguage();
+  const { user, exitGuestMode } = useFirebaseAuth();
   const isRTL = lang === "ar";
   const [errors, setErrors] = useState<FieldErrors>({});
   const [successMessage, setSuccessMessage] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
+  const DRAFT_KEY = "technician_application_draft";
 
   // Form refs for file inputs
   const profileImageRef = useRef<HTMLInputElement>(null);
@@ -49,6 +55,29 @@ export default function TechnicianRegistration() {
     commercialFile: "",
     certifications: [] as string[],
   });
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    try {
+      const draft = JSON.parse(raw);
+      setFormData((prev) => ({ ...prev, ...draft }));
+      setDraftRestored(true);
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+  }, []);
+
+  const saveDraft = () => {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(formData));
+  };
+
+  const clearDraft = () => {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(DRAFT_KEY);
+  };
 
   const gatherDocuments = () => {
     const docs: File[] = [];
@@ -77,12 +106,15 @@ export default function TechnicianRegistration() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error: any = new Error(data.message || "Submission failed");
-        error.fieldErrors = data.fieldErrors;
+        error.fieldErrors = data.fieldErrors || data.errors;
+        error.code = data.code;
         throw error;
       }
       return data;
     },
     onSuccess: () => {
+      clearDraft();
+      setDraftRestored(false);
       setSuccessMessage(
         lang === "ar"
           ? "تم إرسال طلبك وهو قيد المراجعة."
@@ -101,7 +133,9 @@ export default function TechnicianRegistration() {
       }
       toast({
         title: t("applicationError"),
-        description: error.message.includes("already")
+        description: error.code === "STORAGE_UPLOAD_FAILED"
+          ? (lang === "ar" ? "فشل رفع الملفات. حاول مرة أخرى." : "File upload failed. Please try again.")
+          : error.message.includes("already")
           ? t("emailAlreadyRegistered")
           : error.message,
         variant: "destructive",
@@ -124,6 +158,21 @@ export default function TechnicianRegistration() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      saveDraft();
+      setPostLoginRedirect("/technician/register");
+      exitGuestMode();
+      toast({
+        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
+        description:
+          lang === "ar"
+            ? "يرجى تسجيل الدخول لإرسال طلب التسجيل كفني."
+            : "Please sign in to submit your technician application.",
+        variant: "destructive",
+      });
+      navigate("/");
+      return;
+    }
     const newErrors: FieldErrors = {};
     const docs = gatherDocuments();
 
@@ -175,17 +224,17 @@ export default function TechnicianRegistration() {
           backgroundAttachment: "scroll",
         }}
       >
-        <div className="absolute inset-0 bg-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/35 to-black/50" />
       </div>
 
       {/* Content */}
       <div className="relative z-10">
         {/* Header */}
         <header
-          className="bg-primary/95 backdrop-blur-sm text-primary-foreground p-4 sticky top-0 z-50"
+          className="bg-primary/90 backdrop-blur-sm text-primary-foreground p-4 sticky top-0 z-50"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
         >
-        <div className="max-w-2xl mx-auto flex items-center justify-between text-foreground dark:text-white">
+        <div className="max-w-2xl mx-auto flex items-center justify-between text-primary-foreground">
             <Button
               variant="ghost"
               size="sm"
@@ -197,15 +246,18 @@ export default function TechnicianRegistration() {
               <span className="mx-2">{t("backToHome")}</span>
             </Button>
 
-            <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
+            </div>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="max-w-2xl mx-auto p-4 pb-8 text-foreground dark:text-white">
+        <main className="max-w-2xl mx-auto p-4 pb-8 text-foreground">
           {/* Logo and Title */}
           <div className="text-center py-6">
-            <div className="bg-white/90 dark:bg-black/80 backdrop-blur-sm rounded-2xl p-6 mb-6 inline-block">
+            <div className="bg-background/85 dark:bg-slate-900/80 backdrop-blur-sm rounded-2xl p-6 mb-6 inline-block border border-border/40">
               <Logo size="lg" className="justify-center" />
             </div>
             <div className="flex items-center justify-center gap-2 mb-2">
@@ -214,22 +266,30 @@ export default function TechnicianRegistration() {
                 {t("techRegTitle")}
               </h1>
             </div>
-            <p className="text-foreground dark:text-white/90 drop-shadow" data-testid="text-page-subtitle">
+            <p className="text-muted-foreground drop-shadow" data-testid="text-page-subtitle">
               {t("techRegSubtitle")}
             </p>
           </div>
 
+          {draftRestored && (
+            <div className="mb-4 text-center text-sm font-medium text-amber-600 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
+              {lang === "ar"
+                ? "تم استرجاع بيانات النموذج. يرجى إعادة رفع المستندات لإكمال الطلب."
+                : "We restored your form data. Please re-attach your documents to continue."}
+            </div>
+          )}
+
           {successMessage && (
-            <div className="mb-4 text-center text-sm font-medium text-green-500 bg-white/80 dark:bg-black/60 p-3 rounded-lg">
+            <div className="mb-4 text-center text-sm font-medium text-emerald-600 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20">
               {successMessage}
             </div>
           )}
 
           <form onSubmit={handleSubmit}>
             {/* Personal Information Card */}
-            <Card className="mb-4 bg-black/50 backdrop-blur-md border border-white/10 text-white">
+            <Card className="mb-4 bg-background/85 dark:bg-slate-900/80 backdrop-blur-md border border-border/40">
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2 text-white">
+                <CardTitle className="text-lg flex items-center gap-2 text-foreground">
                   <Wrench className="w-5 h-5 text-primary" />
                   {t("personalInfo")}
                 </CardTitle>
@@ -355,13 +415,13 @@ export default function TechnicianRegistration() {
             </Card>
 
             {/* Attachments Card */}
-            <Card className="mb-6 bg-black/50 backdrop-blur-md border border-white/10 text-white">
+            <Card className="mb-6 bg-background/85 dark:bg-slate-900/80 backdrop-blur-md border border-border/40">
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2 text-white">
+                <CardTitle className="text-lg flex items-center gap-2 text-foreground">
                   <Upload className="w-5 h-5 text-secondary" />
                   {lang === "ar" ? "المستندات مطلوبة" : "Documents are required"}
                 </CardTitle>
-                <CardDescription className="text-white/80">
+                <CardDescription className="text-muted-foreground">
                   {lang === "ar"
                     ? "يرجى رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
                     : "Please upload ID or certificates (PDF or image), max 5MB each"}

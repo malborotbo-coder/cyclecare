@@ -5,11 +5,16 @@ import { useCart } from "@/contexts/CartContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 export default function Cart() {
   const { items, removeItem, updateQuantity, clearCart, subtotal, tax, total, itemCount } = useCart();
   const { lang } = useLanguage();
   const [, setLocation] = useLocation();
+  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
+  const { toast } = useToast();
 
   const labels = {
     ar: {
@@ -43,6 +48,23 @@ export default function Cart() {
   };
 
   const labels_text = labels[lang as keyof typeof labels];
+
+  const handleCheckout = () => {
+    if (!user && isGuest) {
+      setPostLoginRedirect("/checkout");
+      exitGuestMode();
+      toast({
+        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
+        description:
+          lang === "ar"
+            ? "يرجى تسجيل الدخول للمتابعة إلى الدفع."
+            : "Please sign in to proceed to checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setLocation("/checkout");
+  };
 
   if (items.length === 0) {
     return (
@@ -148,7 +170,7 @@ export default function Cart() {
                 </div>
                 <Button
                   className="w-full"
-                  onClick={() => setLocation("/checkout")}
+                  onClick={handleCheckout}
                   data-testid="button-checkout"
                 >
                   {labels_text.checkout}

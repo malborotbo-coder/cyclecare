@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,22 +10,39 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 export default function Checkout() {
   const { items, subtotal, tax, total, clearCart } = useCart();
   const { lang } = useLanguage();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [deliveryType, setDeliveryType] = useState<"pickup" | "delivery">("pickup");
+  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
+  const [deliveryOption, setDeliveryOption] = useState<"pickup" | "delivery_installation">("pickup");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("apple_pay");
+
+  useEffect(() => {
+    if (user || !isGuest) return;
+    setPostLoginRedirect("/checkout");
+    exitGuestMode();
+    toast({
+      title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
+      description:
+        lang === "ar"
+          ? "يرجى تسجيل الدخول لإكمال الدفع."
+          : "Please sign in to continue checkout.",
+      variant: "destructive",
+    });
+  }, [user, isGuest, exitGuestMode, toast, lang]);
 
   const labels = {
     ar: {
       title: "إتمام الشراء",
-      deliveryOptions: "خيارات التسليم",
-      pickup: "استلام من الفرع",
-      delivery: "توصيل",
+      deliveryOptions: "خيارات التوصيل",
+      pickup: "استلام من المتجر",
+      delivery: "توصيل + تركيب",
       address: "عنوان التوصيل",
       payment: "طريقة الدفع",
       applePay: "Apple Pay",
@@ -43,8 +60,8 @@ export default function Checkout() {
     en: {
       title: "Checkout",
       deliveryOptions: "Delivery Options",
-      pickup: "Pickup from Branch",
-      delivery: "Delivery",
+      pickup: "Store Pickup",
+      delivery: "Delivery + Installation",
       address: "Delivery Address",
       payment: "Payment Method",
       applePay: "Apple Pay",
@@ -65,13 +82,15 @@ export default function Checkout() {
 
   const createOrderMutation = useMutation({
     mutationFn: async () => {
-      if (deliveryType === "delivery" && !deliveryAddress) {
+      const isDelivery = deliveryOption === "delivery_installation";
+      if (isDelivery && !deliveryAddress) {
         throw new Error("Please enter delivery address");
       }
       
       const orderData = {
-        deliveryType,
-        deliveryAddress: deliveryType === "delivery" ? deliveryAddress : null,
+        deliveryType: isDelivery ? "delivery" : "pickup",
+        deliveryOption,
+        deliveryAddress: isDelivery ? deliveryAddress : null,
         paymentMethod,
         items: items.map(item => ({
           partId: item.part.id,
@@ -81,18 +100,18 @@ export default function Checkout() {
           total: Number(item.part.price) * item.quantity,
         })),
         subtotal: subtotal.toString(),
-        tax: tax.toString(),
+        taxAmount: tax.toString(),
         taxRate: "15",
         total: total.toString(),
       };
 
-      return await apiRequest("POST", "/api/orders", orderData);
+      return await apiRequest("/api/shop/mock-checkout", "POST", orderData);
     },
     onSuccess: () => {
       toast({ title: labels_text.orderSuccess });
       clearCart();
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      setLocation("/");
+      queryClient.invalidateQueries({ queryKey: ["/api/shop/orders"] });
+      setLocation("/orders");
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -127,8 +146,8 @@ export default function Checkout() {
                   type="radio"
                   name="delivery"
                   value="pickup"
-                  checked={deliveryType === "pickup"}
-                  onChange={(e) => setDeliveryType(e.target.value as "pickup")}
+                  checked={deliveryOption === "pickup"}
+                  onChange={(e) => setDeliveryOption(e.target.value as "pickup")}
                   data-testid="radio-pickup"
                 />
                 <span>{labels_text.pickup}</span>
@@ -137,15 +156,15 @@ export default function Checkout() {
                 <input
                   type="radio"
                   name="delivery"
-                  value="delivery"
-                  checked={deliveryType === "delivery"}
-                  onChange={(e) => setDeliveryType(e.target.value as "delivery")}
+                  value="delivery_installation"
+                  checked={deliveryOption === "delivery_installation"}
+                  onChange={(e) => setDeliveryOption(e.target.value as "delivery_installation")}
                   data-testid="radio-delivery"
                 />
                 <span>{labels_text.delivery}</span>
               </Label>
 
-              {deliveryType === "delivery" && (
+              {deliveryOption === "delivery_installation" && (
                 <Input
                   placeholder={labels_text.address}
                   value={deliveryAddress}

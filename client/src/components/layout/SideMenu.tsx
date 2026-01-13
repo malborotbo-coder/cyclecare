@@ -20,6 +20,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLocation } from "wouter";
 import { useState } from "react";
 import Logo from "@/components/Logo";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 interface SideMenuProps {
   onLogout?: () => void;
@@ -27,7 +28,7 @@ interface SideMenuProps {
 
 export default function SideMenu({ onLogout }: SideMenuProps) {
   const { lang } = useLanguage();
-  const { user } = useFirebaseAuth();
+  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
   const [, setLocation] = useLocation();
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
@@ -42,6 +43,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       admin: "المسؤول",
       profile: "دراجتي",
       logout: "تسجيل الخروج",
+      login: "تسجيل الدخول",
       orders: "طلباتي",
       support: "الدعم الفني",
     },
@@ -54,6 +56,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       admin: "Admin",
       profile: "My Bike",
       logout: "Logout",
+      login: "Sign In",
       orders: "My Orders",
       support: "Support",
     },
@@ -63,9 +66,13 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     { id: "home", path: "/", icon: Home, label: t[lang].home },
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
-    { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
-    { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
-    { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
+    ...(isGuest
+      ? []
+      : [
+          { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
+          { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
+          { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
+        ]),
   ];
 
   const handleNavigate = (path: string) => {
@@ -78,6 +85,12 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     if (onLogout) {
       onLogout();
     }
+  };
+
+  const handleLogin = () => {
+    setOpen(false);
+    setPostLoginRedirect(location || "/");
+    exitGuestMode();
   };
 
   const isActive = (path: string) => {
@@ -151,15 +164,27 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
         <Separator className="my-4" />
 
         <div className="flex flex-col gap-1">
-          <Button
-            variant="ghost"
-            className="justify-start gap-3 min-h-[52px] py-3 text-lg text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={handleLogout}
-            data-testid="menu-logout"
-          >
-            <LogOut className="h-5 w-5" />
-            {t[lang].logout}
-          </Button>
+          {user ? (
+            <Button
+              variant="ghost"
+              className="justify-start gap-3 min-h-[52px] py-3 text-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={handleLogout}
+              data-testid="menu-logout"
+            >
+              <LogOut className="h-5 w-5" />
+              {t[lang].logout}
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              className="justify-start gap-3 min-h-[52px] py-3 text-lg"
+              onClick={handleLogin}
+              data-testid="menu-login"
+            >
+              <User className="h-5 w-5" />
+              {t[lang].login}
+            </Button>
+          )}
         </div>
 
         {user && (

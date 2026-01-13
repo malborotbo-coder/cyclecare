@@ -457,6 +457,7 @@ export const orders = pgTable("orders", {
   // Delivery
   deliveryType: deliveryTypeEnum("delivery_type").notNull().default("pickup"),
   deliveryAddress: text("delivery_address"),
+  deliveryOption: varchar("delivery_option"),
   
   // Payment
   paymentMethod: varchar("payment_method"), // apple_pay, mada, credit_card, etc.
@@ -464,6 +465,7 @@ export const orders = pgTable("orders", {
   
   // Items stored as JSONB
   items: jsonb("items").notNull().default('[]'),
+  trackingSteps: jsonb("tracking_steps").default('[]'),
   
   // Status
   status: varchar("status").notNull().default("pending"), // pending, confirmed, processing, completed, cancelled

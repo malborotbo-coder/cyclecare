@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,12 +12,14 @@ import {
   User,
   CreditCard,
   FileText,
+  Package,
 } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { loadMockOrders, type StoredOrder } from "@/lib/mockOrders";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
+import type { Order } from "@shared/schema";
 
 const statusConfig: Record<
   StoredOrder["status"],
@@ -40,15 +43,22 @@ const paymentMethodLabels: Record<string, string> = {
 const formatCurrency = (value: number) => `${Number(value).toFixed(2)} ر.س`;
 
 export default function OrdersPage() {
-  const orders = useMemo(() => loadMockOrders(), []);
+  const serviceOrders = useMemo(() => loadMockOrders(), []);
   const { user } = useFirebaseAuth();
   const { lang } = useLanguage();
+  const { data: shopOrdersData, isLoading: shopOrdersLoading } = useQuery<Order[]>({
+    queryKey: ["/api/shop/orders"],
+  });
+  const shopOrders = Array.isArray(shopOrdersData) ? shopOrdersData : [];
 
   const totals = useMemo(() => {
-    const totalSpent = orders.reduce((sum, order) => sum + order.total, 0);
-    const activeCount = orders.filter((order) => order.status !== "completed").length;
-    return { totalSpent, activeCount };
-  }, [orders]);
+    const serviceTotal = serviceOrders.reduce((sum, order) => sum + order.total, 0);
+    const shopTotal = shopOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const activeCount =
+      serviceOrders.filter((order) => order.status !== "completed").length +
+      shopOrders.filter((order) => order.status !== "completed").length;
+    return { totalSpent: serviceTotal + shopTotal, activeCount };
+  }, [serviceOrders, shopOrders]);
 
   const downloadInvoice = (order: StoredOrder) => {
     const invoice = {
@@ -91,6 +101,50 @@ export default function OrdersPage() {
   const formatDate = (value: string) =>
     new Date(value).toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
 
+  const parseJsonArray = (raw: any) => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const normalizeTrackingSteps = (raw: any) => {
+    if (Array.isArray(raw)) return raw as any[];
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const shopStatusLabel = (status: string) => {
+    const labels = {
+      pending: lang === "ar" ? "قيد الانتظار" : "Pending",
+      confirmed: lang === "ar" ? "مؤكد" : "Confirmed",
+      processing: lang === "ar" ? "قيد التجهيز" : "Processing",
+      completed: lang === "ar" ? "مكتمل" : "Completed",
+      cancelled: lang === "ar" ? "ملغي" : "Cancelled",
+    };
+    return labels[status as keyof typeof labels] || status;
+  };
+
+  const shopDeliveryLabel = (option?: string | null) => {
+    if (option === "delivery_installation") {
+      return lang === "ar" ? "توصيل + تركيب" : "Delivery + Installation";
+    }
+    return lang === "ar" ? "استلام من المتجر" : "Store pickup";
+  };
+
   return (
     <div className="container max-w-6xl mx-auto p-4 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -109,7 +163,7 @@ export default function OrdersPage() {
         <Card className="bg-white/80 dark:bg-slate-900/70 border border-white/30">
           <CardContent className="p-4 space-y-1">
             <p className="text-sm text-muted-foreground">إجمالي الطلبات</p>
-            <p className="text-2xl font-bold">{orders.length}</p>
+            <p className="text-2xl font-bold">{serviceOrders.length + shopOrders.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-white/80 dark:bg-slate-900/70 border border-white/30">
@@ -126,7 +180,7 @@ export default function OrdersPage() {
         </Card>
       </div>
 
-      {orders.length === 0 ? (
+      {serviceOrders.length === 0 && shopOrders.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
             لا توجد طلبات حتى الآن
@@ -134,7 +188,7 @@ export default function OrdersPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {orders.map((order) => {
+          {serviceOrders.map((order) => {
             const statusStyle = statusConfig[order.status];
             return (
               <Card
@@ -317,6 +371,98 @@ export default function OrdersPage() {
           })}
         </div>
       )}
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 pt-4">
+          <ClipboardList className="w-6 h-6 text-primary" />
+          <h2 className="text-xl font-bold">
+            {lang === "ar" ? "طلبات المتجر" : "Shop Orders"}
+          </h2>
+        </div>
+
+        {shopOrdersLoading ? (
+          <Card>
+            <CardContent className="p-6 text-center text-muted-foreground">
+              {lang === "ar" ? "جارٍ التحميل..." : "Loading..."}
+            </CardContent>
+          </Card>
+        ) : shopOrders.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-center text-muted-foreground">
+              {lang === "ar" ? "لا توجد طلبات متجر بعد" : "No shop orders yet"}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {shopOrders.map((order) => {
+              const tracking = normalizeTrackingSteps((order as any).trackingSteps ?? (order as any).tracking_steps);
+              const items = parseJsonArray((order as any).items ?? []);
+              return (
+                <Card key={order.id} className="bg-white/85 dark:bg-slate-950/70 backdrop-blur border border-white/20">
+                  <CardHeader className="space-y-2">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="space-y-1">
+                        <CardTitle className="text-lg font-semibold">
+                          {lang === "ar" ? "طلب متجر" : "Shop Order"} {order.orderNumber}
+                        </CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          {shopDeliveryLabel((order as any).deliveryOption ?? (order as any).delivery_option)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline">
+                          {shopStatusLabel(order.status)}
+                        </Badge>
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">
+                            {lang === "ar" ? "الإجمالي" : "Total"}
+                          </p>
+                          <p className="text-xl font-bold text-primary">{formatCurrency(Number(order.total || 0))}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {order.createdAt ? formatDate(String(order.createdAt)) : ""}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-4 h-4 text-primary" />
+                        <h3 className="font-semibold">{lang === "ar" ? "تفاصيل الطلب" : "Order Details"}</h3>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        {Array.isArray(items) && items.length > 0 ? (
+                          items.map((item: any, index: number) => (
+                            <div key={`${order.id}-shop-item-${index}`} className="flex items-center justify-between">
+                              <span className="text-muted-foreground">{item.name}</span>
+                              <span>{formatCurrency(Number(item.total || 0))}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-muted-foreground">
+                            {lang === "ar" ? "لا توجد عناصر" : "No items"}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {tracking.length > 0 && (
+                      <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-3">
+                        <h3 className="font-semibold">
+                          {lang === "ar" ? "تتبع الطلب" : "Order Tracking"}
+                        </h3>
+                        <OrderTrackingTimeline steps={tracking as any} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

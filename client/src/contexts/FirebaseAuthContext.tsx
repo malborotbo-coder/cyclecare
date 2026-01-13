@@ -23,8 +23,11 @@ interface FirebaseAuthContextType {
   user: AuthUser;
   isLoading: boolean;
   authReady: boolean;
+  isGuest: boolean;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
+  enterGuestMode: () => void;
+  exitGuestMode: () => void;
 }
 
 const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(undefined);
@@ -48,6 +51,26 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<AuthUser>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
+  const GUEST_MODE_KEY = "guest_mode";
+
+  const readGuestFlag = () =>
+    typeof localStorage !== "undefined" && localStorage.getItem(GUEST_MODE_KEY) === "true";
+
+  const enterGuestMode = useCallback(() => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(GUEST_MODE_KEY, "true");
+    }
+    setUser(null);
+    setIsGuest(true);
+  }, []);
+
+  const exitGuestMode = useCallback(() => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(GUEST_MODE_KEY);
+    }
+    setIsGuest(false);
+  }, []);
 
   const checkSession = useCallback(async () => {
     setAuthReady(false);
@@ -108,6 +131,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           if (userData && userData.id) {
             console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
             setUser(userData);
+            exitGuestMode();
             sessionResolved = true;
           }
         } else {
@@ -132,6 +156,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           isAdmin: false,
           source: "firebase_auth",
         });
+        exitGuestMode();
         return;
       }
 
@@ -147,11 +172,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           isAdmin: false,
           source: "firebase_auth"
         });
+        exitGuestMode();
         return;
       }
       
       console.log("[Auth] No active session (method:", authMethod, ")");
       setUser(null);
+      setIsGuest(readGuestFlag());
     } catch (error) {
       console.error("[Auth] Error checking session:", error);
       
@@ -171,8 +198,10 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           isAdmin: false,
           source: "firebase_auth"
         });
+        exitGuestMode();
       } else {
         setUser(null);
+        setIsGuest(readGuestFlag());
       }
     } finally {
       setIsLoading(false);
@@ -201,12 +230,14 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       // Clear tokens (native + web) and local state
       await clearAuthTokens();
       localStorage.removeItem("onboarding_completed");
+      exitGuestMode();
       setUser(null);
       window.location.href = "/";
     } catch (error) {
       console.error("[Auth] Logout error:", error);
       // Still redirect on error
       await clearAuthTokens();
+      exitGuestMode();
       window.location.href = "/";
     }
   };
@@ -230,7 +261,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   };
 
   return (
-    <FirebaseAuthContext.Provider value={{ user, isLoading, authReady, logout, getIdToken }}>
+    <FirebaseAuthContext.Provider value={{ user, isLoading, authReady, isGuest, logout, getIdToken, enterGuestMode, exitGuestMode }}>
       {children}
     </FirebaseAuthContext.Provider>
   );

@@ -31,9 +31,12 @@ import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 import { persistAuthTokens } from "@/lib/authStorage";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
+import { consumePostLoginRedirect } from "@/lib/authRedirect";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 export default function FirebaseAuthPage() {
   const [, setLocation] = useLocation();
+  const { enterGuestMode } = useFirebaseAuth();
   const { lang, toggleLanguage } = useLanguage();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -96,7 +99,7 @@ export default function FirebaseAuthPage() {
       }
       await persistAuthTokens({ authToken: sessionToken, phoneSession: sessionToken });
       setIsLoading(false);
-      window.location.href = '/';
+      window.location.href = consumePostLoginRedirect('/');
     }
   }, [isNative]);
 
@@ -158,6 +161,7 @@ export default function FirebaseAuthPage() {
       haveAccount: "لديك حساب بالفعل؟",
       noAccount: "ليس لديك حساب؟",
       continueWith: "الدخول عبر",
+      guest: "المتابعة كزائر",
     },
     en: {
       title: "Cycle Care",
@@ -190,10 +194,16 @@ export default function FirebaseAuthPage() {
       haveAccount: "Already have an account?",
       noAccount: "Don't have an account?",
       continueWith: "Continue with",
+      guest: "Continue as Guest",
     },
   };
 
   const labels = t[isArabic ? "ar" : "en"];
+
+  const handleGuestContinue = () => {
+    enterGuestMode();
+    setLocation("/");
+  };
 
   const handleGoogleSignIn = async () => {
     try {
@@ -215,7 +225,7 @@ export default function FirebaseAuthPage() {
       const user = await signInWithGoogle();
       if (user) {
         console.log("[Auth] Google sign-in successful:", user.email);
-        setLocation("/");
+        setLocation(consumePostLoginRedirect("/"));
       } else {
         console.log("[Auth] Redirecting to OAuth flow...");
       }
@@ -239,7 +249,7 @@ export default function FirebaseAuthPage() {
       if (user) {
         console.log('[Auth] Apple sign-in successful:', user.email);
         setIsLoading(false);
-        window.location.href = "/";
+        window.location.href = consumePostLoginRedirect("/");
       } else {
         setIsLoading(false);
       }
@@ -329,7 +339,7 @@ export default function FirebaseAuthPage() {
       sessionStorage.clear();
 
       console.log('[EmailAuth] Auth tokens stored, redirecting...');
-      window.location.href = "/";
+      window.location.href = consumePostLoginRedirect("/");
     } catch (err: any) {
       console.error("Email auth error:", err);
       
@@ -420,7 +430,7 @@ export default function FirebaseAuthPage() {
           phoneNumber: credential.user.phoneNumber || "",
         });
         await promptBiometricEnrollment(idToken, isArabic);
-        window.location.href = "/";
+        window.location.href = consumePostLoginRedirect("/");
         return;
       }
 
@@ -453,7 +463,7 @@ export default function FirebaseAuthPage() {
         phoneNumber: data.user?.phone || data.phoneNumber || fullPhone,
       });
       await promptBiometricEnrollment(authToken, isArabic);
-      window.location.href = "/";
+      window.location.href = consumePostLoginRedirect("/");
     } catch (error: any) {
       console.error("OTP verification error:", error);
       setError(error.message || labels.error);
@@ -926,6 +936,16 @@ export default function FirebaseAuthPage() {
                     {labels.apple}
                   </>
                 )}
+              </Button>
+
+              <Button
+                onClick={handleGuestContinue}
+                variant="outline"
+                className="w-full h-12 text-base font-semibold rounded-xl border border-white/30 text-white hover:bg-white/10 transition"
+                disabled={isLoading}
+                data-testid="button-guest-mode"
+              >
+                {labels.guest}
               </Button>
             </>
           )}

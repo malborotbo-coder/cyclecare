@@ -35,11 +35,17 @@ import { createMockOrder, saveMockOrder, type StoredOrder } from "@/lib/mockOrde
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  setPostLoginRedirect,
+  saveBookingDraft,
+  loadBookingDraft,
+  clearBookingDraft,
+} from "@/lib/authRedirect";
 
 export default function ServiceBooking() {
   const { toast } = useToast();
   const [, setRouterLocation] = useRouterLocation();
-  const { user } = useFirebaseAuth();
+  const { user, exitGuestMode } = useFirebaseAuth();
   const { lang } = useLanguage();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -124,6 +130,23 @@ export default function ServiceBooking() {
   );
 
   useEffect(() => {
+    if (!user) return;
+    const draft = loadBookingDraft();
+    if (!draft) return;
+    if (draft.selectedService) setSelectedService(draft.selectedService);
+    if (draft.selectedTechnicianId) setSelectedTechnicianId(draft.selectedTechnicianId);
+    if (typeof draft.notes === "string") setNotes(draft.notes);
+    if (draft.location) setLocation(draft.location);
+    if (draft.locationText) setLocationText(draft.locationText);
+    if (typeof draft.step === "number") {
+      setCurrentStep(Math.min(Math.max(draft.step, 0), 3));
+    } else {
+      setCurrentStep(3);
+    }
+    clearBookingDraft();
+  }, [user]);
+
+  useEffect(() => {
     const fetchPricing = async () => {
       if (!selectedService || !selectedTechnicianId || !selectedTechnician) return;
 
@@ -171,7 +194,32 @@ export default function ServiceBooking() {
 
   /* ------------------ BOOKING ------------------ */
 
+  const requireAuthForBooking = () => {
+    saveBookingDraft({
+      step: currentStep,
+      selectedService,
+      selectedTechnicianId,
+      notes,
+      location,
+      locationText,
+    });
+    setPostLoginRedirect("/booking");
+    exitGuestMode();
+    toast({
+      title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Login required",
+      description:
+        lang === "ar"
+          ? "يرجى تسجيل الدخول لإكمال الحجز."
+          : "Please sign in to complete your booking.",
+      variant: "destructive",
+    });
+  };
+
   const submitBooking = async () => {
+    if (!user) {
+      requireAuthForBooking();
+      return;
+    }
     if (!selectedService || !selectedTechnicianId || !costBreakdown) {
       toast({
         title: "خطأ",
@@ -198,20 +246,15 @@ export default function ServiceBooking() {
       console.log("[BOOKING PAYLOAD]", payload);
 
       const res = await apiRequest("/api/service-requests", "POST", payload);
+      clearBookingDraft();
       setCreatedServiceRequestId(res.id);
       setCurrentStep(4);
     } catch (error) {
       console.error("Booking error", error);
 
       if (isUnauthorizedError(error)) {
-        console.warn("[Booking] Unauthorized. Falling back to demo flow.");
-        const mockRequestId = `mock-sr-${Date.now()}`;
-        setCreatedServiceRequestId(mockRequestId);
-        setCurrentStep(4);
-        toast({
-          title: "تم تفعيل الموكب التجريبي",
-          description: "تعذر التحقق من الدخول، سيتم المتابعة بموكب تجريبي مؤقت.",
-        });
+        console.warn("[Booking] Unauthorized. Redirecting to login.");
+        requireAuthForBooking();
         return;
       }
 
@@ -231,6 +274,7 @@ export default function ServiceBooking() {
   };
 
   const resetBooking = () => {
+    clearBookingDraft();
     setCurrentStep(0);
     setSelectedService("");
     setSelectedTechnicianId("");

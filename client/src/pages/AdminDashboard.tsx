@@ -20,7 +20,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { useToast } from "@/hooks/use-toast";
-import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole, Invoice } from "@shared/schema";
+import type { User, Bike as BikeType, Technician, ServiceRequest, Role, UserRole, Invoice, Order } from "@shared/schema";
 import type { Language } from "@/lib/i18n";
 
 interface TechnicianDocument {
@@ -93,6 +93,14 @@ export default function AdminDashboard() {
     documentUrl: doc.documentUrl ?? doc.file_url,
     fileName: doc.fileName ?? doc.file_name,
   });
+
+  const formatDeliveryOption = (order: any) => {
+    const option = order?.deliveryOption ?? order?.delivery_option;
+    if (option === "delivery_installation") {
+      return lang === "ar" ? "توصيل + تركيب" : "Delivery + Installation";
+    }
+    return lang === "ar" ? "استلام من المتجر" : "Store pickup";
+  };
 
   const fetchTechnicianDocuments = async (technicianId: string) => {
     setLoadingDocsMap(prev => ({ ...prev, [technicianId]: true }));
@@ -219,6 +227,8 @@ export default function AdminDashboard() {
       supportView: "عرض",
       supportNoData: "لا توجد طلبات دعم",
       supportScreenshot: "لقطة الشاشة",
+      shopOrders: "طلبات المتجر",
+      deliveryOption: "خيار التوصيل",
     },
     en: {
       title: "Owner Dashboard",
@@ -305,6 +315,8 @@ export default function AdminDashboard() {
       supportView: "View",
       supportNoData: "No support tickets yet",
       supportScreenshot: "Screenshot",
+      shopOrders: "Shop Orders",
+      deliveryOption: "Delivery Option",
     },
   };
   
@@ -393,6 +405,8 @@ export default function AdminDashboard() {
     supportView: "عرض",
     supportNoData: "لا توجد طلبات دعم",
     supportScreenshot: "لقطة الشاشة",
+    shopOrders: "طلبات المتجر",
+    deliveryOption: "خيار التوصيل",
   } : translations['en'];
 
   const convoys = [
@@ -419,6 +433,10 @@ export default function AdminDashboard() {
 
   const { data: technicians, isLoading: techniciansLoading } = useQuery<TechnicianWithUser[]>({
     queryKey: ["/api/admin/technicians"],
+  });
+
+  const { data: shopOrders, isLoading: shopOrdersLoading } = useQuery<Order[]>({
+    queryKey: ["/api/admin/orders"],
   });
 
   const { data: serviceRequests, isLoading: requestsLoading } = useQuery<ServiceRequest[]>({
@@ -459,6 +477,7 @@ export default function AdminDashboard() {
   const safeTechnicians = Array.isArray(technicians) ? technicians : [];
   const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
   const safeSupportTickets = Array.isArray(supportTickets) ? supportTickets : [];
+  const safeShopOrders = Array.isArray(shopOrders) ? shopOrders : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
@@ -1008,6 +1027,10 @@ export default function AdminDashboard() {
                 <ClipboardList className="w-4 h-4 mr-2" />
                 {txt.serviceRequests}
               </TabsTrigger>
+              <TabsTrigger value="shop-orders" className="w-full justify-start" data-testid="tab-shop-orders">
+                <Package className="w-4 h-4 mr-2" />
+                {txt.shopOrders}
+              </TabsTrigger>
               <TabsTrigger value="support-tickets" className="w-full justify-start" data-testid="tab-support-tickets">
                 <Headset className="w-4 h-4 mr-2" />
                 {txt.supportTickets}
@@ -1311,6 +1334,48 @@ export default function AdminDashboard() {
                           >
                             {request.status}
                           </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="shop-orders" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>{txt.shopOrders}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[500px]">
+                  {shopOrdersLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
+                  ) : safeShopOrders.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {safeShopOrders.map((order) => (
+                        <div
+                          key={order.id}
+                          className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
+                          data-testid={`shop-order-${order.id}`}
+                        >
+                          <div className="space-y-1">
+                            <p className="font-medium text-foreground">
+                              {order.orderNumber}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {txt.deliveryOption}: {formatDeliveryOption(order)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge variant="outline">{order.status}</Badge>
+                            <span className="font-semibold text-primary">
+                              {Number(order.total || 0).toFixed(2)}
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>

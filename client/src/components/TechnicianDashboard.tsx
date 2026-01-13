@@ -173,7 +173,7 @@ export default function TechnicianDashboard() {
   const currentAvailability = (technician as any)?.is_available ?? (technician as any)?.isAvailable;
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<ServiceRequest[]>({
-    queryKey: ['/api/service-requests/technician'],
+    queryKey: ['/api/technician/orders'],
     enabled: status === 'approved' && isActive === true,
   });
   const safeRequests = Array.isArray(requests) ? requests : [];
@@ -206,7 +206,7 @@ export default function TechnicianDashboard() {
       return apiRequest(`/api/service-requests/${id}`, 'PATCH', { status });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/service-requests/technician'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/technician/orders'] });
       toast({
         title: lang === 'ar' ? 'تم التحديث' : 'Updated',
         description: lang === 'ar' ? 'تم تحديث حالة الطلب' : 'Request status updated',

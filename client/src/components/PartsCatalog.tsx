@@ -13,6 +13,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import Logo from "@/components/Logo";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { useLocation } from "wouter";
 
 interface PartCardProps {
@@ -84,6 +85,7 @@ export default function PartsCatalog() {
   const { lang: language, toggleLanguage } = useLanguage();
   const { addItem } = useCart();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const t = {
     ar: {
@@ -98,6 +100,8 @@ export default function PartsCatalog() {
       },
       addToCart: "أضف للسلة",
       addedToCart: "تمت إضافة المنتج للسلة",
+      goToCart: "اذهب للسلة",
+      continueShopping: "تابع التسوق",
       currency: "ر.س",
     },
     en: {
@@ -112,6 +116,8 @@ export default function PartsCatalog() {
       },
       addToCart: "Add to Cart",
       addedToCart: "Added to cart",
+      goToCart: "Go to cart",
+      continueShopping: "Continue shopping",
       currency: "SAR",
     },
   };
@@ -218,7 +224,15 @@ export default function PartsCatalog() {
                     part={part}
                     onAddToCart={(p) => {
                       addItem(p, 1);
-                      toast({ title: t[language].addedToCart });
+                      toast({
+                        title: t[language].addedToCart,
+                        description: t[language].continueShopping,
+                        action: (
+                          <ToastAction altText={t[language].goToCart} onClick={() => setLocation("/cart")}>
+                            {t[language].goToCart}
+                          </ToastAction>
+                        ),
+                      });
                     }}
                   />
                 ))}

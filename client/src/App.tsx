@@ -38,11 +38,12 @@ import { App as CapApp } from "@capacitor/app";
 import { CartProvider } from "@/contexts/CartContext";
 import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, authReady } = useFirebaseAuth();
+  const { user, isLoading, authReady, isGuest } = useFirebaseAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -136,10 +137,50 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     return <FullScreenLoader />;
   }
 
-  if (!user) {
+  if (!user && !isGuest) {
     return <FirebaseAuthPage />;
   }
 
+  return <>{children}</>;
+}
+
+function RequireAuth({
+  children,
+  redirectTo,
+}: {
+  children: React.ReactNode;
+  redirectTo?: string;
+}) {
+  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
+  const [location] = useLocation();
+
+  useEffect(() => {
+    if (user || !isGuest) return;
+    setPostLoginRedirect(redirectTo || location || "/");
+    exitGuestMode();
+  }, [user, isGuest, exitGuestMode, redirectTo, location]);
+
+  if (!user) return null;
+  return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { user, isGuest, exitGuestMode } = useFirebaseAuth();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (user && user.isAdmin) return;
+    if (isGuest) {
+      setPostLoginRedirect(location || "/admin");
+      exitGuestMode();
+      return;
+    }
+    if (user && !user.isAdmin) {
+      setLocation("/");
+    }
+  }, [user, isGuest, exitGuestMode, location, setLocation]);
+
+  if (!user || !user.isAdmin) return null;
   return <>{children}</>;
 }
 
@@ -237,23 +278,29 @@ function Router() {
 
               {/* Technician routes - both paths work */}
               <Route path="/technician">
-                <AppLayout>
-                  <TechnicianDashboard />
-                </AppLayout>
+                <RequireAuth redirectTo="/technician">
+                  <AppLayout>
+                    <TechnicianDashboard />
+                  </AppLayout>
+                </RequireAuth>
               </Route>
 
               <Route path="/technician/dashboard">
-                <AppLayout>
-                  <TechnicianDashboard />
-                </AppLayout>
+                <RequireAuth redirectTo="/technician/dashboard">
+                  <AppLayout>
+                    <TechnicianDashboard />
+                  </AppLayout>
+                </RequireAuth>
               </Route>
 
               <Route path="/admin">
-                <AppLayout>
-                  <Suspense fallback={<FullScreenLoader />}>
-                    <AdminDashboard />
-                  </Suspense>
-                </AppLayout>
+                <RequireAdmin>
+                  <AppLayout>
+                    <Suspense fallback={<FullScreenLoader />}>
+                      <AdminDashboard />
+                    </Suspense>
+                  </AppLayout>
+                </RequireAdmin>
               </Route>
 
               {/* 404 Page */}

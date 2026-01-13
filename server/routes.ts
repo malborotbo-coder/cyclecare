@@ -227,6 +227,63 @@ const normalizeTrackingSteps = (input: any, status?: string, createdAt?: string)
   return buildDefaultTrackingSteps(status, createdAt);
 };
 
+const buildShopTrackingSteps = (deliveryOption?: string, createdAt?: string): TrackingStep[] => {
+  const baseTime = createdAt ? new Date(createdAt) : new Date();
+  const isDelivery = deliveryOption === "delivery_installation";
+  const templates = isDelivery
+    ? [
+        {
+          id: "received",
+          title: "تم استلام الطلب",
+          description: "طلبك قيد التحضير حالياً.",
+        },
+        {
+          id: "preparing",
+          title: "جاري التحضير",
+          description: "نقوم بتجهيز الطلب للشحن.",
+        },
+        {
+          id: "out_for_delivery",
+          title: "خارج للتوصيل",
+          description: "طلبك في الطريق إليك.",
+        },
+        {
+          id: "delivered",
+          title: "تم التسليم",
+          description: "تم تسليم الطلب بنجاح.",
+        },
+      ]
+    : [
+        {
+          id: "received",
+          title: "تم استلام الطلب",
+          description: "طلبك قيد التحضير حالياً.",
+        },
+        {
+          id: "preparing",
+          title: "جاري التحضير",
+          description: "نقوم بتجهيز الطلب للاستلام.",
+        },
+        {
+          id: "ready_pickup",
+          title: "جاهز للاستلام",
+          description: "يمكنك استلام طلبك من المتجر.",
+        },
+        {
+          id: "picked_up",
+          title: "تم الاستلام",
+          description: "تم استلام الطلب بنجاح.",
+        },
+      ];
+
+  const currentIndex = 1;
+  return templates.map((step, index) => ({
+    ...step,
+    status: index < currentIndex ? "done" : index === currentIndex ? "current" : "pending",
+    timestamp: addMinutes(baseTime, index * 8).toISOString(),
+  }));
+};
+
 const normalizeRoute = (input: any, location?: string): RouteSummary => {
   const parsed = parseJsonValue(input);
   if (parsed && typeof parsed === "object") {
@@ -421,49 +478,71 @@ function getAuthContext(req: any): AuthContext | null {
 
 async function ensureUserUuid(auth: AuthContext): Promise<string> {
   const uuidRegex = /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{12}$/;
-  if (uuidRegex.test(auth.userId)) {
-    return auth.userId;
-  }
-
-  try {
-    const existingById = await storage.getUser(auth.userId);
-    if (existingById?.id) {
-      return existingById.id;
-    }
-  } catch (error) {
-    console.warn("[USER][LOOKUP] Local DB lookup failed; continuing with Supabase", error);
-  }
-
   const providerId = auth.userId;
+  const providerHint = auth.phoneNumber
+    ? "phone"
+    : auth.email
+    ? "firebase"
+    : "app";
 
-  // Lookup existing user by auth_provider_id
-  const { resp: lookupResp, data: lookupData } = await pgFetch(
-    `/users?auth_provider_id=eq.${encodeURIComponent(providerId)}&select=id&limit=1`,
+  const lookupByProvider = await pgFetch(
+    `/users?auth_provider_id=eq.${encodeURIComponent(providerId)}&select=id,auth_provider_id&limit=1`,
   );
-  if (lookupResp.ok) {
-    const existing = Array.isArray(lookupData) ? lookupData[0] : lookupData?.[0];
+  if (lookupByProvider.resp.ok) {
+    const existing = Array.isArray(lookupByProvider.data)
+      ? lookupByProvider.data[0]
+      : lookupByProvider.data?.[0];
     if (existing?.id) {
       return existing.id;
     }
-  } else {
-    console.log("[USER][LOOKUP] Failed", { status: lookupResp.status, body: lookupData });
   }
 
-  // Create new user record
+  const lookupById = await pgFetch(
+    `/users?id=eq.${encodeURIComponent(providerId)}&select=id,auth_provider_id&limit=1`,
+  );
+  if (lookupById.resp.ok) {
+    const existing = Array.isArray(lookupById.data)
+      ? lookupById.data[0]
+      : lookupById.data?.[0];
+    if (existing?.id) {
+      if (!existing.auth_provider_id) {
+        const patch: Record<string, any> = {
+          auth_provider_id: providerId,
+          auth_provider: providerHint,
+        };
+        if (auth.email) patch.email = auth.email;
+        if (auth.phoneNumber) patch.phone = auth.phoneNumber;
+        if (auth.isAdmin) patch.is_admin = true;
+
+        await pgFetch(`/users?id=eq.${encodeURIComponent(existing.id)}`, {
+          method: "PATCH",
+          body: patch,
+          headers: { Prefer: "return=representation" },
+        }).catch(() => {});
+      }
+      return existing.id;
+    }
+  }
+
+  const createPayload: Record<string, any> = {
+    auth_provider: providerHint,
+    auth_provider_id: providerId,
+    email: auth.email || null,
+    phone: auth.phoneNumber || null,
+    first_name: null,
+    last_name: null,
+    profile_image_url: null,
+    is_admin: auth.isAdmin === true,
+    is_technician: false,
+  };
+  if (uuidRegex.test(providerId)) {
+    createPayload.id = providerId;
+  }
+
   const { resp: createResp, data: createData } = await pgFetch("/users", {
     method: "POST",
-    body: [
-      {
-        auth_provider: "google",
-        auth_provider_id: providerId,
-        email: auth.email || null,
-        first_name: null,
-        last_name: null,
-        profile_image_url: null,
-        is_admin: auth.isAdmin === true,
-        is_technician: false,
-      },
-    ],
+    body: [createPayload],
+    headers: { Prefer: "return=representation" },
   });
 
   if (!createResp.ok) {
@@ -1389,7 +1468,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const timestamp = Date.now();
           const safeName = file.originalname.replace(/\s+/g, "_");
           const fileName = `technicians/${technician.id}/${timestamp}-${safeName}`;
-          const fileUrl = await uploadToStorageRest({ file, path: fileName });
+          let fileUrl: string;
+          try {
+            fileUrl = await uploadToStorageRest({ file, path: fileName });
+          } catch (uploadError) {
+            await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
+              method: "DELETE",
+            }).catch(() => {});
+            throw new AppError({
+              code: "STORAGE_UPLOAD_FAILED",
+              status: 500,
+              message: "Failed to upload technician documents",
+            });
+          }
           console.log("[TECH][APPLY][UPLOAD]", { technicianId: technician.id, file: safeName });
           docInserts.push({
             technician_id: technician.id,
@@ -1849,6 +1940,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Shop mock checkout (products)
+  app.post("/api/shop/mock-checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const {
+        items,
+        deliveryOption,
+        deliveryAddress,
+        paymentMethod,
+        subtotal,
+        taxRate,
+        taxAmount,
+        tax,
+        total,
+      } = req.body || {};
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "items are required" });
+      }
+
+      const normalizedItems = items.map((item: any) => ({
+        partId: item.partId || item.part_id || null,
+        name: item.name,
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice ?? item.unit_price ?? 0),
+        total: Number(item.total ?? 0),
+      }));
+
+      const safeSubtotal = Number(subtotal ?? 0);
+      const safeTaxRate = Number(taxRate ?? 15);
+      const safeTaxAmount = Number(
+        taxAmount ?? tax ?? Number((safeSubtotal * (safeTaxRate / 100)).toFixed(2)),
+      );
+      const safeTotal = Number(total ?? safeSubtotal + safeTaxAmount);
+
+      const option = deliveryOption === "delivery_installation" ? "delivery_installation" : "pickup";
+      const isDelivery = option === "delivery_installation";
+      if (isDelivery && !deliveryAddress) {
+        return res.status(400).json({ message: "deliveryAddress is required" });
+      }
+
+      const trackingSteps = buildShopTrackingSteps(option);
+
+      const orderData = validateSchema(insertOrderSchema, {
+        userId: userUuid,
+        orderNumber: buildOrderNumber(),
+        subtotal: safeSubtotal.toString(),
+        taxRate: safeTaxRate.toString(),
+        taxAmount: safeTaxAmount.toString(),
+        total: safeTotal.toString(),
+        deliveryType: isDelivery ? "delivery" : "pickup",
+        deliveryAddress: isDelivery ? deliveryAddress : null,
+        deliveryOption: option,
+        paymentMethod: paymentMethod || "mock",
+        paymentStatus: "completed",
+        status: "confirmed",
+        items: normalizedItems,
+        trackingSteps,
+      }, req);
+
+      const order = await storage.createOrder(orderData);
+      res.status(201).json(order);
+    } catch (error) {
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
+      console.error("[SHOP][MOCK_CHECKOUT] Error:", error);
+      res.status(500).json({ message: "Failed to complete checkout" });
+    }
+  });
+
 
   // Transactional technician registration with documents
   app.post(
@@ -1858,7 +2021,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
+        const userId = await ensureUserUuid(auth);
         const { technicianData, documents } = req.body;
         const safeDocuments: any[] = Array.isArray(documents) ? documents : [];
 
@@ -2018,7 +2181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
+      const userId = await ensureUserUuid(auth);
       const technicianData = validateSchema(
         insertTechnicianSchema.omit({ userId: true }),
         req.body,
@@ -2050,14 +2213,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
+      const userUuid = await ensureUserUuid(auth);
       const existingTechnician = await storage.getTechnicianById(req.params.id);
       if (!existingTechnician) {
         return res.status(404).json({ message: "Technician not found" });
       }
 
       // Verify ownership - only the technician can update their own profile
-      if (existingTechnician.userId !== userId) {
+      if (existingTechnician.userId !== userUuid) {
         return res.status(403).json({ message: "Forbidden" });
       }
 
@@ -2088,7 +2251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
+        const userUuid = await ensureUserUuid(auth);
         const technicianId = req.params.id;
 
         const existingTechnician =
@@ -2098,7 +2261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Verify ownership - only the technician can upload their own documents
-        if (existingTechnician.userId !== userId) {
+        if (existingTechnician.userId !== userUuid) {
           return res.status(403).json({ message: "Forbidden" });
         }
 
@@ -2132,7 +2295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
+        const userUuid = await ensureUserUuid(auth);
         const technicianId = req.params.id;
 
         const existingTechnician =
@@ -2142,8 +2305,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Allow access for: 1) The technician themselves, 2) Admins
-        const isOwner = existingTechnician.userId === userId;
-        const user = await storage.getUser(userId);
+        const isOwner = existingTechnician.userId === userUuid;
+        const user = await storage.getUser(userUuid);
         const isAdmin = user?.isAdmin || false;
 
         if (!isOwner && !isAdmin) {
@@ -2164,8 +2327,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
-      const requests = await storage.getUserServiceRequests(userId);
+      const userUuid = await ensureUserUuid(auth);
+      const requests = await storage.getUserServiceRequests(userUuid);
       res.json(requests);
     } catch (error) {
       console.error("Error fetching service requests:", error);
@@ -2180,9 +2343,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
-        const technician = await storage.getTechnician(userId);
-        if (!technician) {
+        const userUuid = await ensureUserUuid(auth);
+        const { resp, data } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+        );
+        if (!resp.ok) {
+          console.log("[TECH][REQUESTS][TECH_FETCH][FAILED]", { status: resp.status, body: data });
+          return res.json([]);
+        }
+        const technician = Array.isArray(data) ? data[0] : data?.[0];
+        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
           return res.json([]);
         }
         const requests = await storage.getTechnicianServiceRequests(technician.id);
@@ -2194,10 +2364,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  app.post("/api/service-requests", async (req: any, res) => {
+  app.get("/api/technician/orders", isAuthenticated, async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
-      const userId = auth ? await ensureUserUuid(auth) : await ensureGuestUserId();
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const { resp, data } = await pgFetch(
+        `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+      );
+      if (!resp.ok) {
+        console.log("[TECH][ORDERS][TECH_FETCH][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      const technician = Array.isArray(data) ? data[0] : data?.[0];
+      if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+        return res.json([]);
+      }
+      const requests = await storage.getTechnicianServiceRequests(technician.id);
+      res.json(Array.isArray(requests) ? requests : []);
+    } catch (error) {
+      console.error("Error fetching technician orders:", error);
+      res.json([]);
+    }
+  });
+
+  app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userId = await ensureUserUuid(auth);
       const body = req.body || {};
       const technicianId = body.technicianId;
 
@@ -2351,15 +2546,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const { userId } = auth;
+        const userUuid = await ensureUserUuid(auth);
         const existingRequest = await storage.getServiceRequest(req.params.id);
         if (!existingRequest) {
           return res.status(404).json({ message: "Service request not found" });
         }
 
         // Check if user owns the request or is the assigned technician
-        const technician = await storage.getTechnician(userId);
-        const isOwner = existingRequest.userId === userId;
+        const technician = await storage.getTechnician(userUuid);
+        const isOwner = existingRequest.userId === userUuid;
         const isTechnician =
           technician && existingRequest.technicianId === technician.id;
 
@@ -3173,6 +3368,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Orders API routes
+  app.get("/api/shop/orders", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const orders = await storage.getUserOrders(userUuid);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching shop orders:", error);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+
   app.post("/api/orders", isAuthenticated, async (req: any, res) => {
     try {
       const auth = getAuthContext(req);

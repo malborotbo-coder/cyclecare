@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { persistAuthTokens } from "@/lib/authStorage";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
+import { consumePostLoginRedirect } from "@/lib/authRedirect";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -14,7 +15,8 @@ export default function AuthCallback() {
     const processAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
-      const redirectToRaw = params.get("redirectTo") || "/";
+      const storedRedirect = consumePostLoginRedirect("");
+      const redirectToRaw = storedRedirect || params.get("redirectTo") || "/";
       // Prevent redirect loops back to the callback page
       const redirectTo =
         redirectToRaw === "/auth/callback" || redirectToRaw === "auth/callback"
