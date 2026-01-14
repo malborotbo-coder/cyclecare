@@ -448,6 +448,104 @@ const normalizeDiscountCodeRow = (row: any) => ({
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
 
+const normalizeDiscountCodeInput = (value?: string | null) =>
+  (value || "").trim().toUpperCase();
+
+const parseDiscountNumber = (value: any) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const validateDiscountCode = (discount: any) => {
+  if (!discount) return { ok: false, message: "Discount code not found" };
+  if (discount.isActive === false || discount.is_active === false) {
+    return { ok: false, message: "Discount code is inactive" };
+  }
+  const expiresAt = discount.expiresAt ?? discount.expires_at;
+  if (expiresAt) {
+    const expiry = new Date(expiresAt);
+    if (Number.isFinite(expiry.getTime()) && expiry.getTime() < Date.now()) {
+      return { ok: false, message: "Discount code has expired" };
+    }
+  }
+  const maxUses = discount.maxUses ?? discount.max_uses;
+  const currentUses = discount.currentUses ?? discount.current_uses ?? 0;
+  if (Number.isFinite(maxUses) && Number(maxUses) > 0 && Number(currentUses) >= Number(maxUses)) {
+    return { ok: false, message: "Discount code usage limit reached" };
+  }
+  return { ok: true };
+};
+
+const computeDiscountAmount = (subtotal: number, discount: any) => {
+  const safeSubtotal = Number.isFinite(subtotal) ? subtotal : 0;
+  if (safeSubtotal <= 0) return 0;
+  const discountType = (discount.discountType ?? discount.discount_type ?? "").toString();
+  const discountValue = parseDiscountNumber(discount.discountValue ?? discount.discount_value);
+  if (discountValue <= 0) return 0;
+  const rawAmount =
+    discountType === "percentage"
+      ? (safeSubtotal * discountValue) / 100
+      : discountType === "fixed"
+      ? discountValue
+      : 0;
+  const bounded = Math.min(Math.max(rawAmount, 0), safeSubtotal);
+  return Number(bounded.toFixed(2));
+};
+
+const applyDiscountToTotals = ({
+  subtotal,
+  taxRate,
+  discountAmount,
+}: {
+  subtotal: number;
+  taxRate: number;
+  discountAmount: number;
+}) => {
+  const safeSubtotal = Number.isFinite(subtotal) ? subtotal : 0;
+  const safeDiscount = Number.isFinite(discountAmount) ? discountAmount : 0;
+  const discountedSubtotal = Math.max(safeSubtotal - safeDiscount, 0);
+  const rate = Number.isFinite(taxRate) ? taxRate : 15;
+  const taxAmount = Number(((discountedSubtotal * rate) / 100).toFixed(2));
+  const total = Number((discountedSubtotal + taxAmount).toFixed(2));
+  return { discountedSubtotal, taxAmount, total, taxRate: rate };
+};
+
+const fetchDiscountCodeByValue = async (code: string) => {
+  const normalized = normalizeDiscountCodeInput(code);
+  if (!normalized) return null;
+  try {
+    const discount = await storage.getDiscountCode(normalized);
+    return discount ? normalizeDiscountCodeRow(discount) : null;
+  } catch (error) {
+    console.warn("[DISCOUNT][FETCH] storage fallback", error);
+    try {
+      const { resp, data } = await pgFetch(
+        `/discount_codes?code=eq.${encodeURIComponent(normalized)}&limit=1`,
+      );
+      if (!resp.ok) return null;
+      const row = Array.isArray(data) ? data[0] : data?.[0];
+      return row ? normalizeDiscountCodeRow(row) : null;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const incrementDiscountUsage = async (discount: any) => {
+  if (!discount?.id) return;
+  const currentUses = Number(discount.currentUses ?? discount.current_uses ?? 0);
+  const nextUses = Number.isFinite(currentUses) ? currentUses + 1 : 1;
+  try {
+    await pgFetch(`/discount_codes?id=eq.${encodeURIComponent(discount.id)}`, {
+      method: "PATCH",
+      body: { current_uses: nextUses },
+      headers: { Prefer: "return=representation" },
+    });
+  } catch (error) {
+    console.warn("[DISCOUNT][USAGE] Failed to increment usage", error);
+  }
+};
+
 const profilePhotoUpload = (req: any, res: any, next: any) => {
   upload.single("photo")(req, res, (err: any) => {
     if (err) {
@@ -2169,7 +2267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { resp: techResp, data: techData } = await pgFetch(
-        `/technicians?status=in.(online,approved)&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)`,
+        `/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)`,
       );
       if (!techResp.ok) {
         console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
@@ -2331,7 +2429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const auth = getAuthContext(req);
       const guestToken = getGuestToken(req);
       const userUuid = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
-      const { serviceRequestId, technicianId, breakdown, paymentMethod } = req.body || {};
+      const { serviceRequestId, technicianId, breakdown, paymentMethod, discountCode } = req.body || {};
       if (!serviceRequestId || !technicianId || !breakdown) {
         return res.status(400).json({ message: "serviceRequestId, technicianId, and breakdown are required" });
       }
@@ -2359,16 +2457,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const subtotal = Number(breakdown?.subtotal || 0);
+      const baseSubtotal = Number(breakdown?.subtotal || 0);
       const taxRate = Number(breakdown?.vatRate || 15);
-      const taxAmount = Number(breakdown?.vat || (subtotal * taxRate) / 100);
-      const total = Number(breakdown?.total || subtotal + taxAmount);
+      const baseTaxAmount = Number(breakdown?.vat || (baseSubtotal * taxRate) / 100);
+      const baseTotal = Number(breakdown?.total || baseSubtotal + baseTaxAmount);
+
+      let subtotal = baseSubtotal;
+      let taxAmount = baseTaxAmount;
+      let total = baseTotal;
+      let appliedDiscount: any = null;
+
+      const normalizedDiscountCode = normalizeDiscountCodeInput(discountCode);
+      if (normalizedDiscountCode) {
+        const discount = await fetchDiscountCodeByValue(normalizedDiscountCode);
+        const validation = validateDiscountCode(discount);
+        if (!validation.ok) {
+          return res.status(400).json({ message: validation.message });
+        }
+        const discountAmount = computeDiscountAmount(baseSubtotal, discount);
+        const applied = applyDiscountToTotals({
+          subtotal: baseSubtotal,
+          taxRate,
+          discountAmount,
+        });
+        subtotal = applied.discountedSubtotal;
+        taxAmount = applied.taxAmount;
+        total = applied.total;
+        appliedDiscount = {
+          code: normalizedDiscountCode,
+          discountType: discount?.discountType ?? discount?.discount_type ?? null,
+          discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+          discountAmount,
+          discountId: discount?.id ?? null,
+          raw: discount,
+        };
+      }
 
       const commissionRate = 25;
       const appCommissionAmount = Number((total * (commissionRate / 100)).toFixed(2));
       const technicianNetAmount = Number((total - appCommissionAmount).toFixed(2));
 
       const orderUserId = srUserId || userUuid;
+      const orderItems = Array.isArray(breakdown?.parts?.items)
+        ? breakdown.parts.items
+        : [];
+      const breakdownWithDiscount = appliedDiscount
+        ? {
+            ...breakdown,
+            discount: {
+              code: appliedDiscount.code,
+              discountType: appliedDiscount.discountType,
+              discountValue: appliedDiscount.discountValue,
+              discountAmount: appliedDiscount.discountAmount,
+            },
+            subtotal,
+            vat: taxAmount,
+            total,
+          }
+        : breakdown;
       const orderPayload = {
         userId: orderUserId,
         orderNumber: buildOrderNumber(),
@@ -2380,13 +2526,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentMethod: paymentMethod || "mock",
         paymentStatus: "completed",
         status: "confirmed",
-        items: breakdown?.parts?.items || [],
+        items: orderItems,
         serviceRequestId,
         technicianId,
         commissionRate: commissionRate.toString(),
         appCommissionAmount: appCommissionAmount.toString(),
         technicianNetAmount: technicianNetAmount.toString(),
-        breakdownJson: breakdown,
+        breakdownJson: breakdownWithDiscount,
       };
 
       // Validate and create
@@ -2468,7 +2614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "paid",
         issuedDate: new Date(),
         paidDate: new Date(),
-        items: breakdown?.parts?.items || [],
+        items: orderItems,
       }, req);
 
       let invoice;
@@ -2517,6 +2663,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (appliedDiscount?.raw) {
+        await incrementDiscountUsage(appliedDiscount.raw);
+      }
+
       res.status(201).json({ order, invoice, commissionRate, appCommissionAmount, technicianNetAmount });
     } catch (error) {
       const handled = handleRouteError(error, req, res);
@@ -2540,6 +2690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deliveryLat,
         deliveryLng,
         deliveryDistanceKm,
+        discountCode,
       } = req.body || {};
 
       if (!Array.isArray(items) || items.length === 0) {
@@ -2615,10 +2766,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const safeSubtotal = Number((itemsSubtotal + deliveryFee + installFee).toFixed(2));
+      const baseSubtotal = Number((itemsSubtotal + deliveryFee + installFee).toFixed(2));
       const safeTaxRate = 15;
-      const safeTaxAmount = Number(((safeSubtotal * safeTaxRate) / 100).toFixed(2));
-      const safeTotal = Number((safeSubtotal + safeTaxAmount).toFixed(2));
+      const baseTaxAmount = Number(((baseSubtotal * safeTaxRate) / 100).toFixed(2));
+      const baseTotal = Number((baseSubtotal + baseTaxAmount).toFixed(2));
+
+      let safeSubtotal = baseSubtotal;
+      let safeTaxAmount = baseTaxAmount;
+      let safeTotal = baseTotal;
+      let appliedDiscount: any = null;
+
+      const normalizedDiscountCode = normalizeDiscountCodeInput(discountCode);
+      if (normalizedDiscountCode) {
+        const discount = await fetchDiscountCodeByValue(normalizedDiscountCode);
+        const validation = validateDiscountCode(discount);
+        if (!validation.ok) {
+          return res.status(400).json({ message: validation.message });
+        }
+        const discountAmount = computeDiscountAmount(baseSubtotal, discount);
+        const applied = applyDiscountToTotals({
+          subtotal: baseSubtotal,
+          taxRate: safeTaxRate,
+          discountAmount,
+        });
+        safeSubtotal = applied.discountedSubtotal;
+        safeTaxAmount = applied.taxAmount;
+        safeTotal = applied.total;
+        appliedDiscount = {
+          code: normalizedDiscountCode,
+          discountType: discount?.discountType ?? discount?.discount_type ?? null,
+          discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+          discountAmount,
+          discountId: discount?.id ?? null,
+          raw: discount,
+        };
+      }
+
+      if (appliedDiscount?.discountAmount) {
+        orderItems.push({
+          partId: null,
+          name: `Discount (${appliedDiscount.code})`,
+          quantity: 1,
+          unitPrice: Number(-Math.abs(appliedDiscount.discountAmount)),
+          total: Number(-Math.abs(appliedDiscount.discountAmount)),
+          isDiscount: true,
+          feeType: "discount",
+        });
+      }
 
       const trackingSteps = buildShopTrackingSteps(option);
 
@@ -2805,6 +2999,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             invoiceStatus: invoice.status,
           }
         : order;
+
+      if (appliedDiscount?.raw) {
+        await incrementDiscountUsage(appliedDiscount.raw);
+      }
 
       res.status(201).json(enrichedOrder);
     } catch (error) {
@@ -3851,6 +4049,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
 );
 
   app.get(
+    "/api/admin/technicians/locations",
+    isAuthenticated,
+    async (req, res) => {
+      const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
+      if (!guard.ok) return;
+      try {
+        const { resp: techResp, data: techData } = await pgFetch(
+          "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=id,user_id,phone_number,location,latitude,longitude,rating,review_count,user:users(email,first_name,last_name)",
+        );
+        if (!techResp.ok) {
+          console.log("[ADMIN][TECH][LOC][FAILED]", { status: techResp.status, body: techData });
+          return res.json([]);
+        }
+        const technicians = Array.isArray(techData) ? techData : [];
+        const techIds = technicians.map((tech: any) => tech?.id).filter(Boolean);
+
+        let locations: any[] = [];
+        if (techIds.length > 0) {
+          const ids = techIds.map((id: string) => encodeURIComponent(id)).join(",");
+          const { resp: locResp, data: locData } = await pgFetch(
+            `/technician_locations?technician_id=in.(${ids})`,
+          );
+          if (locResp.ok && Array.isArray(locData)) {
+            locations = locData;
+          }
+        }
+
+        const locMap = new Map<string, any>();
+        locations.forEach((loc: any) => {
+          if (loc?.technician_id) locMap.set(loc.technician_id, loc);
+        });
+
+        const result = technicians
+          .map((tech: any) => {
+            const user = tech.user;
+            const nameFromUser = user
+              ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+              : "";
+            const resolvedName = tech.name || tech.full_name || nameFromUser || null;
+            const loc = locMap.get(tech.id);
+            const latitude = Number(loc?.latitude ?? tech.latitude);
+            const longitude = Number(loc?.longitude ?? tech.longitude);
+            if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+              return null;
+            }
+            return {
+              id: tech.id,
+              name: resolvedName,
+              email: user?.email ?? null,
+              phoneNumber: tech.phone_number ?? tech.phoneNumber ?? null,
+              rating: tech.rating ?? null,
+              reviewCount: tech.review_count ?? tech.reviewCount ?? null,
+              latitude,
+              longitude,
+              lastUpdated: loc?.last_updated ?? null,
+            };
+          })
+          .filter(Boolean);
+
+        res.json(result);
+      } catch (error) {
+        console.error("[ADMIN][TECH][LOC] Error:", error);
+        res.json([]);
+      }
+    },
+  );
+
+  app.get(
     "/api/admin/technicians/pending",
     isAuthenticated,
     async (_req, res) => {
@@ -4797,6 +5063,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/discount-codes/validate", async (req, res) => {
+    try {
+      const { code, subtotal, taxRate } = req.body || {};
+      const normalized = normalizeDiscountCodeInput(code);
+      if (!normalized) {
+        return res.status(400).json({ message: "Discount code is required" });
+      }
+      const discount = await fetchDiscountCodeByValue(normalized);
+      const validation = validateDiscountCode(discount);
+      if (!validation.ok) {
+        return res.status(400).json({ message: validation.message });
+      }
+      const baseSubtotal = Number(subtotal ?? 0);
+      const rate = Number(taxRate ?? 15);
+      const discountAmount = computeDiscountAmount(baseSubtotal, discount);
+      const applied = applyDiscountToTotals({
+        subtotal: baseSubtotal,
+        taxRate: rate,
+        discountAmount,
+      });
+      res.json({
+        valid: true,
+        code: normalized,
+        discountType: discount?.discountType ?? discount?.discount_type ?? null,
+        discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+        discountAmount,
+        originalSubtotal: baseSubtotal,
+        discountedSubtotal: applied.discountedSubtotal,
+        taxRate: applied.taxRate,
+        taxAmount: applied.taxAmount,
+        total: applied.total,
+      });
+    } catch (error) {
+      console.error("[DISCOUNT][VALIDATE] Error:", error);
+      res.status(500).json({ message: "Failed to validate discount code" });
+    }
+  });
+
   // Discount Code routes - Admin only
   app.get(
     "/api/admin/discount-codes",
@@ -4832,7 +5136,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
       if (!guard.ok) return;
       try {
-        const codeData = validateSchema(insertDiscountCodeSchema, req.body, req);
+        const payload = req.body || {};
+        const normalizedCode = normalizeDiscountCodeInput(payload.code);
+        const codeData = validateSchema(insertDiscountCodeSchema, { ...payload, code: normalizedCode }, req);
         const auth = getAuthContext(req);
         const createdBy = auth?.userId;
         const code = await storage.createDiscountCode({

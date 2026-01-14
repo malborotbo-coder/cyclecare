@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,19 @@ export default function Checkout() {
   const [geoLocation, setGeoLocation] = useState({ lat: 24.7136, lng: 46.6753 });
   const [locationText, setLocationText] = useState(lang === "ar" ? "الرياض" : "Riyadh");
   const [createdOrder, setCreatedOrder] = useState<any>(null);
+  const [discountCode, setDiscountCode] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState<{
+    code: string;
+    discountType?: string | null;
+    discountValue?: number | string | null;
+    discountAmount: number;
+    originalSubtotal: number;
+    discountedSubtotal: number;
+    taxAmount: number;
+    total: number;
+    taxRate: number;
+  } | null>(null);
+  const [discountApplying, setDiscountApplying] = useState(false);
 
   const labels = {
     ar: {
@@ -48,6 +61,11 @@ export default function Checkout() {
       subtotal: "المجموع الفرعي",
       tax: "الضريبة",
       total: "الإجمالي",
+      discountCode: "كود الخصم",
+      applyDiscount: "تطبيق",
+      removeDiscount: "إزالة",
+      discountApplied: "تم تطبيق الخصم",
+      discountAmount: "الخصم",
       itemsSubtotal: "إجمالي القطع",
       deliveryFee: "رسوم التوصيل",
       installFee: "رسوم التركيب",
@@ -74,6 +92,11 @@ export default function Checkout() {
       subtotal: "Subtotal",
       tax: "Tax",
       total: "Total",
+      discountCode: "Discount Code",
+      applyDiscount: "Apply",
+      removeDiscount: "Remove",
+      discountApplied: "Discount applied",
+      discountAmount: "Discount",
       itemsSubtotal: "Items subtotal",
       deliveryFee: "Delivery fee",
       installFee: "Installation fee",
@@ -133,6 +156,53 @@ export default function Checkout() {
     [computedSubtotal, computedTax],
   );
 
+  useEffect(() => {
+    if (!appliedDiscount) return;
+    if (Math.abs(computedSubtotal - appliedDiscount.originalSubtotal) > 0.01) {
+      setAppliedDiscount(null);
+    }
+  }, [appliedDiscount, computedSubtotal]);
+
+  const handleApplyDiscount = async () => {
+    const code = discountCode.trim();
+    if (!code) {
+      toast({
+        title: labelsText.discountCode,
+        description: lang === "ar" ? "أدخل كود الخصم" : "Enter a discount code",
+        variant: "destructive",
+      });
+      return;
+    }
+    setDiscountApplying(true);
+    try {
+      const response = await apiRequest("/api/discount-codes/validate", "POST", {
+        code,
+        subtotal: computedSubtotal,
+        taxRate: 15,
+      });
+      setAppliedDiscount(response);
+      toast({ title: labelsText.discountApplied });
+    } catch (error: any) {
+      setAppliedDiscount(null);
+      toast({
+        title: labelsText.discountCode,
+        description: error?.message || (lang === "ar" ? "الكود غير صالح" : "Invalid code"),
+        variant: "destructive",
+      });
+    } finally {
+      setDiscountApplying(false);
+    }
+  };
+
+  const handleClearDiscount = () => {
+    setAppliedDiscount(null);
+    setDiscountCode("");
+  };
+
+  const checkoutSubtotal = appliedDiscount ? appliedDiscount.discountedSubtotal : computedSubtotal;
+  const checkoutTax = appliedDiscount ? appliedDiscount.taxAmount : computedTax;
+  const checkoutTotal = appliedDiscount ? appliedDiscount.total : computedTotal;
+
   const mapQuery = useMemo(() => {
     if (deliveryAddress.trim()) {
       return encodeURIComponent(deliveryAddress.trim());
@@ -176,12 +246,14 @@ export default function Checkout() {
           acc.deliveryFee += value;
         } else if (item.feeType === "installation") {
           acc.installFee += value;
+        } else if (item.feeType === "discount") {
+          acc.discount += value;
         } else {
           acc.itemsSubtotal += value;
         }
         return acc;
       },
-      { itemsSubtotal: 0, deliveryFee: 0, installFee: 0 },
+      { itemsSubtotal: 0, deliveryFee: 0, installFee: 0, discount: 0 },
     );
   }, [successItems]);
 
@@ -200,7 +272,7 @@ export default function Checkout() {
   const itemsSubtotalValue =
     feeSummary.itemsSubtotal > 0
       ? feeSummary.itemsSubtotal
-      : Number((orderSubtotalValue - feeSummary.deliveryFee - feeSummary.installFee).toFixed(2));
+      : Number((orderSubtotalValue - feeSummary.deliveryFee - feeSummary.installFee - feeSummary.discount).toFixed(2));
 
   const createOrderMutation = useMutation({
     mutationFn: async (method: PaymentMethod | "mock") => {
@@ -224,10 +296,11 @@ export default function Checkout() {
           unitPrice: item.part.price,
           total: Number(item.part.price) * item.quantity,
         })),
-        subtotal: computedSubtotal.toString(),
-        taxAmount: computedTax.toString(),
+        subtotal: checkoutSubtotal.toString(),
+        taxAmount: checkoutTax.toString(),
         taxRate: "15",
-        total: computedTotal.toString(),
+        total: checkoutTotal.toString(),
+        discountCode: appliedDiscount?.code ?? null,
       };
 
       return await apiRequest("/api/shop/mock-checkout", "POST", orderData);
@@ -381,6 +454,32 @@ export default function Checkout() {
                       <span>{(Number(item.part.price) * item.quantity).toFixed(2)} {labelsText.currency}</span>
                     </div>
                   ))}
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <Label className="text-sm font-medium">{labelsText.discountCode}</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        value={discountCode}
+                        onChange={(e) => setDiscountCode(e.target.value)}
+                        placeholder="DISCOUNT2024"
+                        className="flex-1 min-w-[200px]"
+                        disabled={discountApplying || !!appliedDiscount}
+                      />
+                      {appliedDiscount ? (
+                        <Button variant="outline" onClick={handleClearDiscount}>
+                          {labelsText.removeDiscount}
+                        </Button>
+                      ) : (
+                        <Button onClick={handleApplyDiscount} disabled={discountApplying}>
+                          {discountApplying ? labelsText.loading : labelsText.applyDiscount}
+                        </Button>
+                      )}
+                    </div>
+                    {appliedDiscount && (
+                      <div className="text-xs text-emerald-600">
+                        {labelsText.discountApplied}: {appliedDiscount.code}
+                      </div>
+                    )}
+                  </div>
                   <div className="border-t pt-3 space-y-2">
                     <div className="flex justify-between">
                       <span>{labelsText.itemsSubtotal}</span>
@@ -400,13 +499,19 @@ export default function Checkout() {
                         </div>
                       </>
                     )}
+                    {appliedDiscount?.discountAmount ? (
+                      <div className="flex justify-between text-emerald-600">
+                        <span>{labelsText.discountAmount}</span>
+                        <span>-{appliedDiscount.discountAmount.toFixed(2)} {labelsText.currency}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between">
                       <span>{labelsText.tax}</span>
-                      <span>{computedTax.toFixed(2)} {labelsText.currency}</span>
+                      <span>{checkoutTax.toFixed(2)} {labelsText.currency}</span>
                     </div>
                     <div className="flex justify-between font-bold text-lg">
                       <span>{labelsText.total}</span>
-                      <span>{computedTotal.toFixed(2)} {labelsText.currency}</span>
+                      <span>{checkoutTotal.toFixed(2)} {labelsText.currency}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -443,7 +548,7 @@ export default function Checkout() {
           <Card className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
             <CardContent className="p-6">
               <PaymentOptions
-                amount={Number(computedTotal.toFixed(2))}
+                amount={Number(checkoutTotal.toFixed(2))}
                 serviceRequestId="shop"
                 onSelectMethod={(method) => createOrderMutation.mutate(method)}
                 onCancel={() => setStep("confirm")}
@@ -481,6 +586,8 @@ export default function Checkout() {
                         ? labelsText.deliveryFee
                         : item.feeType === "installation"
                         ? labelsText.installFee
+                        : item.feeType === "discount"
+                        ? labelsText.discountAmount
                         : item.name}
                     </span>
                     <span>{Number(item.total || 0).toFixed(2)} {labelsText.currency}</span>
@@ -506,6 +613,12 @@ export default function Checkout() {
                       <span>{feeSummary.installFee.toFixed(2)} {labelsText.currency}</span>
                     </div>
                   </>
+                )}
+                {feeSummary.discount !== 0 && (
+                  <div className="flex justify-between text-emerald-600">
+                    <span>{labelsText.discountAmount}</span>
+                    <span>{feeSummary.discount.toFixed(2)} {labelsText.currency}</span>
+                  </div>
                 )}
                 <div className="flex justify-between">
                   <span>{labelsText.tax}</span>

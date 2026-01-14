@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -12,6 +11,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { ServiceRequest, Technician } from "@shared/schema";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
+import { Capacitor } from "@capacitor/core";
+import { Geolocation } from "@capacitor/geolocation";
 
 type TechnicianOrder = ServiceRequest & {
   invoiceNumber?: string | null;
@@ -168,6 +169,8 @@ export default function TechnicianDashboard() {
   const { lang } = useLanguage();
   const { toast } = useToast();
   const [isOnline, setIsOnline] = useState(true);
+  const isNative = Capacitor.isNativePlatform();
+  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
     <div className="relative min-h-screen bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div
@@ -216,6 +219,13 @@ export default function TechnicianDashboard() {
 
   const t = labels[lang as keyof typeof labels] || labels.en;
 
+  const stopLocationTracking = () => {
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+      locationIntervalRef.current = null;
+    }
+  };
+
   const { data: technician, isLoading: techLoading } = useQuery<Technician>({
     queryKey: ['/api/technicians/me'],
     staleTime: 0,
@@ -229,7 +239,7 @@ export default function TechnicianDashboard() {
   });
   const status = (technician as any)?.status;
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
-  const currentAvailability = (technician as any)?.is_available ?? (technician as any)?.isAvailable;
+  const currentOnline = status === "online";
   const isApprovedStatus = ["approved", "online", "offline"].includes(status);
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<TechnicianOrder[]>({
@@ -246,7 +256,8 @@ export default function TechnicianDashboard() {
       return apiRequest('/api/technicians/me/availability', 'PATCH', { is_available: next });
     },
     onSuccess: (updated: any) => {
-      setIsOnline(!!updated?.is_available);
+      const online = String(updated?.status || "").toLowerCase() === "online";
+      setIsOnline(online);
       queryClient.invalidateQueries({ queryKey: ['/api/technicians/me'] });
     },
     onError: () => {
@@ -260,9 +271,80 @@ export default function TechnicianDashboard() {
 
   useEffect(() => {
     if (technician && !availabilityMutation.isPending) {
-      setIsOnline(!!currentAvailability);
+      setIsOnline(currentOnline);
     }
-  }, [technician, availabilityMutation.isPending, currentAvailability]);
+  }, [technician, availabilityMutation.isPending, currentOnline]);
+
+  const sendLocationUpdate = async (silent = false) => {
+    try {
+      let coords: { latitude: number; longitude: number } | null = null;
+      if (isNative) {
+        const position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+        coords = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+      } else if (navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          });
+        });
+        coords = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+      }
+
+      if (!coords) {
+        throw new Error("Location unavailable");
+      }
+
+      await apiRequest("/api/technicians/location", "POST", {
+        lat: coords.latitude,
+        lng: coords.longitude,
+      });
+    } catch (error: any) {
+      const message = error?.message || "";
+      const denied =
+        error?.code === 1 ||
+        message.toLowerCase().includes("permission") ||
+        message.toLowerCase().includes("denied");
+      if (!silent) {
+        toast({
+          title: lang === "ar" ? "تعذر تحديث الموقع" : "Location update failed",
+          description: lang === "ar"
+            ? "تأكد من تفعيل خدمات الموقع للسماح بظهورك للعميل."
+            : "Enable location services to appear for customers.",
+          variant: "destructive",
+        });
+      }
+      if (denied && !availabilityMutation.isPending) {
+        stopLocationTracking();
+        setIsOnline(false);
+        availabilityMutation.mutate(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isApprovedStatus || isActive !== true || !isOnline) {
+      stopLocationTracking();
+      return;
+    }
+
+    sendLocationUpdate(true);
+    locationIntervalRef.current = setInterval(() => {
+      sendLocationUpdate(true);
+    }, 15000);
+
+    return () => stopLocationTracking();
+  }, [isApprovedStatus, isActive, isOnline]);
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -373,25 +455,56 @@ export default function TechnicianDashboard() {
     <PageBackground>
       <main className="p-4">
         <div className="max-w-5xl mx-auto space-y-4">
-          <div className="flex items-center justify-between gap-3 bg-muted/60 border rounded-md px-4 py-3">
+          <div className="flex flex-col gap-3 bg-muted/60 border rounded-xl px-4 py-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2">
-              <Label htmlFor="online-switch" className="text-sm">
+              <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+              <Label className="text-sm font-medium">
                 {isOnline ? t.online : t.offline}
               </Label>
             </div>
-            <Switch 
-              id="online-switch"
-              checked={isOnline}
-              disabled={availabilityMutation.isPending}
-              onCheckedChange={(checked) => {
-                const previous = isOnline;
-                availabilityMutation.mutate(checked, {
-                  onSuccess: (data: any) => setIsOnline(!!data?.is_available),
-                  onError: () => setIsOnline(previous),
-                });
-              }}
-              data-testid="switch-online-status"
-            />
+            <div className="flex items-center gap-1 rounded-full border bg-background/80 p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={isOnline ? "default" : "ghost"}
+                disabled={availabilityMutation.isPending}
+                onClick={() => {
+                  if (isOnline) return;
+                  availabilityMutation.mutate(true, {
+                    onSuccess: (data: any) => {
+                      const online = String(data?.status || "").toLowerCase() === "online";
+                      setIsOnline(online);
+                      if (online) {
+                        sendLocationUpdate();
+                      }
+                    },
+                  });
+                }}
+                data-testid="button-online"
+                className="rounded-full px-4"
+              >
+                {t.online}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!isOnline ? "default" : "ghost"}
+                disabled={availabilityMutation.isPending}
+                onClick={() => {
+                  if (!isOnline) return;
+                  availabilityMutation.mutate(false, {
+                    onSuccess: (data: any) => {
+                      const online = String(data?.status || "").toLowerCase() === "online";
+                      setIsOnline(online);
+                    },
+                  });
+                }}
+                data-testid="button-offline"
+                className="rounded-full px-4"
+              >
+                {t.offline}
+              </Button>
+            </div>
           </div>
 
           <Tabs defaultValue="new" className="w-full">

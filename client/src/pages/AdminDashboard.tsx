@@ -70,6 +70,18 @@ type InvoiceWithConvoy = Invoice & {
   convoyName?: string;
 };
 
+type LiveTechnicianLocation = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  phoneNumber?: string | null;
+  rating?: number | string | null;
+  reviewCount?: number | string | null;
+  latitude: number;
+  longitude: number;
+  lastUpdated?: string | null;
+};
+
 export default function AdminDashboard() {
   const { lang, t } = useLanguage();
   const { toast } = useToast();
@@ -92,6 +104,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [selectedServiceRequest, setSelectedServiceRequest] = useState<ServiceRequest | null>(null);
   const [selectedShopOrder, setSelectedShopOrder] = useState<Order | null>(null);
+  const [selectedLiveTechnicianId, setSelectedLiveTechnicianId] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState<string>(() => {
     const start = new Date();
     start.setDate(start.getDate() - 30);
@@ -238,6 +251,9 @@ export default function AdminDashboard() {
       roleRemoved: "تم إزالة الصلاحية بنجاح",
       assignedRoles: "الصلاحيات المعينة",
       pendingTechnicians: "إدارة الفنيين",
+      liveTechnicians: "الفنيون المتصلون",
+      liveTechniciansMap: "خريطة الفنيين المتصلين",
+      lastUpdated: "آخر تحديث",
       approve: "موافقة",
       reject: "رفض",
       approveSuccess: "تم الموافقة على الفني بنجاح",
@@ -368,6 +384,9 @@ export default function AdminDashboard() {
       roleRemoved: "Role removed successfully",
       assignedRoles: "Assigned Roles",
       pendingTechnicians: "Technicians Management",
+      liveTechnicians: "Online Technicians",
+      liveTechniciansMap: "Live Technician Map",
+      lastUpdated: "Last Update",
       approve: "Approve",
       reject: "Reject",
       approveSuccess: "Technician approved successfully",
@@ -514,6 +533,9 @@ export default function AdminDashboard() {
     roleRemoved: "تم إزالة الصلاحية بنجاح",
     assignedRoles: "الصلاحيات المعينة",
     pendingTechnicians: "إدارة الفنيين",
+    liveTechnicians: "الفنيون المتصلون",
+    liveTechniciansMap: "خريطة الفنيين المتصلين",
+    lastUpdated: "آخر تحديث",
     approve: "موافقة",
     reject: "رفض",
     approveSuccess: "تم الموافقة على الفني بنجاح",
@@ -710,6 +732,20 @@ export default function AdminDashboard() {
     enabled: canViewSection("technicians"),
   });
 
+  const { data: liveTechnicians, isLoading: liveTechniciansLoading } = useQuery<LiveTechnicianLocation[]>({
+    queryKey: ["/api/admin/technicians/locations"],
+    enabled: canViewSection("technicians") && activeTab === "technicians",
+    refetchInterval: activeTab === "technicians" ? 15000 : false,
+    queryFn: async () => {
+      try {
+        return await apiRequest("/api/admin/technicians/locations", "GET");
+      } catch (error) {
+        console.error("[ADMIN][TECH][LOC] Failed to fetch", error);
+        return [];
+      }
+    },
+  });
+
   const { data: shopOrders, isLoading: shopOrdersLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin/orders"],
     enabled: shouldFetchShopOrders,
@@ -758,11 +794,31 @@ export default function AdminDashboard() {
   const safeUsers = Array.isArray(users) ? users : [];
   const safeBikes = Array.isArray(bikes) ? bikes : [];
   const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const safeLiveTechnicians = Array.isArray(liveTechnicians) ? liveTechnicians : [];
   const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
   const safeSupportTickets = Array.isArray(supportTickets) ? supportTickets : [];
   const safeShopOrders = Array.isArray(shopOrders) ? shopOrders : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
+
+  useEffect(() => {
+    if (activeTab !== "technicians") return;
+    if (safeLiveTechnicians.length === 0) {
+      if (selectedLiveTechnicianId) {
+        setSelectedLiveTechnicianId(null);
+      }
+      return;
+    }
+    const exists = safeLiveTechnicians.some((tech) => tech.id === selectedLiveTechnicianId);
+    if (!selectedLiveTechnicianId || !exists) {
+      setSelectedLiveTechnicianId(safeLiveTechnicians[0].id);
+    }
+  }, [activeTab, safeLiveTechnicians, selectedLiveTechnicianId]);
+
+  const selectedLiveTechnician = useMemo(() => {
+    if (safeLiveTechnicians.length === 0) return null;
+    return safeLiveTechnicians.find((tech) => tech.id === selectedLiveTechnicianId) ?? safeLiveTechnicians[0];
+  }, [safeLiveTechnicians, selectedLiveTechnicianId]);
 
   const normalizedInvoices = safeInvoices.map((invoice: any) => ({
     ...invoice,
@@ -2391,6 +2447,68 @@ export default function AdminDashboard() {
                         </div>
                       )}
                     </ScrollArea>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{txt.liveTechniciansMap}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-[280px,1fr]">
+                  <div className="space-y-2">
+                    {liveTechniciansLoading ? (
+                      <div className="text-sm text-muted-foreground">{txt.loading}</div>
+                    ) : safeLiveTechnicians.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">{txt.noData}</div>
+                    ) : (
+                      safeLiveTechnicians.map((tech) => {
+                        const isActive = selectedLiveTechnician?.id === tech.id;
+                        const rating = Number(tech.rating ?? 0);
+                        const reviews = Number(tech.reviewCount ?? 0);
+                        return (
+                          <button
+                            key={tech.id}
+                            type="button"
+                            onClick={() => setSelectedLiveTechnicianId(tech.id)}
+                            className={`w-full text-left rounded-lg border px-3 py-2 transition ${isActive ? "border-primary bg-primary/5" : "border-border/60 hover:border-primary/40"}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-semibold text-foreground">{tech.name || "-"}</p>
+                              <Badge variant="outline">{txt.available}</Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {tech.email || "-"}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                              <span>⭐ {Number.isFinite(rating) ? rating.toFixed(1) : "0.0"}</span>
+                              <span>•</span>
+                              <span>{reviews}</span>
+                              <span>•</span>
+                              <span>
+                                {txt.lastUpdated}: {formatSupportDate(tech.lastUpdated || null)}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="min-h-[260px] rounded-xl border border-border/60 overflow-hidden bg-muted/40">
+                    {selectedLiveTechnician ? (
+                      <iframe
+                        title="technician-live-map"
+                        src={`https://maps.google.com/maps?q=${selectedLiveTechnician.latitude},${selectedLiveTechnician.longitude}&z=14&output=embed`}
+                        className="h-[320px] w-full border-0"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                        {txt.noData}
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

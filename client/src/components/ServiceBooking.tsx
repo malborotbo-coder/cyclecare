@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   ArrowRight,
   ArrowLeft,
@@ -61,6 +62,19 @@ export default function ServiceBooking() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | "mock" | null>(null);
   const [confirmedOrder, setConfirmedOrder] = useState<StoredOrder | null>(null);
+  const [discountCode, setDiscountCode] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState<{
+    code: string;
+    discountType?: string | null;
+    discountValue?: number | string | null;
+    discountAmount: number;
+    originalSubtotal: number;
+    discountedSubtotal: number;
+    taxAmount: number;
+    total: number;
+    taxRate: number;
+  } | null>(null);
+  const [discountApplying, setDiscountApplying] = useState(false);
 
   /* ------------------ DATA ------------------ */
 
@@ -73,6 +87,10 @@ export default function ServiceBooking() {
   const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
     queryKey: ["/api/technicians/nearby", location.lat, location.lng],
     enabled: !!location.lat && !!location.lng,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
     queryFn: async () => {
       try {
         return await apiRequest(`/api/technicians/nearby?lat=${location.lat}&lng=${location.lng}`, "GET");
@@ -199,6 +217,78 @@ export default function ServiceBooking() {
 
     fetchPricing();
   }, [selectedService, selectedTechnicianId, selectedTechnician, toast]);
+
+  useEffect(() => {
+    if (!appliedDiscount || !costBreakdown) return;
+    const baseSubtotal = Number(costBreakdown.subtotal ?? 0);
+    if (Math.abs(baseSubtotal - appliedDiscount.originalSubtotal) > 0.01) {
+      setAppliedDiscount(null);
+    }
+  }, [appliedDiscount, costBreakdown]);
+
+  const handleApplyDiscount = async () => {
+    if (!costBreakdown) return;
+    const code = discountCode.trim();
+    if (!code) {
+      toast({
+        title: "أدخل كود الخصم",
+        variant: "destructive",
+      });
+      return;
+    }
+    setDiscountApplying(true);
+    try {
+      const response = await apiRequest("/api/discount-codes/validate", "POST", {
+        code,
+        subtotal: costBreakdown.subtotal ?? 0,
+        taxRate: costBreakdown.vatRate ?? 15,
+      });
+      setAppliedDiscount(response);
+      toast({ title: "تم تطبيق الخصم" });
+    } catch (error: any) {
+      setAppliedDiscount(null);
+      toast({
+        title: "تعذر تطبيق الخصم",
+        description: error?.message || "يرجى التحقق من الكود",
+        variant: "destructive",
+      });
+    } finally {
+      setDiscountApplying(false);
+    }
+  };
+
+  const handleClearDiscount = () => {
+    setAppliedDiscount(null);
+    setDiscountCode("");
+  };
+
+  const breakdownForPayment = useMemo(() => {
+    if (!costBreakdown) return null;
+    if (!appliedDiscount) return costBreakdown;
+    return {
+      ...costBreakdown,
+      discount: {
+        code: appliedDiscount.code,
+        discountType: appliedDiscount.discountType ?? null,
+        discountValue: appliedDiscount.discountValue ?? null,
+        discountAmount: appliedDiscount.discountAmount,
+      },
+      subtotal: appliedDiscount.discountedSubtotal,
+      vat: appliedDiscount.taxAmount,
+      total: appliedDiscount.total,
+      vatRate: appliedDiscount.taxRate ?? costBreakdown.vatRate,
+    };
+  }, [appliedDiscount, costBreakdown]);
+
+  const invoiceSubtotal = appliedDiscount
+    ? appliedDiscount.discountedSubtotal
+    : costBreakdown?.subtotal ?? 0;
+  const invoiceTaxAmount = appliedDiscount
+    ? appliedDiscount.taxAmount
+    : costBreakdown?.vat ?? 0;
+  const invoiceTotal = appliedDiscount
+    ? appliedDiscount.total
+    : costBreakdown?.total ?? 0;
 
   /* ------------------ BOOKING ------------------ */
 
@@ -519,10 +609,16 @@ export default function ServiceBooking() {
                           const isMockTech =
                             (tech as any)?.isMock ||
                             (typeof tech.id === "string" && tech.id.startsWith("mock-"));
+                          const user = (tech as any)?.user;
+                          const nameFromUser = user
+                            ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+                            : "";
+                          const ratingValue = Number(tech.rating ?? 0);
+                          const reviewCount = Number((tech as any)?.reviewCount ?? (tech as any)?.review_count ?? 0);
                           const displayName =
                             tech.name?.trim()
                               ? tech.name
-                              : `فني #${idx + 1}`;
+                              : nameFromUser || `فني #${idx + 1}`;
                           return (
                         <Label
                           key={tech.id}
@@ -545,9 +641,9 @@ export default function ServiceBooking() {
                                 ) : null}
                               </div>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>⭐ {tech.rating || "0.0"}</span>
+                                <span>⭐ {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}</span>
                                 <span>•</span>
-                                <span>{tech.reviewCount || 0} تقييم</span>
+                                <span>{reviewCount} تقييم</span>
                                 {Number(tech.yearsOfExperience ?? (tech as any).years_of_experience ?? 0) > 0 && (
                                   <>
                                     <span>•</span>
@@ -610,7 +706,7 @@ export default function ServiceBooking() {
                           <div className="flex items-center gap-2 text-muted-foreground dark:text-white/70">
                             <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
                             <span>•</span>
-                            <span>{selectedTechnician.reviewCount ?? 0} تقييم</span>
+                            <span>{Number((selectedTechnician as any).reviewCount ?? (selectedTechnician as any).review_count ?? 0)} تقييم</span>
                             <span>•</span>
                             {Number(
                               selectedTechnician.yearsOfExperience ??
@@ -653,6 +749,33 @@ export default function ServiceBooking() {
                       </div>
 
                       <div className="space-y-2">
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">كود الخصم</h4>
+                        <div className="flex flex-wrap gap-2">
+                          <Input
+                            value={discountCode}
+                            onChange={(e) => setDiscountCode(e.target.value)}
+                            placeholder="DISCOUNT2024"
+                            className="flex-1 min-w-[200px] bg-white/80 dark:bg-white/5"
+                            disabled={discountApplying || !!appliedDiscount}
+                          />
+                          {appliedDiscount ? (
+                            <Button variant="outline" onClick={handleClearDiscount}>
+                              إزالة
+                            </Button>
+                          ) : (
+                            <Button onClick={handleApplyDiscount} disabled={discountApplying}>
+                              {discountApplying ? "جارٍ التحقق..." : "تطبيق"}
+                            </Button>
+                          )}
+                        </div>
+                        {appliedDiscount && (
+                          <div className="text-xs text-emerald-600">
+                            تم تطبيق الخصم ({appliedDiscount.code})
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
                         <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفاتورة</h4>
                         <div className="space-y-1 text-sm text-foreground dark:text-white/80">
                           <div className="flex justify-between">
@@ -663,17 +786,23 @@ export default function ServiceBooking() {
                             <span>Delivery</span>
                             <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
                           </div>
+                          {appliedDiscount?.discountAmount ? (
+                            <div className="flex justify-between text-emerald-600">
+                              <span>خصم ({appliedDiscount.code})</span>
+                              <span>-{appliedDiscount.discountAmount.toFixed(2)} ر.س</span>
+                            </div>
+                          ) : null}
                           <div className="flex justify-between">
                             <span>Subtotal</span>
-                            <span>{costBreakdown.subtotal ?? 0} ر.س</span>
+                            <span>{Number(invoiceSubtotal).toFixed(2)} ر.س</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>VAT ({costBreakdown.vatRate ?? 15}%)</span>
-                            <span>{costBreakdown.vat ?? 0} ر.س</span>
+                            <span>VAT ({appliedDiscount?.taxRate ?? costBreakdown.vatRate ?? 15}%)</span>
+                            <span>{Number(invoiceTaxAmount).toFixed(2)} ر.س</span>
                           </div>
                           <div className="flex justify-between text-base font-bold text-primary pt-2">
                             <span>الإجمالي</span>
-                            <span>{costBreakdown.total ?? 0} ر.س</span>
+                            <span>{Number(invoiceTotal).toFixed(2)} ر.س</span>
                           </div>
                         </div>
                       </div>
@@ -685,7 +814,7 @@ export default function ServiceBooking() {
 
             {currentStep === 4 && createdServiceRequestId && costBreakdown && (
               <PaymentOptions
-                amount={costBreakdown.total}
+                amount={appliedDiscount?.total ?? costBreakdown.total}
                 serviceRequestId={createdServiceRequestId}
                 isProcessing={processingPayment}
                 onSelectMethod={async (method) => {
@@ -699,6 +828,7 @@ export default function ServiceBooking() {
                       technicianId: selectedTechnicianId,
                       breakdown: costBreakdown,
                       paymentMethod: method,
+                      discountCode: appliedDiscount?.code ?? null,
                     });
 
                     const order = response?.order || response;
@@ -714,7 +844,7 @@ export default function ServiceBooking() {
                       locationText,
                       notes,
                       paymentMethod: method,
-                      breakdown: costBreakdown,
+                      breakdown: breakdownForPayment ?? costBreakdown,
                     });
 
                     const normalized = {

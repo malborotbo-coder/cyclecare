@@ -41,6 +41,12 @@ export interface PricingBreakdown {
   vatRate: number;
   vat: number;
   total: number;
+  discount?: {
+    code?: string;
+    discountType?: string | null;
+    discountValue?: number | string | null;
+    discountAmount?: number | null;
+  };
   breakdownVersion?: string;
 }
 
