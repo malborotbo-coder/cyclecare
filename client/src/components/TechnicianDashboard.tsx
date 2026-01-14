@@ -167,6 +167,14 @@ export default function TechnicianDashboard() {
 
   const { data: technician, isLoading: techLoading } = useQuery<Technician>({
     queryKey: ['/api/technicians/me'],
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: (data) => {
+      const status = (data as any)?.status;
+      if (!data || status === "pending") return 15000;
+      return false;
+    },
   });
   const status = (technician as any)?.status;
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
@@ -176,6 +184,9 @@ export default function TechnicianDashboard() {
   const { data: requests = [], isLoading: reqLoading } = useQuery<ServiceRequest[]>({
     queryKey: ['/api/technician/orders'],
     enabled: isApprovedStatus && isActive === true,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
   const safeRequests = Array.isArray(requests) ? requests : [];
 

@@ -364,6 +364,62 @@ const normalizeInvoiceRow = (row: any) => ({
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
 
+const normalizeSupportReplyRow = (row: any) => ({
+  id: row.id,
+  ticketId: row.ticket_id ?? row.ticketId ?? null,
+  senderId: row.sender_id ?? row.senderId ?? null,
+  senderRole: row.sender_role ?? row.senderRole ?? "user",
+  message: row.message ?? "",
+  createdAt: row.created_at ?? row.createdAt ?? null,
+});
+
+const normalizeServiceRequestRow = (row: any) => ({
+  id: row.id,
+  userId: row.user_id ?? row.userId ?? null,
+  technicianId: row.technician_id ?? row.technicianId ?? null,
+  serviceType: row.service_type ?? row.serviceType ?? null,
+  status: row.status ?? null,
+  location: row.location ?? null,
+  notes: row.notes ?? null,
+  estimatedCost: row.estimated_cost ?? row.estimatedCost ?? null,
+  trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+  orderNumber: row.order_number ?? row.orderNumber ?? null,
+});
+
+const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: string | null; email?: string | null }) => {
+  if (!user) return null;
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  return full || user.email || null;
+};
+
+async function attachSupportReplies(tickets: any[]) {
+  if (!Array.isArray(tickets) || tickets.length === 0) return [];
+  const ticketIds = tickets.map((ticket) => ticket?.id).filter(Boolean);
+  if (ticketIds.length === 0) return tickets;
+  const ids = ticketIds.map((id) => encodeURIComponent(id)).join(",");
+  const { resp, data } = await pgFetch(
+    `/support_ticket_replies?ticket_id=in.(${ids})&order=created_at.asc`,
+  );
+  if (!resp.ok) {
+    console.warn("[SUPPORT][REPLIES][FETCH_FAILED]", { status: resp.status, body: data });
+    return tickets;
+  }
+  const replies = Array.isArray(data) ? data.map(normalizeSupportReplyRow) : [];
+  const byTicket = new Map<string, any[]>();
+  for (const reply of replies) {
+    if (!reply.ticketId) continue;
+    const bucket = byTicket.get(reply.ticketId) ?? [];
+    bucket.push(reply);
+    byTicket.set(reply.ticketId, bucket);
+  }
+  return tickets.map((ticket) => ({
+    ...ticket,
+    replies: byTicket.get(ticket.id) ?? [],
+  }));
+}
+
 const normalizeDiscountCodeRow = (row: any) => ({
   id: row.id,
   code: row.code,
@@ -1284,10 +1340,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[SUPPORT][LIST][FAILED]", { status: resp.status, body: data });
         return res.json([]);
       }
-      res.json(Array.isArray(data) ? data : []);
+      const tickets = Array.isArray(data) ? data : [];
+      const withReplies = await attachSupportReplies(tickets);
+      res.json(withReplies);
     } catch (error) {
       console.error("[SUPPORT][LIST] Error:", error);
       res.json([]);
+    }
+  });
+
+  app.post("/api/support/tickets/:id/replies", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+      if (!message) {
+        return res.status(400).json({ message: "message is required" });
+      }
+
+      const { resp: ticketResp, data: ticketData } = await pgFetch(
+        `/support_tickets?id=eq.${encodeURIComponent(req.params.id)}&limit=1`,
+      );
+      if (!ticketResp.ok) {
+        console.log("[SUPPORT][REPLY][FETCH_FAILED]", { status: ticketResp.status, body: ticketData });
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      const ticket = Array.isArray(ticketData) ? ticketData[0] : ticketData?.[0];
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.user_id !== userUuid) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const replyPayload = {
+        ticket_id: req.params.id,
+        sender_id: userUuid,
+        sender_role: "user",
+        message,
+      };
+      const { resp: replyResp, data: replyData } = await pgFetch("/support_ticket_replies", {
+        method: "POST",
+        body: [replyPayload],
+        headers: { Prefer: "return=representation" },
+      });
+      if (!replyResp.ok) {
+        console.log("[SUPPORT][REPLY][STORE_FAILED]", { status: replyResp.status, body: replyData });
+        return res.status(500).json({ message: "Failed to store reply" });
+      }
+
+      const now = new Date().toISOString();
+      await pgFetch(`/support_tickets?id=eq.${encodeURIComponent(req.params.id)}`, {
+        method: "PATCH",
+        body: { status: "open", updated_at: now },
+        headers: { Prefer: "return=representation" },
+      }).catch(() => {});
+
+      const reply = Array.isArray(replyData) ? replyData[0] : replyData;
+      res.status(201).json(normalizeSupportReplyRow(reply));
+    } catch (error) {
+      console.error("[SUPPORT][REPLY] Error:", error);
+      res.status(500).json({ message: "Failed to send reply" });
     }
   });
 
@@ -3255,7 +3369,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[ADMIN][SUPPORT][LIST][FAILED]", { status: resp.status, body: data });
         return res.json([]);
       }
-      res.json(Array.isArray(data) ? data : []);
+      const tickets = Array.isArray(data) ? data : [];
+      const withReplies = await attachSupportReplies(tickets);
+      res.json(withReplies);
     } catch (error) {
       console.error("[ADMIN][SUPPORT][LIST] Error:", error);
       res.json([]);
@@ -3266,8 +3382,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const guard = await requireAnyRoleOrAdmin(req, res, ["support", "project_manager"]);
     if (!guard.ok) return;
     const status = typeof req.body?.status === "string" ? req.body.status : "";
-    if (!["open", "closed"].includes(status)) {
-      return res.status(400).json({ message: "status must be open or closed" });
+    if (!["open", "replied", "closed"].includes(status)) {
+      return res.status(400).json({ message: "status must be open, replied, or closed" });
     }
     try {
       const { resp, data } = await pgFetch(
@@ -3299,12 +3415,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     try {
       const { userUuid } = guard;
+      const now = new Date().toISOString();
+      const replyPayload = {
+        ticket_id: req.params.id,
+        sender_id: userUuid,
+        sender_role: "admin",
+        message,
+      };
+      const { resp: replyResp, data: replyData } = await pgFetch("/support_ticket_replies", {
+        method: "POST",
+        body: [replyPayload],
+        headers: { Prefer: "return=representation" },
+      });
+      if (!replyResp.ok) {
+        console.log("[ADMIN][SUPPORT][REPLY][STORE_FAILED]", { status: replyResp.status, body: replyData });
+        return res.status(500).json({ message: "Failed to store reply" });
+      }
       const payload = {
         reply_message: message,
-        replied_at: new Date().toISOString(),
+        replied_at: now,
         replied_by: userUuid,
-        status: "closed",
-        updated_at: new Date().toISOString(),
+        status: "replied",
+        updated_at: now,
       };
       const { resp, data } = await pgFetch(
         `/support_tickets?id=eq.${encodeURIComponent(req.params.id)}`,
@@ -3895,7 +4027,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("[ADMIN][SERVICE_REQUESTS][FAILED]", { status: resp.status, body: data });
           return res.json([]);
         }
-        res.json(Array.isArray(data) ? data : []);
+        const requests = Array.isArray(data) ? data.map(normalizeServiceRequestRow) : [];
+        const requestIds = requests.map((request) => request.id).filter(Boolean);
+        const userIdSet = new Set(requests.map((request) => request.userId).filter(Boolean));
+        const technicianIds = requests.map((request) => request.technicianId).filter(Boolean);
+
+        let technicianRows: any[] = [];
+        if (technicianIds.length > 0) {
+          const techIds = technicianIds.map((id) => encodeURIComponent(id)).join(",");
+          const { resp: techResp, data: techData } = await pgFetch(
+            `/technicians?id=in.(${techIds})`,
+          );
+          if (techResp.ok) {
+            technicianRows = Array.isArray(techData) ? techData : [];
+            technicianRows.forEach((tech) => {
+              const userId = tech.user_id ?? tech.userId;
+              if (userId) userIdSet.add(userId);
+            });
+          }
+        }
+
+        const userIds = Array.from(userIdSet);
+        let usersById = new Map<string, any>();
+        if (userIds.length > 0) {
+          const ids = userIds.map((id) => encodeURIComponent(id)).join(",");
+          const { resp: userResp, data: userData } = await pgFetch(`/users?id=in.(${ids})`);
+          if (userResp.ok) {
+            const users = Array.isArray(userData) ? userData.map(normalizeUserRow) : [];
+            usersById = new Map(users.map((user) => [user.id, user]));
+          }
+        }
+
+        const technicianById = new Map(
+          technicianRows.map((tech) => [tech.id, tech]),
+        );
+
+        let invoiceByRequestId = new Map<string, any>();
+        if (requestIds.length > 0) {
+          const ids = requestIds.map((id) => encodeURIComponent(id)).join(",");
+          const { resp: invResp, data: invData } = await pgFetch(
+            `/invoices?service_request_id=in.(${ids})`,
+          );
+          if (invResp.ok) {
+            const invoices = Array.isArray(invData) ? invData.map(normalizeInvoiceRow) : [];
+            invoiceByRequestId = new Map(
+              invoices.map((invoice) => [invoice.serviceRequestId, invoice]),
+            );
+          }
+        }
+
+        const enriched = requests.map((request) => {
+          const customer = request.userId ? usersById.get(request.userId) : null;
+          const technician = request.technicianId ? technicianById.get(request.technicianId) : null;
+          const technicianUserId = technician?.user_id ?? technician?.userId ?? null;
+          const technicianUser = technicianUserId ? usersById.get(technicianUserId) : null;
+          const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
+          return {
+            ...request,
+            orderNumber: request.orderNumber || request.id,
+            orderType: "service",
+            customerName: buildUserDisplayName(customer),
+            customerEmail: customer?.email ?? null,
+            technicianName: buildUserDisplayName(technicianUser),
+            invoiceId: invoice?.id ?? null,
+            invoiceNumber: invoice?.invoiceNumber ?? null,
+            invoiceStatus: invoice?.status ?? null,
+            invoiceTotal: invoice?.total ?? null,
+            total: Number(invoice?.total ?? request.estimatedCost ?? 0),
+            invoice,
+          };
+        });
+
+        res.json(enriched);
       } catch (error) {
         console.error("Error fetching all service requests:", error);
         res.status(500).json({ message: "Failed to fetch service requests" });
@@ -4456,22 +4659,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const guard = await requireAnyRoleOrAdmin(req, res, ["sales"]);
     if (!guard.ok) return;
     try {
-      const orders = await storage.getAllOrders();
-      res.json(orders);
-    } catch (error) {
-      console.error("Error fetching all orders:", error);
+      let rawOrders: any[] = [];
       try {
+        rawOrders = await storage.getAllOrders();
+      } catch (error) {
+        console.error("Error fetching all orders:", error);
         const { resp, data } = await pgFetch("/orders?order=created_at.desc");
         if (!resp.ok) {
           console.log("[ADMIN][ORDERS][LIST][FAILED]", { status: resp.status, body: data });
           return res.json([]);
         }
-        const rows = Array.isArray(data) ? data : [];
-        res.json(rows.map(normalizeOrderRow));
-      } catch (fallbackError) {
-        console.error("[ADMIN][ORDERS][LIST] Fallback failed:", fallbackError);
-        res.json([]);
+        rawOrders = Array.isArray(data) ? data : [];
       }
+
+      const orders = Array.isArray(rawOrders) ? rawOrders.map(normalizeOrderRow) : [];
+      const orderIds = orders.map((order) => order.id).filter(Boolean);
+      const userIds = orders.map((order) => order.userId).filter(Boolean);
+
+      let invoiceByOrderId = new Map<string, any>();
+      if (orderIds.length > 0) {
+        const ids = orderIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: invResp, data: invData } = await pgFetch(
+          `/invoices?order_id=in.(${ids})`,
+        );
+        if (invResp.ok) {
+          const invoices = Array.isArray(invData) ? invData.map(normalizeInvoiceRow) : [];
+          invoiceByOrderId = new Map(
+            invoices.map((invoice) => [invoice.orderId, invoice]),
+          );
+        }
+      }
+
+      let usersById = new Map<string, any>();
+      if (userIds.length > 0) {
+        const ids = userIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: userResp, data: userData } = await pgFetch(`/users?id=in.(${ids})`);
+        if (userResp.ok) {
+          const users = Array.isArray(userData) ? userData.map(normalizeUserRow) : [];
+          usersById = new Map(users.map((user) => [user.id, user]));
+        }
+      }
+
+      const enriched = orders.map((order) => {
+        const customer = order.userId ? usersById.get(order.userId) : null;
+        const invoice = order.id ? invoiceByOrderId.get(order.id) : null;
+        return {
+          ...order,
+          orderType: "shop",
+          customerName: buildUserDisplayName(customer),
+          customerEmail: customer?.email ?? null,
+          technicianName: null,
+          invoiceId: invoice?.id ?? null,
+          invoiceNumber: invoice?.invoiceNumber ?? null,
+          invoiceStatus: invoice?.status ?? null,
+          invoiceTotal: invoice?.total ?? null,
+          invoice,
+        };
+      });
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("[ADMIN][ORDERS][LIST] Error:", error);
+      res.json([]);
     }
   });
 

@@ -26,6 +26,13 @@ type SupportCategory = SupportOption & {
   subcategories: SupportOption[];
 };
 
+type SupportReply = {
+  id?: string;
+  message: string;
+  senderRole?: string;
+  createdAt?: string;
+};
+
 const supportCategories: SupportCategory[] = [
   {
     id: "complaints",
@@ -129,9 +136,15 @@ export default function SupportPage() {
       ticketReplyEmpty: "لا يوجد رد حتى الآن.",
       ticketStatusOpen: "مفتوحة",
       ticketStatusClosed: "مغلقة",
+      ticketStatusReplied: "تم الرد",
       orderLabel: "رقم الطلب (اختياري)",
       orderPlaceholder: "اختر طلب مرتبط",
       orderEmpty: "لا توجد طلبات مرتبطة حالياً.",
+      replyLabel: "إضافة رد",
+      replyPlaceholder: "اكتب ردك هنا...",
+      replySend: "إرسال الرد",
+      replyFromAdmin: "الإدارة",
+      replyFromUser: "أنت",
     },
     en: {
       title: "Support",
@@ -176,9 +189,15 @@ export default function SupportPage() {
       ticketReplyEmpty: "No reply yet.",
       ticketStatusOpen: "Open",
       ticketStatusClosed: "Closed",
+      ticketStatusReplied: "Replied",
       orderLabel: "Order (optional)",
       orderPlaceholder: "Select related order",
       orderEmpty: "No orders available.",
+      replyLabel: "Add Reply",
+      replyPlaceholder: "Write your reply...",
+      replySend: "Send Reply",
+      replyFromAdmin: "Admin",
+      replyFromUser: "You",
     },
   }[lang === "en" ? "en" : "ar"];
 
@@ -204,7 +223,10 @@ export default function SupportPage() {
     replyMessage?: string;
     replyAt?: string;
     ticketNumber?: string;
+    replies?: SupportReply[];
   } | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [isReplying, setIsReplying] = useState(false);
 
   const orders = useMemo<StoredOrder[]>(() => {
     try {
@@ -270,6 +292,15 @@ export default function SupportPage() {
         const data = await response.json().catch(() => []);
         if (!isActive || !Array.isArray(data) || data.length === 0) return;
         const ticket = data[0] || {};
+        const repliesRaw = Array.isArray(ticket.replies) ? ticket.replies : [];
+        const replies = repliesRaw
+          .map((reply: any) => ({
+            id: reply.id,
+            message: reply.message ?? "",
+            senderRole: reply.senderRole ?? reply.sender_role ?? "user",
+            createdAt: reply.createdAt ?? reply.created_at ?? reply.createdAt,
+          }))
+          .filter((reply: SupportReply) => reply.message);
         const ticketSnapshot = {
           id: ticket.id,
           timestamp: ticket.created_at || ticket.createdAt || new Date().toISOString(),
@@ -281,6 +312,7 @@ export default function SupportPage() {
           replyMessage: ticket.reply_message || ticket.replyMessage || "",
           replyAt: ticket.replied_at || ticket.repliedAt || "",
           ticketNumber: ticket.ticket_number || ticket.ticketNumber || "",
+          replies,
         };
         setLastTicket(ticketSnapshot);
         localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
@@ -289,8 +321,10 @@ export default function SupportPage() {
       }
     };
     loadTickets();
+    const interval = setInterval(loadTickets, 15000);
     return () => {
       isActive = false;
+      clearInterval(interval);
     };
   }, [lang]);
 
@@ -444,6 +478,7 @@ export default function SupportPage() {
         replyMessage: "",
         replyAt: "",
         ticketNumber: responsePayload?.ticketNumber || responsePayload?.ticket_number || "",
+        replies: [],
       };
       localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(ticketSnapshot));
       setLastTicket(ticketSnapshot);
@@ -482,6 +517,53 @@ export default function SupportPage() {
       </div>
     );
   }
+
+  const handleReplySubmit = async () => {
+    if (!lastTicket?.id || replyDraft.trim().length === 0 || isReplying) return;
+    setIsReplying(true);
+    try {
+      const response = await fetchWithFirebaseAuth(
+        buildApiUrl(`/api/support/tickets/${lastTicket.id}/replies`),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept-Language": lang,
+            "X-Lang": lang,
+          },
+          body: JSON.stringify({ message: replyDraft.trim() }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(labels.submitErrorBody);
+      }
+      const reply = await response.json().catch(() => null);
+      const normalizedReply: SupportReply = {
+        id: reply?.id,
+        message: reply?.message ?? replyDraft.trim(),
+        senderRole: reply?.senderRole ?? reply?.sender_role ?? "user",
+        createdAt: reply?.createdAt ?? reply?.created_at ?? new Date().toISOString(),
+      };
+      const nextReplies = [...(lastTicket.replies ?? []), normalizedReply];
+      const updatedTicket = {
+        ...lastTicket,
+        status: "open",
+        replies: nextReplies,
+      };
+      setLastTicket(updatedTicket);
+      localStorage.setItem(SUPPORT_TICKET_STORAGE_KEY, JSON.stringify(updatedTicket));
+      setReplyDraft("");
+    } catch (error: any) {
+      toast({
+        title: labels.submitErrorTitle,
+        description: error?.message || labels.submitErrorBody,
+        variant: "destructive",
+      });
+    } finally {
+      setIsReplying(false);
+    }
+  };
 
   return (
     <div className="relative z-10">
@@ -710,6 +792,8 @@ export default function SupportPage() {
                           ? labels.ticketStatusClosed
                           : lastTicket.status === "open"
                           ? labels.ticketStatusOpen
+                          : lastTicket.status === "replied"
+                          ? labels.ticketStatusReplied
                           : lastTicket.status}
                       </span>
                     </div>
@@ -734,19 +818,61 @@ export default function SupportPage() {
                   </div>
                   <div className="space-y-1">
                     <span className="text-muted-foreground">{labels.ticketReply}</span>
-                    {lastTicket.replyMessage ? (
-                      <>
-                        <p className="whitespace-pre-wrap">{lastTicket.replyMessage}</p>
-                        {lastTicket.replyAt ? (
-                          <p className="text-xs text-muted-foreground">
-                            {formatTicketTime(lastTicket.replyAt)}
-                          </p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className="text-muted-foreground">{labels.ticketReplyEmpty}</p>
-                    )}
+                    {(() => {
+                      const replies = lastTicket.replies ?? [];
+                      if (replies.length > 0) {
+                        return (
+                          <div className="space-y-3">
+                            {replies.map((reply, index) => (
+                              <div key={reply.id ?? index} className="rounded-md border border-border/60 bg-background/70 p-3">
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                  <span>
+                                    {reply.senderRole === "admin"
+                                      ? labels.replyFromAdmin
+                                      : labels.replyFromUser}
+                                  </span>
+                                  <span>{formatTicketTime(reply.createdAt)}</span>
+                                </div>
+                                <p className="mt-2 whitespace-pre-wrap text-sm">{reply.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
+                      if (lastTicket.replyMessage) {
+                        return (
+                          <>
+                            <p className="whitespace-pre-wrap">{lastTicket.replyMessage}</p>
+                            {lastTicket.replyAt ? (
+                              <p className="text-xs text-muted-foreground">
+                                {formatTicketTime(lastTicket.replyAt)}
+                              </p>
+                            ) : null}
+                          </>
+                        );
+                      }
+
+                      return <p className="text-muted-foreground">{labels.ticketReplyEmpty}</p>;
+                    })()}
                   </div>
+                  {lastTicket.id ? (
+                    <div className="space-y-2">
+                      <span className="text-muted-foreground">{labels.replyLabel}</span>
+                      <Textarea
+                        value={replyDraft}
+                        onChange={(event) => setReplyDraft(event.target.value)}
+                        placeholder={labels.replyPlaceholder}
+                        className="bg-white/80 dark:bg-black/60"
+                      />
+                      <Button
+                        onClick={handleReplySubmit}
+                        disabled={isReplying || replyDraft.trim().length === 0}
+                      >
+                        {labels.replySend}
+                      </Button>
+                    </div>
+                  ) : null}
                 </>
               )}
             </CardContent>

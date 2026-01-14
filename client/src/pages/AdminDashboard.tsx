@@ -243,6 +243,10 @@ export default function AdminDashboard() {
       noDocuments: "لا توجد مستندات",
       invoices: "الفواتير",
       invoiceNumber: "رقم الفاتورة",
+      orderNumber: "رقم الطلب",
+      orderType: "نوع الطلب",
+      createdAt: "تاريخ الإنشاء",
+      invoiceDetails: "تفاصيل الفاتورة",
       subtotal: "المبلغ قبل الضريبة",
       taxRate: "نسبة الضريبة",
       taxAmount: "مبلغ الضريبة",
@@ -266,6 +270,7 @@ export default function AdminDashboard() {
       supportReplyAction: "إرسال الرد",
       supportStatus: "حالة التذكرة",
       supportStatusOpen: "مفتوحة",
+      supportStatusReplied: "تم الرد",
       supportStatusClosed: "مغلقة",
       shopOrders: "طلبات المتجر",
       deliveryOption: "خيار التوصيل",
@@ -352,6 +357,10 @@ export default function AdminDashboard() {
       noDocuments: "No documents",
       invoices: "Invoices",
       invoiceNumber: "Invoice Number",
+      orderNumber: "Order Number",
+      orderType: "Order Type",
+      createdAt: "Created At",
+      invoiceDetails: "Invoice Details",
       subtotal: "Subtotal",
       taxRate: "Tax Rate",
       taxAmount: "Tax Amount",
@@ -389,6 +398,7 @@ export default function AdminDashboard() {
       supportReplyAction: "Send Reply",
       supportStatus: "Ticket Status",
       supportStatusOpen: "Open",
+      supportStatusReplied: "Replied",
       supportStatusClosed: "Closed",
       shopOrders: "Shop Orders",
       deliveryOption: "Delivery Option",
@@ -477,6 +487,10 @@ export default function AdminDashboard() {
     noDocuments: "لا توجد مستندات",
     invoices: "الفواتير",
     invoiceNumber: "رقم الفاتورة",
+    orderNumber: "رقم الطلب",
+    orderType: "نوع الطلب",
+    createdAt: "تاريخ الإنشاء",
+    invoiceDetails: "تفاصيل الفاتورة",
     subtotal: "المبلغ قبل الضريبة",
     taxRate: "نسبة الضريبة",
     taxAmount: "مبلغ الضريبة",
@@ -533,6 +547,7 @@ export default function AdminDashboard() {
     supportReplyAction: "إرسال الرد",
     supportStatus: "حالة التذكرة",
     supportStatusOpen: "مفتوحة",
+    supportStatusReplied: "تم الرد",
     supportStatusClosed: "مغلقة",
     invoiceType: "نوع الفاتورة",
     invoiceTypeService: "خدمة",
@@ -984,6 +999,13 @@ export default function AdminDashboard() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
+  };
+
+  const formatOrderDate = (value?: string | Date | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
   const formatCurrency = (value: number) => {
@@ -1905,43 +1927,88 @@ export default function AdminDashboard() {
                   ) : safeServiceRequests.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="space-y-3">
-                          {safeServiceRequests.map((request) => (
-                            <div
-                              key={request.id}
-                              className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
-                              data-testid={`request-item-${request.id}`}
-                            >
-                              <div className="space-y-1">
-                                <p className="font-medium text-foreground">
-                                  {request.serviceType?.replace('_', ' ').toUpperCase() || 'N/A'}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                  {request.createdAt ? new Date(request.createdAt).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US') : 'N/A'}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <Badge
-                                  variant={
-                                    request.status === 'completed'
-                                      ? 'default'
-                                      : request.status === 'in_progress'
-                                      ? 'secondary'
-                                      : 'outline'
-                                  }
-                                >
-                                  {request.status}
-                                </Badge>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setSelectedServiceRequest(request)}
-                                >
-                                  {lang === "ar" ? "عرض" : "View"}
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
+                    <div className="w-full overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{txt.orderNumber}</TableHead>
+                            <TableHead>{txt.orderType}</TableHead>
+                            <TableHead>{txt.client}</TableHead>
+                            <TableHead>{txt.total}</TableHead>
+                            <TableHead>{txt.status}</TableHead>
+                            <TableHead>{txt.technician}</TableHead>
+                            <TableHead>{txt.createdAt}</TableHead>
+                            <TableHead>{txt.invoiceDetails}</TableHead>
+                            <TableHead>{txt.supportActions}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {safeServiceRequests.map((request: any) => {
+                            const orderNumber =
+                              request.orderNumber ?? request.order_number ?? request.id ?? "-";
+                            const customerName =
+                              request.customerName ??
+                              request.user_name ??
+                              request.userName ??
+                              request.userId ??
+                              "-";
+                            const technicianName = request.technicianName ?? "-";
+                            const createdAt = request.createdAt ?? request.created_at;
+                            const invoiceNumber =
+                              request.invoiceNumber ?? request.invoice?.invoiceNumber ?? "-";
+                            const invoiceStatus =
+                              request.invoiceStatus ?? request.invoice?.status ?? "-";
+                            const invoiceTotalRaw =
+                              request.invoiceTotal ?? request.invoice?.total ?? null;
+                            const total = Number(
+                              request.total ?? request.estimatedCost ?? invoiceTotalRaw ?? 0,
+                            );
+                            return (
+                              <TableRow key={request.id} data-testid={`request-item-${request.id}`}>
+                                <TableCell className="font-medium">{orderNumber}</TableCell>
+                                <TableCell>{txt.invoiceTypeService}</TableCell>
+                                <TableCell>{customerName}</TableCell>
+                                <TableCell>{formatCurrency(total)}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      request.status === "completed"
+                                        ? "default"
+                                        : request.status === "in_progress"
+                                        ? "secondary"
+                                        : "outline"
+                                    }
+                                  >
+                                    {request.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>{technicianName || "-"}</TableCell>
+                                <TableCell>{formatOrderDate(createdAt)}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1 text-xs">
+                                    <div>{invoiceNumber}</div>
+                                    <div className="text-muted-foreground">{invoiceStatus}</div>
+                                    <div>
+                                      {invoiceTotalRaw != null
+                                        ? formatCurrency(Number(invoiceTotalRaw))
+                                        : "-"}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedServiceRequest(request)}
+                                  >
+                                    {lang === "ar" ? "عرض" : "View"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </ScrollArea>
@@ -1961,36 +2028,75 @@ export default function AdminDashboard() {
                   ) : safeShopOrders.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="space-y-3">
-                      {safeShopOrders.map((order) => (
-                        <div
-                          key={order.id}
-                          className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
-                          data-testid={`shop-order-${order.id}`}
-                        >
-                          <div className="space-y-1">
-                            <p className="font-medium text-foreground">
-                              {order.orderNumber}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {txt.deliveryOption}: {formatDeliveryOption(order)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant="outline">{order.status}</Badge>
-                            <span className="font-semibold text-primary">
-                              {Number(order.total || 0).toFixed(2)}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedShopOrder(order)}
-                            >
-                              {lang === "ar" ? "عرض" : "View"}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="w-full overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{txt.orderNumber}</TableHead>
+                            <TableHead>{txt.orderType}</TableHead>
+                            <TableHead>{txt.client}</TableHead>
+                            <TableHead>{txt.total}</TableHead>
+                            <TableHead>{txt.status}</TableHead>
+                            <TableHead>{txt.technician}</TableHead>
+                            <TableHead>{txt.createdAt}</TableHead>
+                            <TableHead>{txt.invoiceDetails}</TableHead>
+                            <TableHead>{txt.supportActions}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {safeShopOrders.map((order: any) => {
+                            const orderNumber =
+                              order.orderNumber ?? order.order_number ?? order.id ?? "-";
+                            const customerName =
+                              order.customerName ??
+                              order.user_name ??
+                              order.userName ??
+                              order.userId ??
+                              "-";
+                            const createdAt = order.createdAt ?? order.created_at;
+                            const invoiceNumber =
+                              order.invoiceNumber ?? order.invoice?.invoiceNumber ?? "-";
+                            const invoiceStatus =
+                              order.invoiceStatus ?? order.invoice?.status ?? "-";
+                            const invoiceTotalRaw =
+                              order.invoiceTotal ?? order.invoice?.total ?? null;
+                            const total = Number(order.total ?? invoiceTotalRaw ?? 0);
+                            return (
+                              <TableRow key={order.id} data-testid={`shop-order-${order.id}`}>
+                                <TableCell className="font-medium">{orderNumber}</TableCell>
+                                <TableCell>{txt.invoiceTypeShop}</TableCell>
+                                <TableCell>{customerName}</TableCell>
+                                <TableCell>{formatCurrency(total)}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">{order.status}</Badge>
+                                </TableCell>
+                                <TableCell>-</TableCell>
+                                <TableCell>{formatOrderDate(createdAt)}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1 text-xs">
+                                    <div>{invoiceNumber}</div>
+                                    <div className="text-muted-foreground">{invoiceStatus}</div>
+                                    <div>
+                                      {invoiceTotalRaw != null
+                                        ? formatCurrency(Number(invoiceTotalRaw))
+                                        : "-"}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedShopOrder(order)}
+                                  >
+                                    {lang === "ar" ? "عرض" : "View"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </ScrollArea>
@@ -2033,6 +2139,30 @@ export default function AdminDashboard() {
                             const replyMessage = (ticket as any).reply_message ?? (ticket as any).replyMessage ?? ticket.reply_message;
                             const replyAt = (ticket as any).replied_at ?? (ticket as any).repliedAt ?? ticket.replied_at;
                             const replyDraft = supportReplyDrafts[ticket.id] ?? "";
+                            const repliesRaw = Array.isArray((ticket as any).replies)
+                              ? (ticket as any).replies
+                              : [];
+                            const replies = repliesRaw
+                              .map((reply: any) => ({
+                                id: reply.id,
+                                message: reply.message ?? "",
+                                senderRole: reply.senderRole ?? reply.sender_role ?? "user",
+                                createdAt: reply.createdAt ?? reply.created_at ?? reply.createdAt,
+                              }))
+                              .filter((reply: any) => reply.message);
+                            const repliesToShow =
+                              replies.length > 0
+                                ? replies
+                                : replyMessage
+                                ? [
+                                    {
+                                      id: "legacy-reply",
+                                      message: replyMessage,
+                                      senderRole: "admin",
+                                      createdAt: replyAt,
+                                    },
+                                  ]
+                                : [];
                             return (
                               <Fragment key={ticket.id}>
                                 <TableRow>
@@ -2083,6 +2213,7 @@ export default function AdminDashboard() {
                                             </SelectTrigger>
                                             <SelectContent>
                                               <SelectItem value="open">{txt.supportStatusOpen}</SelectItem>
+                                              <SelectItem value="replied">{txt.supportStatusReplied}</SelectItem>
                                               <SelectItem value="closed">{txt.supportStatusClosed}</SelectItem>
                                             </SelectContent>
                                           </Select>
@@ -2106,14 +2237,22 @@ export default function AdminDashboard() {
                                         </div>
                                         <div className="space-y-2">
                                           <div className="text-sm text-muted-foreground">{txt.supportReply}</div>
-                                          {replyMessage ? (
-                                            <div className="rounded-md border border-border/60 bg-background/70 p-3 text-sm">
-                                              <p className="whitespace-pre-wrap">{replyMessage}</p>
-                                              {replyAt ? (
-                                                <p className="mt-2 text-xs text-muted-foreground">
-                                                  {formatSupportDate(replyAt)}
-                                                </p>
-                                              ) : null}
+                                          {repliesToShow.length > 0 ? (
+                                            <div className="space-y-2">
+                                              {repliesToShow.map((reply) => (
+                                                <div
+                                                  key={reply.id}
+                                                  className="rounded-md border border-border/60 bg-background/70 p-3 text-sm"
+                                                >
+                                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                                    <span>
+                                                      {reply.senderRole === "admin" ? txt.admin : txt.client}
+                                                    </span>
+                                                    <span>{formatSupportDate(reply.createdAt)}</span>
+                                                  </div>
+                                                  <p className="mt-2 whitespace-pre-wrap">{reply.message}</p>
+                                                </div>
+                                              ))}
                                             </div>
                                           ) : null}
                                           <Textarea
