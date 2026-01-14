@@ -19,7 +19,7 @@ import multer from "multer";
 import { uploadBufferToStorage } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
 import { uploadToStorageRest } from "./storageRest";
-import type { Role } from "@shared/schema";
+import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -119,7 +119,7 @@ async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?
     last_updated: new Date().toISOString(),
   };
   try {
-    const { resp } = await pgFetch(
+    const { resp, data } = await pgFetch(
       `/technician_locations?technician_id=eq.${encodeURIComponent(technicianId)}`,
       {
         method: "PATCH",
@@ -127,7 +127,8 @@ async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?
         headers: { Prefer: "return=representation" },
       },
     );
-    if (resp.status === 404 || resp.status === 0) {
+    const updated = Array.isArray(data) ? data : data ? [data] : [];
+    if (resp.status === 404 || resp.status === 0 || updated.length === 0) {
       await pgFetch("/technician_locations", {
         method: "POST",
         body: payload,
@@ -2158,9 +2159,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!isApprovedStatus || technician.is_active === false) {
           return res.status(403).json({ message: "Technician not active" });
         }
+        const patch: Record<string, any> = {
+          is_available: desired,
+          status: desired ? "online" : "offline",
+        };
+        if (desired && (technician.is_active === null || technician.is_active === undefined)) {
+          patch.is_active = true;
+        }
         const { resp: updResp, data: updData } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
           method: "PATCH",
-          body: { is_available: desired, status: desired ? "online" : "offline" },
+          body: patch,
           headers: { Prefer: "return=representation" },
         });
         if (!updResp.ok) {
@@ -2200,14 +2208,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!technician) return res.status(404).json({ message: "Technician not found" });
         const status = technician.status;
         const isApprovedStatus = ["approved", "online", "offline"].includes(status);
-        if (!isApprovedStatus && !guard.auth.isAdmin) {
+        if ((!isApprovedStatus || technician.is_active === false) && !guard.auth.isAdmin) {
           return res.status(403).json({ message: "Technician not active" });
+        }
+        const patch: Record<string, any> = {
+          status: online ? "online" : "offline",
+          is_available: online,
+        };
+        if (online && (technician.is_active === null || technician.is_active === undefined)) {
+          patch.is_active = true;
         }
         const { resp: updResp, data: updData } = await pgFetch(
           `/technicians?id=eq.${encodeURIComponent(technician.id)}`,
           {
             method: "PATCH",
-            body: { status: online ? "online" : "offline", is_available: online },
+            body: patch,
             headers: { Prefer: "return=representation" },
           },
         );
@@ -5167,20 +5182,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       const guard = await requireAnyRoleOrAdmin(req, res, ["marketing", "sales"]);
       if (!guard.ok) return;
+      const payload = req.body || {};
+      const normalizedCode = normalizeDiscountCodeInput(payload.code);
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const createdBy = await ensureUserUuid(auth);
+      let codeData: InsertDiscountCode;
       try {
-        const payload = req.body || {};
-        const normalizedCode = normalizeDiscountCodeInput(payload.code);
-        const auth = getAuthContext(req);
-        if (!auth) return res.status(401).json({ message: "Unauthorized" });
-        const createdBy = await ensureUserUuid(auth);
-        const codeData = validateSchema(insertDiscountCodeSchema, { ...payload, code: normalizedCode, createdBy }, req);
-        const code = await storage.createDiscountCode(codeData);
-        res.status(201).json(code);
+        codeData = validateSchema(insertDiscountCodeSchema, { ...payload, code: normalizedCode, createdBy }, req);
       } catch (error) {
         const handled = handleRouteError(error, req, res);
         if (handled) return handled;
+        console.error("Error validating discount code:", error);
+        return res.status(500).json({ message: "Failed to create discount code" });
+      }
+
+      try {
+        const code = await storage.createDiscountCode(codeData);
+        return res.status(201).json(code);
+      } catch (error) {
         console.error("Error creating discount code:", error);
-        res.status(500).json({ message: "Failed to create discount code" });
+      }
+
+      try {
+        const expiresAtRaw = codeData.expiresAt ?? payload.expiresAt ?? null;
+        const expiresAt = expiresAtRaw instanceof Date ? expiresAtRaw.toISOString() : expiresAtRaw;
+        const { resp, data } = await pgFetch("/discount_codes", {
+          method: "POST",
+          body: [
+            {
+              code: normalizedCode,
+              discount_type: codeData.discountType ?? payload.discountType,
+              discount_value: codeData.discountValue ?? payload.discountValue,
+              max_uses: codeData.maxUses ?? payload.maxUses ?? null,
+              is_active: codeData.isActive ?? payload.isActive ?? true,
+              expires_at: expiresAt ?? null,
+              created_by: createdBy,
+            },
+          ],
+          headers: { Prefer: "return=representation" },
+        });
+        if (!resp.ok) {
+          console.log("[ADMIN][DISCOUNT][CREATE][FAILED]", { status: resp.status, body: data });
+          return res.status(500).json({ message: "Failed to create discount code" });
+        }
+        const row = Array.isArray(data) ? data[0] : data?.[0];
+        return res.status(201).json(row ? normalizeDiscountCodeRow(row) : { success: true });
+      } catch (fallbackError) {
+        console.error("[ADMIN][DISCOUNT][CREATE][FALLBACK_FAILED]", fallbackError);
+        return res.status(500).json({ message: "Failed to create discount code" });
       }
     },
   );

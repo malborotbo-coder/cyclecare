@@ -76,23 +76,23 @@ const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) 
   } = props;
   return (
     <>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField
           control={form.control}
           name="brand"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel className="text-sm">{labels.brand}</FormLabel>
+            <FormItem className="space-y-1">
+              <FormLabel className="text-sm font-medium">{labels.brand}</FormLabel>
               <FormControl>
                 <Input
                   data-testid={`input-${testIdPrefix}-brand`}
                   placeholder="Trek"
                   {...field}
-                  className="h-10"
+                  className="h-11"
                   disabled={disabled}
                 />
               </FormControl>
-              <FormMessage className="text-xs" />
+              <FormMessage className="min-h-[1.1rem] text-xs" />
             </FormItem>
           )}
         />
@@ -100,18 +100,18 @@ const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) 
           control={form.control}
           name="model"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel className="text-sm">{labels.model}</FormLabel>
+            <FormItem className="space-y-1">
+              <FormLabel className="text-sm font-medium">{labels.model}</FormLabel>
               <FormControl>
                 <Input
                   data-testid={`input-${testIdPrefix}-model`}
                   placeholder="FX 2"
                   {...field}
-                  className="h-10"
+                  className="h-11"
                   disabled={disabled}
                 />
               </FormControl>
-              <FormMessage className="text-xs" />
+              <FormMessage className="min-h-[1.1rem] text-xs" />
             </FormItem>
           )}
         />
@@ -121,19 +121,22 @@ const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) 
         control={form.control}
         name="year"
         render={({ field }) => (
-          <FormItem>
-            <FormLabel>{labels.year}</FormLabel>
+          <FormItem className="space-y-1">
+            <FormLabel className="text-sm font-medium">{labels.year}</FormLabel>
             <FormControl>
               <Input
                 data-testid={`input-${testIdPrefix}-year`}
                 type="number"
+                inputMode="numeric"
+                min={1900}
+                max={new Date().getFullYear() + 1}
+                step="1"
                 {...field}
-                onChange={(e) => field.onChange(parseInt(e.target.value))}
-                className="h-10"
+                className="h-11"
                 disabled={disabled}
               />
             </FormControl>
-            <FormMessage />
+            <FormMessage className="min-h-[1.1rem] text-xs" />
           </FormItem>
         )}
       />
@@ -143,8 +146,8 @@ const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) 
           control={form.control as any}
           name="totalDistance"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>
+            <FormItem className="space-y-1">
+              <FormLabel className="text-sm font-medium">
                 {labels.totalDistance} ({labels.km})
               </FormLabel>
               <FormControl>
@@ -152,12 +155,13 @@ const BikeFormFields = memo(function BikeFormFields(props: BikeFormFieldsProps) 
                   data-testid={`input-${testIdPrefix}-distance`}
                   type="number"
                   min="0"
+                  inputMode="numeric"
+                  step="1"
                   {...field}
-                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                   disabled={disabled}
                 />
               </FormControl>
-              <FormMessage />
+              <FormMessage className="min-h-[1.1rem] text-xs" />
             </FormItem>
           )}
         />
@@ -205,8 +209,18 @@ const BikeImagePicker = memo(function BikeImagePicker({
 
   return (
     <div
-      className="relative w-full h-40 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 overflow-hidden group hover-elevate cursor-pointer transition-all"
+      className={`relative w-full h-44 sm:h-52 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 overflow-hidden group hover-elevate transition-all ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
       onClick={() => !disabled && inputRef.current?.click()}
+      aria-disabled={disabled}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onKeyDown={(event) => {
+        if (disabled) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          inputRef.current?.click();
+        }
+      }}
     >
       {preview ? (
         <>
@@ -511,7 +525,10 @@ export default function BikeProfile() {
     queryKey: ["/api/bikes"],
   });
 
-  const bikeFormSchema = insertBikeSchema.omit({ userId: true });
+  const bikeFormSchema = insertBikeSchema.omit({ userId: true }).extend({
+    year: z.coerce.number().min(1900).max(new Date().getFullYear() + 1),
+    totalDistance: z.coerce.number().min(0).optional(),
+  });
   const bikeFormDefaults = useRef({
     brand: "",
     model: "",
@@ -673,37 +690,42 @@ export default function BikeProfile() {
           {t[language].addBike}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md transition-all duration-300">
+      <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl">{t[language].addBike}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 transition-all duration-300">
-            <BikeImagePicker
-              key={addPickerKey}
-              initialPreview={null}
-              uploadLabel={t[language].uploadPhoto}
-              changeLabel={t[language].changePhoto}
-              removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
-              onFileSelect={setNewBikeImage}
-              disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
-              testIdPrefix="add-bike"
-            />
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <div className="grid gap-6 sm:grid-cols-[220px,1fr] items-start">
+              <BikeImagePicker
+                key={addPickerKey}
+                initialPreview={null}
+                uploadLabel={t[language].uploadPhoto}
+                changeLabel={t[language].changePhoto}
+                removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
+                onFileSelect={setNewBikeImage}
+                disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
+                testIdPrefix="add-bike"
+              />
 
-            <BikeFormFields
-              form={form}
-              labels={labels}
-              disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
-              testIdPrefix="add"
-              showDistance={false}
-            />
+              <div className="space-y-4">
+                <BikeFormFields
+                  form={form}
+                  labels={labels}
+                  disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
+                  testIdPrefix="add"
+                  showDistance={false}
+                />
+              </div>
+            </div>
 
-            <div className="flex gap-2 justify-end pt-4">
+            <div className="flex flex-col-reverse gap-2 border-t border-border/60 pt-4 sm:flex-row sm:justify-end">
               <Button 
                 type="button" 
                 variant="outline" 
                 onClick={() => setIsDialogOpen(false)}
                 data-testid="button-cancel"
+                className="min-w-[120px]"
               >
                 {t[language].cancel}
               </Button>
@@ -711,7 +733,7 @@ export default function BikeProfile() {
                 type="submit" 
                 disabled={createBikeMutation.isPending || formSubmitting || dialogImageUploading}
                 data-testid="button-submit-bike"
-                className="gap-2"
+                className="gap-2 min-w-[140px]"
               >
                 {formSubmitting ? (
                   <>
@@ -981,23 +1003,25 @@ export default function BikeProfile() {
           setIsEditDialogOpen(open);
           if (!open) setEditingBike(null);
         }}>
-          <DialogContent className="transition-all duration-300">
-            <DialogHeader>
-              <DialogTitle>{t[language].editBike}</DialogTitle>
-            </DialogHeader>
-            <Form {...editForm}>
-              <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 transition-all duration-300">
-                <BikeImagePicker
-                  key={editPickerKey}
-                  initialPreview={editingBike?.imageUrl || editingBike?.image_url || null}
-                  uploadLabel={t[language].uploadPhoto}
-                  changeLabel={t[language].changePhoto}
-                  removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
-                  onFileSelect={setEditBikeImage}
-                  disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
-                  testIdPrefix="edit-bike"
-                />
+      <DialogContent className="max-w-2xl w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t[language].editBike}</DialogTitle>
+        </DialogHeader>
+        <Form {...editForm}>
+          <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-6">
+            <div className="grid gap-6 sm:grid-cols-[220px,1fr] items-start">
+              <BikeImagePicker
+                key={editPickerKey}
+                initialPreview={editingBike?.imageUrl || editingBike?.image_url || null}
+                uploadLabel={t[language].uploadPhoto}
+                changeLabel={t[language].changePhoto}
+                removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}
+                onFileSelect={setEditBikeImage}
+                disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
+                testIdPrefix="edit-bike"
+              />
 
+              <div className="space-y-4">
                 <BikeFormFields
                   form={editForm}
                   labels={labels}
@@ -1005,23 +1029,27 @@ export default function BikeProfile() {
                   testIdPrefix="edit"
                   showDistance={true}
                 />
-                <div className="flex gap-2 justify-end">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      setIsEditDialogOpen(false);
-                      setEditingBike(null);
-                    }}
-                    data-testid="button-cancel-edit"
-                  >
-                    {t[language].cancel}
-                  </Button>
-                  <Button 
-                    type="submit" 
-                    disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
-                    data-testid="button-submit-edit"
-                  >
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-border/60 pt-4 sm:flex-row sm:justify-end">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  setIsEditDialogOpen(false);
+                  setEditingBike(null);
+                }}
+                data-testid="button-cancel-edit"
+                className="min-w-[120px]"
+              >
+                {t[language].cancel}
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={updateBikeMutation.isPending || editFormSubmitting || editDialogImageUploading}
+                data-testid="button-submit-edit"
+                className="min-w-[140px]"
+              >
                     {editFormSubmitting ? t[language].loading : editDialogImageUploading ? t[language].uploading : t[language].update}
                   </Button>
                 </div>
