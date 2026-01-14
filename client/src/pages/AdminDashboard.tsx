@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -30,6 +31,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart as RePieChart, XAxis, YAxis } from "recharts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
+import logoImage from "@assets/cycle-care-new-logo.png";
 
 interface TechnicianDocument {
   id: string;
@@ -297,6 +299,12 @@ export default function AdminDashboard() {
       reportSearch: "بحث",
       reportExportPdf: "تصدير PDF",
       reportExportExcel: "تصدير Excel",
+      reportTitle: "تقرير Cycle Care",
+      reportGeneratedAt: "تاريخ الإنشاء",
+      reportMetric: "المؤشر",
+      reportValue: "القيمة",
+      reportCount: "العدد",
+      reportQuantity: "الكمية",
       reportSummary: "ملخص التقرير",
       reportTotalUsers: "إجمالي المستخدمين",
       reportServiceOrders: "طلبات الخدمة",
@@ -435,6 +443,12 @@ export default function AdminDashboard() {
       reportSearch: "Search",
       reportExportPdf: "Export PDF",
       reportExportExcel: "Export Excel",
+      reportTitle: "Cycle Care Report",
+      reportGeneratedAt: "Generated At",
+      reportMetric: "Metric",
+      reportValue: "Value",
+      reportCount: "Count",
+      reportQuantity: "Quantity",
       reportSummary: "Report Summary",
       reportTotalUsers: "Total Users",
       reportServiceOrders: "Service Orders",
@@ -568,6 +582,12 @@ export default function AdminDashboard() {
     reportSearch: "بحث",
     reportExportPdf: "تصدير PDF",
     reportExportExcel: "تصدير Excel",
+    reportTitle: "تقرير Cycle Care",
+    reportGeneratedAt: "تاريخ الإنشاء",
+    reportMetric: "المؤشر",
+    reportValue: "القيمة",
+    reportCount: "العدد",
+    reportQuantity: "الكمية",
     reportSummary: "ملخص التقرير",
     reportTotalUsers: "إجمالي المستخدمين",
     reportServiceOrders: "طلبات الخدمة",
@@ -952,71 +972,321 @@ export default function AdminDashboard() {
   const shouldShowPartsReport =
     appliedReportType === "summary" || appliedReportType === "parts";
 
-  const buildReportRows = () => {
-    const sectionLabel = txt.reportTypeSummary;
-    const rows: Array<{ section: string; metric: string; value: string | number }> = [
-      { section: sectionLabel, metric: txt.reportTotalUsers, value: reportSummary.totalUsers },
-      { section: sectionLabel, metric: txt.reportServiceOrders, value: reportSummary.serviceOrders },
-      { section: sectionLabel, metric: txt.reportShopOrders, value: reportSummary.shopOrders },
-      { section: sectionLabel, metric: txt.reportTotalRevenue, value: formatCurrency(reportSummary.totalRevenue) },
-    ];
-
-    if (shouldShowServicesReport && reportSummary.topServices.length > 0) {
-      reportSummary.topServices.forEach((service) => {
-        rows.push({
-          section: txt.reportTopServices,
-          metric: service.name,
-          value: service.count,
-        });
-      });
-    }
-
-    if (shouldShowPartsReport && reportSummary.topReportParts.length > 0) {
-      reportSummary.topReportParts.forEach((part) => {
-        rows.push({
-          section: txt.reportTopParts,
-          metric: part.name,
-          value: part.quantity,
-        });
-      });
-    }
-
-    return rows;
+  const formatReportDate = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   };
 
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const buildReportSummaryRows = () => ([
+    { label: txt.reportTotalUsers, value: reportSummary.totalUsers },
+    { label: txt.reportServiceOrders, value: reportSummary.serviceOrders },
+    { label: txt.reportShopOrders, value: reportSummary.shopOrders },
+    { label: txt.reportServiceRevenue, value: formatCurrency(reportSummary.serviceRevenue) },
+    { label: txt.reportShopRevenue, value: formatCurrency(reportSummary.shopRevenue) },
+    { label: txt.reportTotalRevenue, value: formatCurrency(reportSummary.totalRevenue) },
+    { label: txt.reportOpenTickets, value: reportSummary.openTickets },
+  ]);
+
+  const buildReportTypeLabel = () =>
+    reportTypeOptions.find((option) => option.id === appliedReportType)?.label ?? txt.reportTypeSummary;
+
+  const buildReportRangeLabel = () =>
+    `${formatReportDate(appliedReportStartDate)} - ${formatReportDate(appliedReportEndDate)}`;
+
+  const buildReportMeta = () => ({
+    range: buildReportRangeLabel(),
+    type: buildReportTypeLabel(),
+    generatedAt: new Date().toLocaleString(lang === "ar" ? "ar-SA" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  });
+
   const handleExportExcel = () => {
-    const rows = buildReportRows().map((row) => ({
-      Section: row.section,
-      Metric: row.metric,
-      Value: row.value,
-    }));
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const summaryRows = buildReportSummaryRows();
+    const meta = buildReportMeta();
+    const rows: Array<Array<string | number>> = [];
+    const merges: XLSX.Range[] = [];
+    const pushMergedRow = (value: string) => {
+      const rowIndex = rows.length;
+      rows.push([value, ""]);
+      merges.push({ s: { r: rowIndex, c: 0 }, e: { r: rowIndex, c: 1 } });
+    };
+
+    pushMergedRow(txt.reportTitle);
+    rows.push([]);
+    rows.push([txt.reportRange, meta.range]);
+    rows.push([txt.reportType, meta.type]);
+    rows.push([txt.reportGeneratedAt, meta.generatedAt]);
+    rows.push([]);
+    pushMergedRow(txt.reportSummary);
+    rows.push([txt.reportMetric, txt.reportValue]);
+    summaryRows.forEach((row) => rows.push([String(row.label), row.value]));
+
+    if (shouldShowServicesReport) {
+      rows.push([]);
+      pushMergedRow(txt.reportTopServices);
+      rows.push([txt.reportMetric, txt.reportCount]);
+      if (reportSummary.topServices.length === 0) {
+        rows.push([txt.noData, "-"]);
+      } else {
+        reportSummary.topServices.forEach((service) => {
+          rows.push([String(service.name), service.count]);
+        });
+      }
+    }
+
+    if (shouldShowPartsReport) {
+      rows.push([]);
+      pushMergedRow(txt.reportTopParts);
+      rows.push([txt.reportMetric, txt.reportQuantity]);
+      if (reportSummary.topReportParts.length === 0) {
+        rows.push([txt.noData, "-"]);
+      } else {
+        reportSummary.topReportParts.forEach((part) => {
+          rows.push([String(part.name), part.quantity]);
+        });
+      }
+    }
+
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    worksheet["!merges"] = merges;
+    worksheet["!cols"] = [{ wch: 34 }, { wch: 26 }];
+
+    if (worksheet.A1) {
+      worksheet.A1.s = {
+        font: { bold: true, sz: 14, color: { rgb: "E86A4B" } },
+      };
+    }
+
     const workbook = XLSX.utils.book_new();
+    workbook.Workbook = { Views: [{ RTL: lang === "ar" }] };
     XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
     const fileName = `CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   };
 
-  const handleExportPdf = () => {
-    const rows = buildReportRows();
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    let y = 40;
-    doc.setFontSize(16);
-    doc.text("Cycle Care Report", 40, y);
-    y += 18;
-    doc.setFontSize(11);
-    doc.text(`Range: ${appliedReportStartDate || "-"} to ${appliedReportEndDate || "-"}`, 40, y);
-    y += 18;
-    rows.forEach((row) => {
-      const line = `${row.section} - ${row.metric}: ${row.value}`;
-      doc.text(line, 40, y);
-      y += 16;
-      if (y > 780) {
-        doc.addPage();
-        y = 40;
+  const renderReportHtmlToPdf = async () => {
+    if (typeof document === "undefined") {
+      throw new Error("PDF rendering requires document access.");
+    }
+
+    const loadImageAsDataUrl = async (src: string) => {
+      try {
+        const response = await fetch(src);
+        const blob = await response.blob();
+        return await new Promise<string | null>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (error) {
+        console.warn("[REPORT][PDF] Failed to load logo", error);
+        return null;
       }
+    };
+
+    const summaryRows = buildReportSummaryRows();
+    const meta = buildReportMeta();
+    const isArabic = lang === "ar";
+    const alignStart = isArabic ? "right" : "left";
+    const alignEnd = isArabic ? "left" : "right";
+    const logoDataUrl = await loadImageAsDataUrl(logoImage);
+    const logoBlock = logoDataUrl
+      ? `<img src="${logoDataUrl}" alt="Cycle Care" style="width:50px; height:50px; object-fit:contain;" />`
+      : "";
+
+    const summaryRowsHtml = summaryRows
+      .map((row, index) => `
+        <tr style="background:${index % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+          <td style="padding:8px 12px; text-align:${alignStart}; color:#374151;">${escapeHtml(String(row.label))}</td>
+          <td style="padding:8px 12px; text-align:${alignEnd}; font-weight:600; color:#111111;">${escapeHtml(String(row.value))}</td>
+        </tr>
+      `)
+      .join("");
+
+    const servicesRowsHtml = reportSummary.topServices.length === 0
+      ? `<tr><td colspan="2" style="padding:10px 12px; text-align:center; color:#6b7280;">${escapeHtml(txt.noData)}</td></tr>`
+      : reportSummary.topServices
+          .map((service, index) => `
+            <tr style="background:${index % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+              <td style="padding:8px 12px; text-align:${alignStart}; color:#374151;">${escapeHtml(String(service.name))}</td>
+              <td style="padding:8px 12px; text-align:${alignEnd}; font-weight:600; color:#111111;">${escapeHtml(String(service.count))}</td>
+            </tr>
+          `)
+          .join("");
+
+    const partsRowsHtml = reportSummary.topReportParts.length === 0
+      ? `<tr><td colspan="2" style="padding:10px 12px; text-align:center; color:#6b7280;">${escapeHtml(txt.noData)}</td></tr>`
+      : reportSummary.topReportParts
+          .map((part, index) => `
+            <tr style="background:${index % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+              <td style="padding:8px 12px; text-align:${alignStart}; color:#374151;">${escapeHtml(String(part.name))}</td>
+              <td style="padding:8px 12px; text-align:${alignEnd}; font-weight:600; color:#111111;">${escapeHtml(String(part.quantity))}</td>
+            </tr>
+          `)
+          .join("");
+
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-10000px";
+    wrapper.style.top = "0";
+    wrapper.style.width = "794px";
+    wrapper.style.background = "#ffffff";
+    wrapper.style.color = "#111111";
+    wrapper.style.direction = isArabic ? "rtl" : "ltr";
+    wrapper.style.fontFamily = "'Tajawal','Inter',sans-serif";
+
+    wrapper.innerHTML = `
+      <div style="padding:32px 36px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:20px; border:1px solid #f3d6cc; background:#fdf1ec; border-radius:16px; padding:16px 18px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            ${logoBlock}
+            <div>
+              <div style="font-size:18px; font-weight:700; color:#E86A4B;">Cycle Care</div>
+              <div style="font-size:12px; color:#6b7280;">${escapeHtml(txt.reports)}</div>
+            </div>
+          </div>
+          <div style="text-align:${alignEnd}; font-size:12px; color:#374151; min-width:220px;">
+            <div style="font-size:14px; font-weight:700; color:#111111;">${escapeHtml(txt.reportTitle)}</div>
+            <div style="margin-top:4px;">${escapeHtml(txt.reportRange)}: <span style="font-weight:600;">${escapeHtml(meta.range)}</span></div>
+            <div style="margin-top:4px;">${escapeHtml(txt.reportType)}: <span style="font-weight:600;">${escapeHtml(meta.type)}</span></div>
+            <div style="margin-top:4px;">${escapeHtml(txt.reportGeneratedAt)}: <span style="font-weight:600;">${escapeHtml(meta.generatedAt)}</span></div>
+          </div>
+        </div>
+
+        <div style="margin-top:22px;">
+          <div style="font-size:14px; font-weight:700; color:#E86A4B; margin-bottom:8px;">${escapeHtml(txt.reportSummary)}</div>
+          <table style="width:100%; border-collapse:collapse; font-size:12px; border:1px solid #e5e7eb;">
+            <thead>
+              <tr style="background:#E86A4B; color:#ffffff;">
+                <th style="padding:9px 12px; text-align:${alignStart};">${escapeHtml(txt.reportMetric)}</th>
+                <th style="padding:9px 12px; text-align:${alignEnd};">${escapeHtml(txt.reportValue)}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryRowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        ${shouldShowServicesReport ? `
+          <div style="margin-top:20px;">
+            <div style="font-size:14px; font-weight:700; color:#3B9B9B; margin-bottom:8px;">${escapeHtml(txt.reportTopServices)}</div>
+            <table style="width:100%; border-collapse:collapse; font-size:12px; border:1px solid #e5e7eb;">
+              <thead>
+                <tr style="background:#3B9B9B; color:#ffffff;">
+                  <th style="padding:9px 12px; text-align:${alignStart};">${escapeHtml(txt.reportMetric)}</th>
+                  <th style="padding:9px 12px; text-align:${alignEnd};">${escapeHtml(txt.reportCount)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${servicesRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        ` : ""}
+
+        ${shouldShowPartsReport ? `
+          <div style="margin-top:20px;">
+            <div style="font-size:14px; font-weight:700; color:#3B9B9B; margin-bottom:8px;">${escapeHtml(txt.reportTopParts)}</div>
+            <table style="width:100%; border-collapse:collapse; font-size:12px; border:1px solid #e5e7eb;">
+              <thead>
+                <tr style="background:#3B9B9B; color:#ffffff;">
+                  <th style="padding:9px 12px; text-align:${alignStart};">${escapeHtml(txt.reportMetric)}</th>
+                  <th style="padding:9px 12px; text-align:${alignEnd};">${escapeHtml(txt.reportQuantity)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${partsRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        ` : ""}
+
+        <div style="margin-top:24px; text-align:center; font-size:10px; color:#9ca3af;">
+          Cycle Care • Riyadh, KSA
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(wrapper);
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const canvas = await html2canvas(wrapper, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
     });
-    doc.save(`CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.pdf`);
+
+    wrapper.remove();
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+    heightLeft -= pdfHeight;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, pdfWidth, imgHeight);
+      heightLeft -= pdfHeight;
+    }
+
+    pdf.save(`CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.pdf`);
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      await renderReportHtmlToPdf();
+    } catch (error) {
+      console.error("Report PDF rendering failed:", error);
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      let y = 40;
+      doc.setFontSize(16);
+      doc.text(txt.reportTitle, 40, y);
+      y += 18;
+      doc.setFontSize(11);
+      doc.text(`${txt.reportRange}: ${buildReportRangeLabel()}`, 40, y);
+      y += 18;
+      buildReportSummaryRows().forEach((row) => {
+        doc.text(`${row.label}: ${row.value}`, 40, y);
+        y += 16;
+      });
+      doc.save(`CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.pdf`);
+    }
   };
 
   const mockConvoyInvoices: InvoiceWithConvoy[] = [

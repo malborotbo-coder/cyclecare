@@ -2168,7 +2168,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "lat and lng are required numbers" });
       }
 
-      const { resp: techResp, data: techData } = await pgFetch(`/technicians?status=eq.online&is_available=eq.true`);
+      const { resp: techResp, data: techData } = await pgFetch(
+        `/technicians?status=in.(online,approved)&is_active=eq.true&is_available=eq.true`,
+      );
       if (!techResp.ok) {
         console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
         if (ENABLE_MOCK_TECHNICIAN) {
