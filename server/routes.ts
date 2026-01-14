@@ -2169,7 +2169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { resp: techResp, data: techData } = await pgFetch(
-        `/technicians?status=in.(online,approved)&is_active=eq.true&is_available=eq.true`,
+        `/technicians?status=in.(online,approved)&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)`,
       );
       if (!techResp.ok) {
         console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
@@ -2235,6 +2235,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map((tech: any) => {
           const loc = locMap.get(tech.id);
           if (!loc) return null;
+          const user = tech.user;
+          const nameFromUser = user
+            ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+            : "";
+          const resolvedName = tech.name || tech.full_name || nameFromUser || null;
           const distanceKm = haversineKm(lat, lng, Number(loc.latitude), Number(loc.longitude));
           const etaMinutes = Math.round((distanceKm / 30) * 60); // assume 30km/h
           const pricePreview = computePricing({
@@ -2244,6 +2249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           return {
             ...tech,
+            name: resolvedName,
             distanceKm: Number(distanceKm.toFixed(2)),
             etaMinutes,
             lastUpdated: loc.last_updated,
