@@ -737,6 +737,32 @@ async function ensureRoleAssignment(userUuid: string, roleName: string, assigner
   }
 }
 
+async function ensureTechnicianRoleFromProfile(userUuid: string): Promise<boolean> {
+  const { resp, data } = await pgFetch(
+    `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active,is_approved&limit=1`,
+  );
+  if (!resp.ok) return false;
+  const technician = Array.isArray(data) ? data[0] : data?.[0];
+  if (!technician) return false;
+  const status = String(technician.status || "").toLowerCase();
+  const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+  if (!isApprovedStatus || technician.is_active === false) return false;
+  try {
+    await ensureRoleAssignment(userUuid, "technician", userUuid);
+  } catch (error) {
+    console.warn("[TECH][ROLE] Auto-assign failed", error);
+    return false;
+  }
+  if (technician.is_approved === false) {
+    await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
+      method: "PATCH",
+      body: { is_approved: true },
+      headers: { Prefer: "return=representation" },
+    }).catch(() => {});
+  }
+  return true;
+}
+
 async function userHasRole(userUuid: string, roleName: string): Promise<boolean> {
   const role = await getRoleByName(roleName);
   if (!role) return false;
@@ -770,6 +796,12 @@ async function requireRoleOrAdmin(
   }
   const has = await userHasRole(userUuid, roleName);
   if (!has) {
+    if (roleName === "technician") {
+      const recovered = await ensureTechnicianRoleFromProfile(userUuid);
+      if (recovered) {
+        return { ok: true, userUuid, auth };
+      }
+    }
     res.status(403).json({ message: "Forbidden" });
     return { ok: false, userUuid, auth };
   }
@@ -5138,13 +5170,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const payload = req.body || {};
         const normalizedCode = normalizeDiscountCodeInput(payload.code);
-        const codeData = validateSchema(insertDiscountCodeSchema, { ...payload, code: normalizedCode }, req);
         const auth = getAuthContext(req);
-        const createdBy = auth?.userId;
-        const code = await storage.createDiscountCode({
-          ...codeData,
-          createdBy,
-        });
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const createdBy = await ensureUserUuid(auth);
+        const codeData = validateSchema(insertDiscountCodeSchema, { ...payload, code: normalizedCode, createdBy }, req);
+        const code = await storage.createDiscountCode(codeData);
         res.status(201).json(code);
       } catch (error) {
         const handled = handleRouteError(error, req, res);
