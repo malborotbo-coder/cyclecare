@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState, useEffect, useRef, Fragment, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
@@ -865,6 +865,16 @@ export default function AdminDashboard() {
     [overviewStats.totalServiceOrders, overviewStats.totalShopOrders, txt.serviceOrders, txt.shopOrders],
   );
 
+  const formatServiceTypeLabel = (value?: string | null) => {
+    const key = (value || "").toLowerCase();
+    const labels = {
+      maintenance: lang === "ar" ? "صيانة دورية" : "Maintenance",
+      repair: lang === "ar" ? "إصلاح" : "Repair",
+      parts: lang === "ar" ? "قطع غيار" : "Parts",
+    };
+    return labels[key as keyof typeof labels] || value || (lang === "ar" ? "غير محدد" : "Unknown");
+  };
+
   const reportSummary = useMemo(() => {
     const start = appliedReportStartDate ? new Date(appliedReportStartDate) : null;
     const end = appliedReportEndDate ? new Date(appliedReportEndDate) : null;
@@ -935,7 +945,7 @@ export default function AdminDashboard() {
       topServices,
       topReportParts,
     };
-  }, [appliedReportStartDate, appliedReportEndDate, normalizedInvoices, safeServiceRequests, safeShopOrders, safeSupportTickets, safeUsers.length, formatServiceTypeLabel]);
+  }, [appliedReportStartDate, appliedReportEndDate, normalizedInvoices, safeServiceRequests, safeShopOrders, safeSupportTickets, safeUsers.length, lang]);
 
   const shouldShowServicesReport =
     appliedReportType === "summary" || appliedReportType === "services";
@@ -1139,16 +1149,6 @@ export default function AdminDashboard() {
     const safeValue = Number.isFinite(value) ? value : 0;
     return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
   };
-
-  const formatServiceTypeLabel = useCallback((value?: string | null) => {
-    const key = (value || "").toLowerCase();
-    const labels = {
-      maintenance: lang === "ar" ? "صيانة دورية" : "Maintenance",
-      repair: lang === "ar" ? "إصلاح" : "Repair",
-      parts: lang === "ar" ? "قطع غيار" : "Parts",
-    };
-    return labels[key as keyof typeof labels] || value || (lang === "ar" ? "غير محدد" : "Unknown");
-  }, [lang]);
 
   const handleRunReport = () => {
     setAppliedReportStartDate(reportStartDate);
