@@ -229,6 +229,7 @@ export default function ServiceBooking() {
   const handleApplyDiscount = async () => {
     if (!costBreakdown) return;
     const code = discountCode.trim();
+    const invalidMessage = lang === "ar" ? "كود الخصم غير صالح" : "Discount code is invalid";
     if (!code) {
       toast({
         title: "أدخل كود الخصم",
@@ -247,9 +248,10 @@ export default function ServiceBooking() {
       toast({ title: "تم تطبيق الخصم" });
     } catch (error: any) {
       setAppliedDiscount(null);
+      const isInvalid = error?.code === "DISCOUNT_INVALID";
       toast({
         title: "تعذر تطبيق الخصم",
-        description: error?.message || "يرجى التحقق من الكود",
+        description: isInvalid ? invalidMessage : error?.message || "يرجى التحقق من الكود",
         variant: "destructive",
       });
     } finally {

@@ -3,7 +3,15 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
-import { validateSchema, handleRouteError, AppError, errorHandler, getRequestLang, normalizeErrorBody } from "./errors";
+import {
+  validateSchema,
+  handleRouteError,
+  AppError,
+  errorHandler,
+  getRequestLang,
+  normalizeErrorBody,
+  type Language,
+} from "./errors";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
@@ -449,8 +457,24 @@ const normalizeDiscountCodeRow = (row: any) => ({
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
 
-const normalizeDiscountCodeInput = (value?: string | null) =>
-  (value || "").trim().toUpperCase();
+const DISCOUNT_INVALID_MESSAGES: Record<Language, string> = {
+  ar: "كود الخصم غير صالح",
+  en: "Discount code is invalid",
+};
+
+const respondDiscountInvalid = (req: any, res: any, context?: Record<string, any>) => {
+  if (context) {
+    console.warn("[DISCOUNT][INVALID]", context);
+  }
+  const lang = getRequestLang(req);
+  return res.status(400).json({ code: "DISCOUNT_INVALID", message: DISCOUNT_INVALID_MESSAGES[lang] });
+};
+
+const normalizeDiscountCodeInput = (value?: string | null) => {
+  const normalized = (value || "").trim().toUpperCase();
+  if (!normalized) return "";
+  return normalized.replace(/-+$/, "");
+};
 
 const parseDiscountNumber = (value: any) => {
   const numeric = Number(value);
@@ -458,21 +482,21 @@ const parseDiscountNumber = (value: any) => {
 };
 
 const validateDiscountCode = (discount: any) => {
-  if (!discount) return { ok: false, message: "Discount code not found" };
+  if (!discount) return { ok: false, reason: "not_found" };
   if (discount.isActive === false || discount.is_active === false) {
-    return { ok: false, message: "Discount code is inactive" };
+    return { ok: false, reason: "inactive" };
   }
   const expiresAt = discount.expiresAt ?? discount.expires_at;
   if (expiresAt) {
     const expiry = new Date(expiresAt);
     if (Number.isFinite(expiry.getTime()) && expiry.getTime() < Date.now()) {
-      return { ok: false, message: "Discount code has expired" };
+      return { ok: false, reason: "expired" };
     }
   }
   const maxUses = discount.maxUses ?? discount.max_uses;
   const currentUses = discount.currentUses ?? discount.current_uses ?? 0;
   if (Number.isFinite(maxUses) && Number(maxUses) > 0 && Number(currentUses) >= Number(maxUses)) {
-    return { ok: false, message: "Discount code usage limit reached" };
+    return { ok: false, reason: "usage_limit" };
   }
   return { ok: true };
 };
@@ -2144,6 +2168,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!guard.ok) return;
         const { userUuid } = guard;
         const desired = req.body.is_available;
+        console.info("[TECH][AVAIL][REQUEST]", {
+          authUserId: guard.auth.userId,
+          internalUserId: userUuid,
+          desired,
+        });
         if (typeof desired !== "boolean") {
           return res.status(400).json({ fieldErrors: { is_available: "Required boolean" } });
         }
@@ -2154,6 +2183,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
         if (!technician) return res.status(404).json({ message: "Technician not found" });
+        console.info("[TECH][AVAIL][TECH]", {
+          technicianId: technician.id,
+          technicianUserId: technician.user_id,
+          status: technician.status,
+          isActive: technician.is_active,
+          isAvailable: technician.is_available,
+        });
         const status = technician.status;
         const isApprovedStatus = ["approved", "online", "offline"].includes(status);
         if (!isApprovedStatus || technician.is_active === false) {
@@ -2175,7 +2211,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("[TECH][AVAIL][UPDATE][FAILED]", { status: updResp.status, body: updData });
           return res.status(500).json({ message: "Failed to update availability" });
         }
-        const updated = Array.isArray(updData) ? updData[0] : updData;
+        const updatedRecords = Array.isArray(updData) ? updData : updData ? [updData] : [];
+        console.info("[TECH][AVAIL][UPDATE]", {
+          rowsAffected: updatedRecords.length,
+          technicianId: technician.id,
+        });
+        if (updatedRecords.length === 0) {
+          const lang = getRequestLang(req);
+          return res.status(500).json({
+            code: "TECH_STATUS_UPDATE_FAILED",
+            message: lang === "ar" ? "تعذر تحديث حالة الفني" : "Failed to update technician status",
+          });
+        }
+        const updated = updatedRecords[0];
         res.json(updated);
       } catch (error) {
         console.error("[TECH][AVAIL] Error:", error);
@@ -2194,6 +2242,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!guard.ok) return;
         const { userUuid } = guard;
         const online = req.body.online;
+        console.info("[TECH][STATUS][REQUEST]", {
+          authUserId: guard.auth.userId,
+          internalUserId: userUuid,
+          online,
+        });
         if (typeof online !== "boolean") {
           return res.status(400).json({ fieldErrors: { online: "Required boolean" } });
         }
@@ -2206,6 +2259,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
         if (!technician) return res.status(404).json({ message: "Technician not found" });
+        console.info("[TECH][STATUS][TECH]", {
+          technicianId: technician.id,
+          technicianUserId: technician.user_id,
+          status: technician.status,
+          isActive: technician.is_active,
+          isAvailable: technician.is_available,
+        });
         const status = technician.status;
         const isApprovedStatus = ["approved", "online", "offline"].includes(status);
         if ((!isApprovedStatus || technician.is_active === false) && !guard.auth.isAdmin) {
@@ -2230,13 +2290,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("[TECH][STATUS][UPDATE][FAILED]", { status: updResp.status, body: updData });
           return res.status(500).json({ message: "Failed to update status" });
         }
+        const updatedRecords = Array.isArray(updData) ? updData : updData ? [updData] : [];
+        console.info("[TECH][STATUS][UPDATE]", {
+          rowsAffected: updatedRecords.length,
+          technicianId: technician.id,
+        });
+        if (updatedRecords.length === 0) {
+          const lang = getRequestLang(req);
+          return res.status(500).json({
+            code: "TECH_STATUS_UPDATE_FAILED",
+            message: lang === "ar" ? "تعذر تحديث حالة الفني" : "Failed to update technician status",
+          });
+        }
         if (!online) {
           // Remove live location when offline
           await pgFetch(`/technician_locations?technician_id=eq.${encodeURIComponent(technician.id)}`, {
             method: "DELETE",
           });
         }
-        const updated = Array.isArray(updData) ? updData[0] : updData;
+        const updated = updatedRecords[0];
         if (online) {
           await upsertTechnicianLocation(
             technician.id,
@@ -2258,6 +2330,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const guard = await requireRoleOrAdmin(req, res, "technician");
       if (!guard.ok) return;
       const { userUuid } = guard;
+      console.info("[TECH][LOC][REQUEST]", {
+        authUserId: guard.auth.userId,
+        internalUserId: userUuid,
+      });
       const { lat, lng } = req.body;
       const latitude = Number(lat);
       const longitude = Number(lng);
@@ -2271,6 +2347,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const technician = Array.isArray(data) ? data[0] : data?.[0];
       if (!technician) return res.status(404).json({ message: "Technician not found" });
+      console.info("[TECH][LOC][TECH]", {
+        technicianId: technician.id,
+        technicianUserId: technician.user_id,
+        status: technician.status,
+        isActive: technician.is_active,
+      });
       if (technician.status !== "online") {
         return res.status(403).json({ message: "Technician is offline" });
       }
@@ -2296,6 +2378,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           body: upsertBody,
           headers: { Prefer: "return=representation" },
         });
+        console.info("[TECH][LOC][UPSERT]", { action: "insert", technicianId: technician.id });
+      } else {
+        const updatedRows = Array.isArray(updData) ? updData.length : updData ? 1 : 0;
+        console.info("[TECH][LOC][UPSERT]", { action: "update", rowsAffected: updatedRows, technicianId: technician.id });
       }
       res.json({ success: true });
     } catch (error) {
@@ -2313,9 +2399,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "lat and lng are required numbers" });
       }
 
-      const { resp: techResp, data: techData } = await pgFetch(
-        `/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)`,
-      );
+      const techFilter =
+        "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)";
+      console.info("[TECH][NEARBY][QUERY]", { filter: techFilter, lat, lng });
+      const { resp: techResp, data: techData } = await pgFetch(techFilter);
       if (!techResp.ok) {
         console.log("[TECH][NEARBY][TECH_FETCH][FAILED]", { status: techResp.status, body: techData });
         if (ENABLE_MOCK_TECHNICIAN) {
@@ -2519,7 +2606,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const discount = await fetchDiscountCodeByValue(normalizedDiscountCode);
         const validation = validateDiscountCode(discount);
         if (!validation.ok) {
-          return res.status(400).json({ message: validation.message });
+          return respondDiscountInvalid(req, res, {
+            source: "mock_checkout",
+            code: normalizedDiscountCode,
+            reason: validation.reason,
+          });
         }
         const discountAmount = computeDiscountAmount(baseSubtotal, discount);
         const applied = applyDiscountToTotals({
@@ -2828,7 +2919,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const discount = await fetchDiscountCodeByValue(normalizedDiscountCode);
         const validation = validateDiscountCode(discount);
         if (!validation.ok) {
-          return res.status(400).json({ message: validation.message });
+          return respondDiscountInvalid(req, res, {
+            source: "shop_checkout",
+            code: normalizedDiscountCode,
+            reason: validation.reason,
+          });
         }
         const discountAmount = computeDiscountAmount(baseSubtotal, discount);
         const applied = applyDiscountToTotals({
@@ -4102,9 +4197,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const guard = await requireAnyRoleOrAdmin(req, res, ["project_manager"]);
       if (!guard.ok) return;
       try {
-        const { resp: techResp, data: techData } = await pgFetch(
-          "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=id,user_id,phone_number,location,latitude,longitude,rating,review_count,user:users(email,first_name,last_name)",
-        );
+        const techFilter =
+          "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=id,user_id,phone_number,location,latitude,longitude,rating,review_count,user:users(email,first_name,last_name)";
+        console.info("[ADMIN][TECH][LOC][QUERY]", { filter: techFilter });
+        const { resp: techResp, data: techData } = await pgFetch(techFilter);
         if (!techResp.ok) {
           console.log("[ADMIN][TECH][LOC][FAILED]", { status: techResp.status, body: techData });
           return res.json([]);
@@ -5115,12 +5211,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { code, subtotal, taxRate } = req.body || {};
       const normalized = normalizeDiscountCodeInput(code);
       if (!normalized) {
-        return res.status(400).json({ message: "Discount code is required" });
+        return respondDiscountInvalid(req, res, { source: "validate", reason: "missing" });
       }
       const discount = await fetchDiscountCodeByValue(normalized);
       const validation = validateDiscountCode(discount);
       if (!validation.ok) {
-        return res.status(400).json({ message: validation.message });
+        return respondDiscountInvalid(req, res, {
+          source: "validate",
+          code: normalized,
+          reason: validation.reason,
+        });
       }
       const baseSubtotal = Number(subtotal ?? 0);
       const rate = Number(taxRate ?? 15);
@@ -5144,7 +5244,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("[DISCOUNT][VALIDATE] Error:", error);
-      res.status(500).json({ message: "Failed to validate discount code" });
+      const lang = getRequestLang(req);
+      res.status(500).json(normalizeErrorBody(500, { code: "SERVER_ERROR" }, lang));
     }
   });
 

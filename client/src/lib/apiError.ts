@@ -13,12 +13,14 @@ const defaultMessages: Record<Language, Record<string, string>> = {
     UNAUTHORIZED: "You are not authorized to perform this action.",
     NOT_FOUND: "The requested item was not found.",
     SERVER_ERROR: "Something went wrong. Please try again.",
+    DISCOUNT_INVALID: "Discount code is invalid",
   },
   ar: {
     VALIDATION_ERROR: "يرجى التحقق من الحقول المحددة.",
     UNAUTHORIZED: "غير مصرح لك بتنفيذ هذا الإجراء.",
     NOT_FOUND: "العنصر المطلوب غير موجود.",
     SERVER_ERROR: "حدث خطأ، يرجى المحاولة مرة أخرى.",
+    DISCOUNT_INVALID: "كود الخصم غير صالح",
   },
 };
 

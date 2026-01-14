@@ -165,6 +165,7 @@ export default function Checkout() {
 
   const handleApplyDiscount = async () => {
     const code = discountCode.trim();
+    const invalidMessage = lang === "ar" ? "كود الخصم غير صالح" : "Discount code is invalid";
     if (!code) {
       toast({
         title: labelsText.discountCode,
@@ -184,9 +185,10 @@ export default function Checkout() {
       toast({ title: labelsText.discountApplied });
     } catch (error: any) {
       setAppliedDiscount(null);
+      const isInvalid = error?.code === "DISCOUNT_INVALID";
       toast({
         title: labelsText.discountCode,
-        description: error?.message || (lang === "ar" ? "الكود غير صالح" : "Invalid code"),
+        description: isInvalid ? invalidMessage : error?.message || (lang === "ar" ? "الكود غير صالح" : "Invalid code"),
         variant: "destructive",
       });
     } finally {
