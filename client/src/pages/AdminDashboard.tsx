@@ -4,10 +4,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare } from "lucide-react";
+import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare, FileSpreadsheet } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
+import jsPDF from "jspdf";
+import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -17,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState, useEffect, useRef, Fragment, useMemo } from "react";
+import { useState, useEffect, useRef, Fragment, useMemo, useCallback } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
@@ -96,6 +98,10 @@ export default function AdminDashboard() {
   const [reportEndDate, setReportEndDate] = useState<string>(() => {
     return new Date().toISOString().slice(0, 10);
   });
+  const [reportType, setReportType] = useState<"summary" | "services" | "parts">("summary");
+  const [appliedReportStartDate, setAppliedReportStartDate] = useState<string>(() => reportStartDate);
+  const [appliedReportEndDate, setAppliedReportEndDate] = useState<string>(() => reportEndDate);
+  const [appliedReportType, setAppliedReportType] = useState<"summary" | "services" | "parts">("summary");
 
   const normalizeTechnician = (tech: any) => {
     const user = tech?.user;
@@ -212,6 +218,7 @@ export default function AdminDashboard() {
       brand: "الماركة",
       model: "الموديل",
       year: "السنة",
+      bikeType: "نوع الدراجة",
       owner: "المالك",
       rating: "التقييم",
       available: "متاح",
@@ -283,13 +290,22 @@ export default function AdminDashboard() {
       orderRangeWeek: "أسبوعي",
       orderRangeMonth: "شهري",
       reportRange: "نطاق التاريخ",
+      reportType: "نوع التقرير",
+      reportTypeSummary: "ملخص",
+      reportTypeServices: "الخدمات",
+      reportTypeParts: "القطع",
+      reportSearch: "بحث",
+      reportExportPdf: "تصدير PDF",
+      reportExportExcel: "تصدير Excel",
       reportSummary: "ملخص التقرير",
+      reportTotalUsers: "إجمالي المستخدمين",
       reportServiceOrders: "طلبات الخدمة",
       reportShopOrders: "طلبات المتجر",
       reportTotalRevenue: "إجمالي الإيرادات",
       reportServiceRevenue: "إيرادات الخدمة",
       reportShopRevenue: "إيرادات المتجر",
       reportOpenTickets: "تذاكر مفتوحة",
+      reportTopServices: "أكثر الخدمات طلباً",
       reportTopParts: "أكثر القطع مبيعاً",
       invoiceType: "نوع الفاتورة",
       invoiceTypeService: "خدمة",
@@ -326,6 +342,7 @@ export default function AdminDashboard() {
       brand: "Brand",
       model: "Model",
       year: "Year",
+      bikeType: "Bike Type",
       owner: "Owner",
       rating: "Rating",
       available: "Available",
@@ -411,13 +428,22 @@ export default function AdminDashboard() {
       orderRangeWeek: "Weekly",
       orderRangeMonth: "Monthly",
       reportRange: "Date Range",
+      reportType: "Report Type",
+      reportTypeSummary: "Summary",
+      reportTypeServices: "Services",
+      reportTypeParts: "Parts",
+      reportSearch: "Search",
+      reportExportPdf: "Export PDF",
+      reportExportExcel: "Export Excel",
       reportSummary: "Report Summary",
+      reportTotalUsers: "Total Users",
       reportServiceOrders: "Service Orders",
       reportShopOrders: "Shop Orders",
       reportTotalRevenue: "Total Revenue",
       reportServiceRevenue: "Service Revenue",
       reportShopRevenue: "Shop Revenue",
       reportOpenTickets: "Open Tickets",
+      reportTopServices: "Most Requested Services",
       reportTopParts: "Top Parts",
       invoiceType: "Invoice Type",
       invoiceTypeService: "Service",
@@ -456,6 +482,7 @@ export default function AdminDashboard() {
     brand: "الماركة",
     model: "الموديل",
     year: "السنة",
+    bikeType: "نوع الدراجة",
     owner: "المالك",
     rating: "التقييم",
     available: "متاح",
@@ -534,13 +561,22 @@ export default function AdminDashboard() {
     orderRangeWeek: "أسبوعي",
     orderRangeMonth: "شهري",
     reportRange: "نطاق التاريخ",
+    reportType: "نوع التقرير",
+    reportTypeSummary: "ملخص",
+    reportTypeServices: "الخدمات",
+    reportTypeParts: "القطع",
+    reportSearch: "بحث",
+    reportExportPdf: "تصدير PDF",
+    reportExportExcel: "تصدير Excel",
     reportSummary: "ملخص التقرير",
+    reportTotalUsers: "إجمالي المستخدمين",
     reportServiceOrders: "طلبات الخدمة",
     reportShopOrders: "طلبات المتجر",
     reportTotalRevenue: "إجمالي الإيرادات",
     reportServiceRevenue: "إيرادات الخدمة",
     reportShopRevenue: "إيرادات المتجر",
     reportOpenTickets: "تذاكر مفتوحة",
+    reportTopServices: "أكثر الخدمات طلباً",
     reportTopParts: "أكثر القطع مبيعاً",
     supportReply: "رد الإدارة",
     supportReplyPlaceholder: "اكتب الرد للعميل...",
@@ -563,6 +599,12 @@ export default function AdminDashboard() {
   const convoyOptions = [
     { id: "all", name: txt.allConvoys },
     ...convoys,
+  ];
+
+  const reportTypeOptions = [
+    { id: "summary", label: txt.reportTypeSummary },
+    { id: "services", label: txt.reportTypeServices },
+    { id: "parts", label: txt.reportTypeParts },
   ];
 
   const [selectedConvoy, setSelectedConvoy] = useState<string>(() => convoyOptions[1]?.id ?? "all");
@@ -824,8 +866,8 @@ export default function AdminDashboard() {
   );
 
   const reportSummary = useMemo(() => {
-    const start = reportStartDate ? new Date(reportStartDate) : null;
-    const end = reportEndDate ? new Date(reportEndDate) : null;
+    const start = appliedReportStartDate ? new Date(appliedReportStartDate) : null;
+    const end = appliedReportEndDate ? new Date(appliedReportEndDate) : null;
     if (end) end.setHours(23, 59, 59, 999);
 
     const withinRange = (value?: string | null) => {
@@ -836,6 +878,7 @@ export default function AdminDashboard() {
       return true;
     };
 
+    const totalUsers = safeUsers.length;
     const serviceOrders = safeServiceRequests.filter((req: any) =>
       withinRange(req.createdAt ?? req.created_at),
     );
@@ -856,6 +899,16 @@ export default function AdminDashboard() {
       (ticket.status || "open") !== "closed" && withinRange(ticket.created_at ?? ticket.createdAt),
     ).length;
 
+    const serviceCounts = new Map<string, number>();
+    serviceOrders.forEach((req: any) => {
+      const key = req.serviceType || req.service_type || "Unknown";
+      serviceCounts.set(key, (serviceCounts.get(key) || 0) + 1);
+    });
+    const topServices = Array.from(serviceCounts.entries())
+      .map(([name, count]) => ({ name: formatServiceTypeLabel(name), count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
     const partCounts = new Map<string, number>();
     shopOrders.forEach((order: any) => {
       const items = parseItems(order.items ?? order.items_json ?? []);
@@ -872,15 +925,89 @@ export default function AdminDashboard() {
       .slice(0, 5);
 
     return {
+      totalUsers,
       serviceOrders: serviceOrders.length,
       shopOrders: shopOrders.length,
       serviceRevenue,
       shopRevenue,
       totalRevenue,
       openTickets,
+      topServices,
       topReportParts,
     };
-  }, [reportStartDate, reportEndDate, normalizedInvoices, safeServiceRequests, safeShopOrders, safeSupportTickets]);
+  }, [appliedReportStartDate, appliedReportEndDate, normalizedInvoices, safeServiceRequests, safeShopOrders, safeSupportTickets, safeUsers.length, formatServiceTypeLabel]);
+
+  const shouldShowServicesReport =
+    appliedReportType === "summary" || appliedReportType === "services";
+  const shouldShowPartsReport =
+    appliedReportType === "summary" || appliedReportType === "parts";
+
+  const buildReportRows = () => {
+    const sectionLabel = txt.reportTypeSummary;
+    const rows: Array<{ section: string; metric: string; value: string | number }> = [
+      { section: sectionLabel, metric: txt.reportTotalUsers, value: reportSummary.totalUsers },
+      { section: sectionLabel, metric: txt.reportServiceOrders, value: reportSummary.serviceOrders },
+      { section: sectionLabel, metric: txt.reportShopOrders, value: reportSummary.shopOrders },
+      { section: sectionLabel, metric: txt.reportTotalRevenue, value: formatCurrency(reportSummary.totalRevenue) },
+    ];
+
+    if (shouldShowServicesReport && reportSummary.topServices.length > 0) {
+      reportSummary.topServices.forEach((service) => {
+        rows.push({
+          section: txt.reportTopServices,
+          metric: service.name,
+          value: service.count,
+        });
+      });
+    }
+
+    if (shouldShowPartsReport && reportSummary.topReportParts.length > 0) {
+      reportSummary.topReportParts.forEach((part) => {
+        rows.push({
+          section: txt.reportTopParts,
+          metric: part.name,
+          value: part.quantity,
+        });
+      });
+    }
+
+    return rows;
+  };
+
+  const handleExportExcel = () => {
+    const rows = buildReportRows().map((row) => ({
+      Section: row.section,
+      Metric: row.metric,
+      Value: row.value,
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+    const fileName = `CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  };
+
+  const handleExportPdf = () => {
+    const rows = buildReportRows();
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    let y = 40;
+    doc.setFontSize(16);
+    doc.text("Cycle Care Report", 40, y);
+    y += 18;
+    doc.setFontSize(11);
+    doc.text(`Range: ${appliedReportStartDate || "-"} to ${appliedReportEndDate || "-"}`, 40, y);
+    y += 18;
+    rows.forEach((row) => {
+      const line = `${row.section} - ${row.metric}: ${row.value}`;
+      doc.text(line, 40, y);
+      y += 16;
+      if (y > 780) {
+        doc.addPage();
+        y = 40;
+      }
+    });
+    doc.save(`CycleCare-Report-${appliedReportStartDate || "all"}-${appliedReportEndDate || "all"}.pdf`);
+  };
 
   const mockConvoyInvoices: InvoiceWithConvoy[] = [
     {
@@ -1010,7 +1137,23 @@ export default function AdminDashboard() {
 
   const formatCurrency = (value: number) => {
     const safeValue = Number.isFinite(value) ? value : 0;
-      return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
+    return `${safeValue.toFixed(2)} ${lang === "ar" ? "ر.س" : "SAR"}`;
+  };
+
+  const formatServiceTypeLabel = useCallback((value?: string | null) => {
+    const key = (value || "").toLowerCase();
+    const labels = {
+      maintenance: lang === "ar" ? "صيانة دورية" : "Maintenance",
+      repair: lang === "ar" ? "إصلاح" : "Repair",
+      parts: lang === "ar" ? "قطع غيار" : "Parts",
+    };
+    return labels[key as keyof typeof labels] || value || (lang === "ar" ? "غير محدد" : "Unknown");
+  }, [lang]);
+
+  const handleRunReport = () => {
+    setAppliedReportStartDate(reportStartDate);
+    setAppliedReportEndDate(reportEndDate);
+    setAppliedReportType(reportType);
   };
 
   const renderOrderItems = (items: any[]) => {
@@ -1613,14 +1756,45 @@ export default function AdminDashboard() {
               <CardHeader>
                 <CardTitle>{txt.reportRange}</CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3 md:flex-row md:items-center">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">{lang === "ar" ? "من" : "From"}</span>
-                  <Input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+              <CardContent className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">{lang === "ar" ? "من" : "From"}</span>
+                    <Input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">{lang === "ar" ? "إلى" : "To"}</span>
+                    <Input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm text-muted-foreground">{txt.reportType}</span>
+                    <Select value={reportType} onValueChange={(value) => setReportType(value as any)}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reportTypeOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">{lang === "ar" ? "إلى" : "To"}</span>
-                  <Input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleRunReport} className="gap-2">
+                    <MessageSquare className="w-4 h-4" />
+                    {txt.reportSearch}
+                  </Button>
+                  <Button variant="outline" onClick={handleExportPdf} className="gap-2">
+                    <Download className="w-4 h-4" />
+                    {txt.reportExportPdf}
+                  </Button>
+                  <Button variant="outline" onClick={handleExportExcel} className="gap-2">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    {txt.reportExportExcel}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -1631,6 +1805,10 @@ export default function AdminDashboard() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 p-3">
+                    <p className="text-sm text-muted-foreground">{txt.reportTotalUsers}</p>
+                    <p className="text-xl font-semibold">{reportSummary.totalUsers}</p>
+                  </div>
                   <div className="rounded-lg border border-border/60 p-3">
                     <p className="text-sm text-muted-foreground">{txt.reportServiceOrders}</p>
                     <p className="text-xl font-semibold">{reportSummary.serviceOrders}</p>
@@ -1657,23 +1835,45 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-border/60 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold">{txt.reportTopParts}</h3>
-                  </div>
-                  {reportSummary.topReportParts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{txt.noData}</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {reportSummary.topReportParts.map((part) => (
-                        <div key={part.name} className="flex items-center justify-between text-sm">
-                          <span>{part.name}</span>
-                          <span className="font-medium">{part.quantity}</span>
-                        </div>
-                      ))}
+                {shouldShowServicesReport ? (
+                  <div className="rounded-lg border border-border/60 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold">{txt.reportTopServices}</h3>
                     </div>
-                  )}
-                </div>
+                    {reportSummary.topServices.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{txt.noData}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {reportSummary.topServices.map((service) => (
+                          <div key={service.name} className="flex items-center justify-between text-sm">
+                            <span>{service.name}</span>
+                            <span className="font-medium">{service.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {shouldShowPartsReport ? (
+                  <div className="rounded-lg border border-border/60 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold">{txt.reportTopParts}</h3>
+                    </div>
+                    {reportSummary.topReportParts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{txt.noData}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {reportSummary.topReportParts.map((part) => (
+                          <div key={part.name} className="flex items-center justify-between text-sm">
+                            <span>{part.name}</span>
+                            <span className="font-medium">{part.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </TabsContent>
@@ -1736,26 +1936,38 @@ export default function AdminDashboard() {
                   ) : !bikes || bikes.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="space-y-3">
-                      {safeBikes.map((bike) => (
-                        <div
-                          key={bike.id}
-                          className="flex items-center justify-between p-4 border rounded-lg hover-elevate"
-                          data-testid={`bike-item-${bike.id}`}
-                        >
-                          <div className="space-y-1">
-                            <p className="font-medium text-foreground">
-                              {bike.brand} {bike.model}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {txt.year}: {bike.year} | ID: {bike.bikeId}
-                            </p>
-                          </div>
-                          <Badge variant="outline">
-                            {bike.totalDistance || 0} {lang === 'ar' ? 'كم' : 'km'}
-                          </Badge>
-                        </div>
-                      ))}
+                    <div className="w-full overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{txt.bikeType}</TableHead>
+                            <TableHead>{txt.brand}</TableHead>
+                            <TableHead>{txt.model}</TableHead>
+                            <TableHead>{txt.owner}</TableHead>
+                            <TableHead>{txt.createdAt}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {safeBikes.map((bike: any) => {
+                            const ownerName =
+                              bike.ownerName ??
+                              bike.ownerEmail ??
+                              bike.userName ??
+                              bike.userId ??
+                              "-";
+                            const createdAt = bike.createdAt ?? bike.created_at;
+                            return (
+                              <TableRow key={bike.id} data-testid={`bike-item-${bike.id}`}>
+                                <TableCell>{bike.bikeType ?? bike.bike_type ?? "-"}</TableCell>
+                                <TableCell>{bike.brand ?? "-"}</TableCell>
+                                <TableCell>{bike.model ?? "-"}</TableCell>
+                                <TableCell>{ownerName}</TableCell>
+                                <TableCell>{formatOrderDate(createdAt)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </ScrollArea>
@@ -1953,6 +2165,7 @@ export default function AdminDashboard() {
                               request.userId ??
                               "-";
                             const technicianName = request.technicianName ?? "-";
+                            const isMockTechnician = request.isMockTechnician === true;
                             const createdAt = request.createdAt ?? request.created_at;
                             const invoiceNumber =
                               request.invoiceNumber ?? request.invoice?.invoiceNumber ?? "-";
@@ -1982,7 +2195,16 @@ export default function AdminDashboard() {
                                     {request.status}
                                   </Badge>
                                 </TableCell>
-                                <TableCell>{technicianName || "-"}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <span>{technicianName || "-"}</span>
+                                    {isMockTechnician ? (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {lang === "ar" ? "تجريبي" : "Mock"}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
                                 <TableCell>{formatOrderDate(createdAt)}</TableCell>
                                 <TableCell>
                                   <div className="space-y-1 text-xs">

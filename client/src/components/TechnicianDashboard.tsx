@@ -13,13 +13,44 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import type { ServiceRequest, Technician } from "@shared/schema";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
+type TechnicianOrder = ServiceRequest & {
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  invoiceTotal?: number | string | null;
+};
+
 interface ServiceRequestCardProps extends ServiceRequest {
   onAccept?: (id: string) => void;
   onDecline?: (id: string) => void;
   lang: 'ar' | 'en';
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  invoiceTotal?: number | string | null;
 }
 
-function ServiceRequestCard({ id, userId, serviceType, location, notes, status, createdAt, onAccept, onDecline, lang }: ServiceRequestCardProps) {
+function ServiceRequestCard({
+  id,
+  userId,
+  serviceType,
+  location,
+  notes,
+  status,
+  createdAt,
+  onAccept,
+  onDecline,
+  lang,
+  invoiceNumber,
+  invoiceStatus,
+  invoiceTotal,
+}: ServiceRequestCardProps) {
+  const formatCurrency = (value?: number | string | null) => {
+    if (value === null || value === undefined || value === "") return null;
+    const numeric = Number(value);
+    if (Number.isNaN(numeric)) return null;
+    return `${numeric.toFixed(2)} ${lang === 'ar' ? 'ر.س' : 'SAR'}`;
+  };
+  const invoiceTotalLabel = formatCurrency(invoiceTotal);
+
   const formatTime = (date: Date | null) => {
     if (!date) return lang === 'ar' ? 'غير محدد' : 'Not specified';
     const now = new Date();
@@ -78,6 +109,26 @@ function ServiceRequestCard({ id, userId, serviceType, location, notes, status, 
         {notes && (
           <div className="text-sm text-muted-foreground bg-muted p-2 rounded-md">
             {notes}
+          </div>
+        )}
+
+        {(invoiceNumber || invoiceStatus || invoiceTotalLabel) && (
+          <div className="text-sm text-muted-foreground bg-muted/70 p-2 rounded-md space-y-1">
+            {invoiceNumber && (
+              <div>
+                {lang === 'ar' ? 'رقم الفاتورة' : 'Invoice'}: {invoiceNumber}
+              </div>
+            )}
+            {invoiceStatus && (
+              <div>
+                {lang === 'ar' ? 'حالة الفاتورة' : 'Status'}: {invoiceStatus}
+              </div>
+            )}
+            {invoiceTotalLabel && (
+              <div>
+                {lang === 'ar' ? 'الإجمالي' : 'Total'}: {invoiceTotalLabel}
+              </div>
+            )}
           </div>
         )}
         
@@ -181,7 +232,7 @@ export default function TechnicianDashboard() {
   const currentAvailability = (technician as any)?.is_available ?? (technician as any)?.isAvailable;
   const isApprovedStatus = ["approved", "online", "offline"].includes(status);
 
-  const { data: requests = [], isLoading: reqLoading } = useQuery<ServiceRequest[]>({
+  const { data: requests = [], isLoading: reqLoading } = useQuery<TechnicianOrder[]>({
     queryKey: ['/api/technician/orders'],
     enabled: isApprovedStatus && isActive === true,
     staleTime: 0,

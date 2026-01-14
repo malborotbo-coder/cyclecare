@@ -132,6 +132,7 @@ export const bikes = pgTable("bikes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   bikeId: varchar("bike_id").notNull().unique(), // BK-2024-XXXX format
+  bikeType: varchar("bike_type"),
   brand: varchar("brand").notNull(),
   model: varchar("model").notNull(),
   year: integer("year").notNull(),

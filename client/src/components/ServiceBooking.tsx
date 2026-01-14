@@ -106,14 +106,25 @@ export default function ServiceBooking() {
         createdAt: now,
         updatedAt: now,
         distanceKm: 0,
+        isMock: true,
       } as Technician,
     ];
   }, []);
 
-  const techniciansList = useMemo<Technician[]>(
-    () => (technicians && technicians.length > 0 ? technicians : fallbackTechnicians),
-    [technicians, fallbackTechnicians],
-  );
+  const techniciansList = useMemo<Technician[]>(() => {
+    const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+    const realTechnicians = safeTechnicians.filter((tech: any) => {
+      const isMock = tech?.isMock || tech?.id?.toString().startsWith("mock-");
+      return !isMock;
+    });
+    if (realTechnicians.length > 0) {
+      return realTechnicians;
+    }
+    if (safeTechnicians.length > 0) {
+      return safeTechnicians;
+    }
+    return fallbackTechnicians;
+  }, [technicians, fallbackTechnicians]);
 
   useEffect(() => {
     if (!selectedTechnicianId && techniciansList.length > 0) {
@@ -504,6 +515,15 @@ export default function ServiceBooking() {
                   <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-3">
                     {techniciansList && techniciansList.length > 0 ? (
                       techniciansList.map((tech, idx) => (
+                        (() => {
+                          const isMockTech =
+                            (tech as any)?.isMock ||
+                            (typeof tech.id === "string" && tech.id.startsWith("mock-"));
+                          const displayName =
+                            tech.name?.trim()
+                              ? tech.name
+                              : `فني #${idx + 1}`;
+                          return (
                         <Label
                           key={tech.id}
                           htmlFor={tech.id}
@@ -516,7 +536,14 @@ export default function ServiceBooking() {
                               <User className="w-6 h-6 text-primary" />
                             </div>
                             <div className="flex-1">
-                              <div className="font-semibold">{`فني #${idx + 1}`}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold">{displayName}</span>
+                                {isMockTech ? (
+                                  <Badge variant="secondary" className="text-xs">
+                                    تجريبي
+                                  </Badge>
+                                ) : null}
+                              </div>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <span>⭐ {tech.rating || "0.0"}</span>
                                 <span>•</span>
@@ -540,6 +567,8 @@ export default function ServiceBooking() {
                             <Badge>{tech.isAvailable || (tech as any).is_available ? "متاح" : "مشغول"}</Badge>
                           </div>
                         </Label>
+                          );
+                        })()
                       ))
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">

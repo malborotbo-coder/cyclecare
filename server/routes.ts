@@ -364,6 +364,20 @@ const normalizeInvoiceRow = (row: any) => ({
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
 
+const normalizeBikeRow = (row: any) => ({
+  id: row.id,
+  userId: row.user_id ?? row.userId ?? null,
+  bikeId: row.bike_id ?? row.bikeId ?? null,
+  bikeType: row.bike_type ?? row.bikeType ?? null,
+  brand: row.brand ?? null,
+  model: row.model ?? null,
+  year: row.year ?? null,
+  totalDistance: row.total_distance ?? row.totalDistance ?? 0,
+  imageUrl: row.image_url ?? row.imageUrl ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+});
+
 const normalizeSupportReplyRow = (row: any) => ({
   id: row.id,
   ticketId: row.ticket_id ?? row.ticketId ?? null,
@@ -3166,7 +3180,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
       const requests = await storage.getTechnicianServiceRequests(technician.id);
-      res.json(Array.isArray(requests) ? requests : []);
+      const safeRequests = Array.isArray(requests) ? requests : [];
+      const requestIds = safeRequests.map((request) => request.id).filter(Boolean);
+      let invoiceByRequestId = new Map<string, any>();
+      if (requestIds.length > 0) {
+        const ids = requestIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: invResp, data: invData } = await pgFetch(
+          `/invoices?service_request_id=in.(${ids})`,
+        );
+        if (invResp.ok) {
+          const invoices = Array.isArray(invData) ? invData.map(normalizeInvoiceRow) : [];
+          invoiceByRequestId = new Map(
+            invoices.map((invoice) => [invoice.serviceRequestId, invoice]),
+          );
+        }
+      }
+      const enriched = safeRequests.map((request: any) => {
+        const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
+        return {
+          ...request,
+          invoiceNumber: invoice?.invoiceNumber ?? null,
+          invoiceStatus: invoice?.status ?? null,
+          invoiceTotal: invoice?.total ?? null,
+          invoice,
+        };
+      });
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching technician orders:", error);
       res.json([]);
@@ -3757,7 +3796,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[ADMIN][BIKES][LIST][FAILED]", { status: resp.status, body: data });
         return res.json([]);
       }
-      res.json(Array.isArray(data) ? data : []);
+      const bikes = Array.isArray(data) ? data.map(normalizeBikeRow) : [];
+      const userIds = bikes.map((bike) => bike.userId).filter(Boolean);
+      let usersById = new Map<string, any>();
+      if (userIds.length > 0) {
+        const ids = userIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: userResp, data: userData } = await pgFetch(`/users?id=in.(${ids})`);
+        if (userResp.ok) {
+          const users = Array.isArray(userData) ? userData.map(normalizeUserRow) : [];
+          usersById = new Map(users.map((user) => [user.id, user]));
+        }
+      }
+      const enriched = bikes.map((bike) => {
+        const owner = bike.userId ? usersById.get(bike.userId) : null;
+        return {
+          ...bike,
+          ownerName: buildUserDisplayName(owner),
+          ownerEmail: owner?.email ?? null,
+        };
+      });
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching all bikes:", error);
       res.status(500).json({ message: "Failed to fetch bikes" });
@@ -4082,13 +4140,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const technicianUserId = technician?.user_id ?? technician?.userId ?? null;
           const technicianUser = technicianUserId ? usersById.get(technicianUserId) : null;
           const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
+          const isMockTechnician =
+            typeof request.technicianId === "string" &&
+            request.technicianId.toLowerCase().startsWith("mock-");
+          const technicianName =
+            buildUserDisplayName(technicianUser) ||
+            (isMockTechnician ? "Mock Technician" : null);
           return {
             ...request,
             orderNumber: request.orderNumber || request.id,
             orderType: "service",
             customerName: buildUserDisplayName(customer),
             customerEmail: customer?.email ?? null,
-            technicianName: buildUserDisplayName(technicianUser),
+            technicianName,
+            isMockTechnician,
             invoiceId: invoice?.id ?? null,
             invoiceNumber: invoice?.invoiceNumber ?? null,
             invoiceStatus: invoice?.status ?? null,

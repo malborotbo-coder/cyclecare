@@ -254,11 +254,11 @@ const BikeImagePicker = memo(function BikeImagePicker({
 });
 
 const BikePageBackground = ({ children }: { children: ReactNode }) => (
-  <div className="relative min-h-screen bg-background">
+  <div className="relative min-h-screen bg-background overflow-hidden">
     <div className="absolute inset-0">
       <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${workshopBg})` }}
+        className="absolute inset-0 bg-cover bg-center transition-opacity duration-500 will-change-transform"
+        style={{ backgroundImage: `url(${workshopBg})`, transform: "translateZ(0)" }}
         aria-hidden="true"
       />
       <div className="absolute inset-0 bg-black/30" aria-hidden="true" />
@@ -673,12 +673,12 @@ export default function BikeProfile() {
           {t[language].addBike}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md transition-all duration-300">
         <DialogHeader>
           <DialogTitle className="text-2xl">{t[language].addBike}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 transition-all duration-300">
             <BikeImagePicker
               key={addPickerKey}
               initialPreview={null}
@@ -742,7 +742,7 @@ export default function BikeProfile() {
       <BikePageBackground>
         <div className="p-4">
           <div className="max-w-2xl mx-auto space-y-6">
-            <div>
+            <div className="min-h-[72px]">
               <h1 className="text-3xl font-bold">{t[language].title}</h1>
               <p className="text-muted-foreground mt-1">{t[language].addFirstBike}</p>
             </div>
@@ -778,7 +778,7 @@ export default function BikeProfile() {
     <BikePageBackground>
       <div className="p-4">
         <div className="max-w-2xl mx-auto space-y-6">
-        <div>
+        <div className="min-h-[72px]">
           <h1 className="text-3xl font-bold">{t[language].title}</h1>
           <p className="text-muted-foreground mt-1">{t[language].subtitle}</p>
         </div>
@@ -787,8 +787,8 @@ export default function BikeProfile() {
           <CardContent className="p-0">
             <div className="relative">
               <div 
-                className="h-48 bg-cover bg-center rounded-t-md"
-                style={{ backgroundImage: `url(${firstBike.imageUrl || firstBike.image_url || bikeImage})` }}
+                className="h-48 bg-cover bg-center rounded-t-md transition-opacity duration-500"
+                style={{ backgroundImage: `url(${firstBike.imageUrl || firstBike.image_url || bikeImage})`, transform: "translateZ(0)" }}
               />
               
               {isUploadingPhoto && uploadProgress > 0 && (
@@ -981,12 +981,12 @@ export default function BikeProfile() {
           setIsEditDialogOpen(open);
           if (!open) setEditingBike(null);
         }}>
-          <DialogContent>
+          <DialogContent className="transition-all duration-300">
             <DialogHeader>
               <DialogTitle>{t[language].editBike}</DialogTitle>
             </DialogHeader>
             <Form {...editForm}>
-              <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+              <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4 transition-all duration-300">
                 <BikeImagePicker
                   key={editPickerKey}
                   initialPreview={editingBike?.imageUrl || editingBike?.image_url || null}
