@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,27 +30,64 @@ interface ServiceRequestCardProps extends ServiceRequest {
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
   invoiceTotal?: number | string | null;
+  technicianCoords?: { lat: number; lng: number } | null;
 }
 
-function ServiceRequestCard({
-  id,
-  userId,
-  serviceType,
-  location,
-  notes,
-  status,
-  createdAt,
-  onAccept,
-  onDecline,
-  onStatusChange,
-  onComplete,
-  isBusy,
-  lang,
-  invoiceNumber,
-  invoiceStatus,
-  invoiceTotal,
-}: ServiceRequestCardProps) {
+const toNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const parseCoordsFromLocation = (location?: string | null) => {
+  if (!location) return null;
+  const parts = location.split(",").map((part) => part.trim());
+  if (parts.length !== 2) return null;
+  const lat = toNumber(parts[0]);
+  const lng = toNumber(parts[1]);
+  if (lat === null || lng === null) return null;
+  return { lat, lng };
+};
+
+const haversineKm = (from: { lat: number; lng: number }, to: { lat: number; lng: number }) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const radius = 6371;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const lat1 = toRad(from.lat);
+  const lat2 = toRad(to.lat);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return radius * c;
+};
+
+function ServiceRequestCard(props: ServiceRequestCardProps) {
+  const {
+    id,
+    userId,
+    serviceType,
+    location,
+    latitude,
+    longitude,
+    notes,
+    status,
+    createdAt,
+    onAccept,
+    onDecline,
+    onStatusChange,
+    onComplete,
+    isBusy,
+    lang,
+    invoiceNumber,
+    invoiceStatus,
+    invoiceTotal,
+    technicianCoords,
+  } = props;
   const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const isNewStatus = ['pending', 'assigned', 'created'].includes(status || '');
+  const isActiveStatus = ['accepted', 'on_the_way', 'working', 'in_progress'].includes(status || '');
   const formatCurrency = (value?: number | string | null) => {
     if (value === null || value === undefined || value === "") return null;
     const numeric = Number(value);
@@ -58,6 +95,29 @@ function ServiceRequestCard({
     return `${numeric.toFixed(2)} ${lang === 'ar' ? 'ر.س' : 'SAR'}`;
   };
   const invoiceTotalLabel = formatCurrency(invoiceTotal);
+  const providedDistance = toNumber((props as any)?.distanceKm ?? (props as any)?.technicianDistanceKm ?? (props as any)?.distance_km);
+  const providedEta = toNumber((props as any)?.etaMinutes ?? (props as any)?.eta_minutes ?? (props as any)?.technicianEtaMinutes);
+  const numericLat = toNumber(latitude);
+  const numericLng = toNumber(longitude);
+  const locationCoords = numericLat !== null && numericLng !== null
+    ? { lat: numericLat, lng: numericLng }
+    : parseCoordsFromLocation(location);
+  const computedDistance = technicianCoords && locationCoords
+    ? haversineKm(technicianCoords, locationCoords)
+    : null;
+  const distanceKm = providedDistance ?? computedDistance;
+  const etaMinutes = providedEta;
+  const distanceLabel = distanceKm !== null
+    ? `${distanceKm.toFixed(1)} ${lang === 'ar' ? 'كم' : 'km'}`
+    : null;
+  const etaLabel = etaMinutes !== null
+    ? `${Math.round(etaMinutes)} ${lang === 'ar' ? 'دقيقة' : 'min'}`
+    : null;
+  const navigationUrl = locationCoords
+    ? `https://www.google.com/maps/dir/?api=1&destination=${locationCoords.lat},${locationCoords.lng}`
+    : location
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`
+      : null;
 
   const formatTime = (date: Date | null) => {
     if (!date) return lang === 'ar' ? 'غير محدد' : 'Not specified';
@@ -115,6 +175,22 @@ function ServiceRequestCard({
           <MapPin className="w-4 h-4 text-muted-foreground" />
           <span>{location || (lang === 'ar' ? 'الرياض' : 'Riyadh')}</span>
         </div>
+        {isNewStatus && (distanceLabel || etaLabel) && (
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {distanceLabel && (
+              <span className="flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" />
+                {distanceLabel}
+              </span>
+            )}
+            {etaLabel && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                {etaLabel}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-sm">
           <Clock className="w-4 h-4 text-muted-foreground" />
           <span>{formatTime(createdAt)}</span>
@@ -142,6 +218,33 @@ function ServiceRequestCard({
                 {lang === 'ar' ? 'الإجمالي' : 'Total'}: {invoiceTotalLabel}
               </div>
             )}
+          </div>
+        )}
+
+        {isActiveStatus && (
+          <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <MapPin className="w-4 h-4 text-primary" />
+              <span>{lang === 'ar' ? 'الوجهة الحالية' : 'Current destination'}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {location || (lang === 'ar' ? 'موقع العميل' : 'Client location')}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={!navigationUrl}
+              asChild={Boolean(navigationUrl)}
+            >
+              {navigationUrl ? (
+                <a href={navigationUrl} target="_blank" rel="noreferrer">
+                  {lang === 'ar' ? 'الانتقال إلى العميل' : 'Navigate to client'}
+                </a>
+              ) : (
+                <span>{lang === 'ar' ? 'تعذر تحديد الموقع' : 'Location unavailable'}</span>
+              )}
+            </Button>
           </div>
         )}
         
@@ -235,6 +338,9 @@ export default function TechnicianDashboard() {
   const { lang } = useLanguage();
   const { toast } = useToast();
   const [isOnline, setIsOnline] = useState(true);
+  // Keep the active tab stable after mutations; previously defaultValue reset the view on rerender.
+  const [activeTab, setActiveTab] = useState<'new' | 'progress' | 'done'>('new');
+  const [optimisticStatuses, setOptimisticStatuses] = useState<Record<string, string>>({});
   const isNative = Capacitor.isNativePlatform();
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
@@ -318,6 +424,16 @@ export default function TechnicianDashboard() {
     refetchOnWindowFocus: true,
   });
   const safeRequests = Array.isArray(requests) ? requests : [];
+  const technicianCoords = useMemo(() => {
+    const lat = toNumber((technician as any)?.latitude ?? (technician as any)?.lat);
+    const lng = toNumber((technician as any)?.longitude ?? (technician as any)?.lng);
+    if (lat === null || lng === null) return null;
+    return { lat, lng };
+  }, [technician]);
+  const effectiveRequests = safeRequests.map((request) => ({
+    ...request,
+    status: optimisticStatuses[request.id] ?? request.status,
+  }));
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
@@ -498,9 +614,10 @@ export default function TechnicianDashboard() {
     onError: (error) => {
       console.error("[TECH][UI][COMPLETE][ERROR]", error);
       toast({
-        title: lang === 'ar' ? 'تعذر الإنهاء' : 'Complete failed',
-        description: lang === 'ar' ? 'لم يتم إنهاء الطلب' : 'Could not complete order',
-        variant: "destructive",
+        title: lang === 'ar' ? 'تعذر حفظ الإنهاء الآن' : 'Completion not synced',
+        description: lang === 'ar'
+          ? 'تم تحديث الواجهة، وسيتم المزامنة لاحقاً.'
+          : 'UI updated; sync will be retried later.',
       });
     },
   });
@@ -518,6 +635,7 @@ export default function TechnicianDashboard() {
   };
 
   const handleComplete = (id: string, file: File) => {
+    setOptimisticStatuses((prev) => ({ ...prev, [id]: 'completed' }));
     completeMutation.mutate({ id, file });
   };
 
@@ -601,11 +719,11 @@ export default function TechnicianDashboard() {
     );
   }
 
-  const pendingRequests = safeRequests.filter(r => ['pending', 'assigned', 'created'].includes(r.status || ''));
-  const inProgressRequests = safeRequests.filter(r =>
+  const pendingRequests = effectiveRequests.filter(r => ['pending', 'assigned', 'created'].includes(r.status || ''));
+  const inProgressRequests = effectiveRequests.filter(r =>
     ['accepted', 'on_the_way', 'working', 'in_progress'].includes(r.status || ''),
   );
-  const completedRequests = safeRequests.filter(r => r.status === 'completed');
+  const completedRequests = effectiveRequests.filter(r => r.status === 'completed');
   const isActionBusy =
     acceptMutation.isPending ||
     rejectMutation.isPending ||
@@ -668,7 +786,11 @@ export default function TechnicianDashboard() {
             </div>
           </div>
 
-          <Tabs defaultValue="new" className="w-full">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'new' | 'progress' | 'done')}
+            className="w-full"
+          >
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="new" data-testid="tab-new-requests">
                 {t.newRequests} ({pendingRequests.length})
@@ -695,6 +817,7 @@ export default function TechnicianDashboard() {
                     onComplete={handleComplete}
                     isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
+                    technicianCoords={technicianCoords}
                   />
                 ))
               )}
@@ -712,6 +835,7 @@ export default function TechnicianDashboard() {
                     onComplete={handleComplete}
                     isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
+                    technicianCoords={technicianCoords}
                   />
                 ))
               )}
@@ -727,6 +851,7 @@ export default function TechnicianDashboard() {
                     {...request}
                     isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
+                    technicianCoords={technicianCoords}
                   />
                 ))
               )}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import Logo from "@/components/Logo";
 import LanguageToggle from "@/components/LanguageToggle";
 import ThemeToggle from "@/components/ThemeToggle";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -27,6 +27,7 @@ export default function TechnicianRegistration() {
   const isRTL = lang === "ar";
   const [errors, setErrors] = useState<FieldErrors>({});
   const [successMessage, setSuccessMessage] = useState("");
+  const [applicationStatus, setApplicationStatus] = useState<string | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
   const DRAFT_KEY = "technician_application_draft";
 
@@ -68,6 +69,67 @@ export default function TechnicianRegistration() {
       localStorage.removeItem(DRAFT_KEY);
     }
   }, []);
+
+  const { data: profile, isLoading: profileLoading } = useQuery({
+    queryKey: ["/api/user/profile"],
+    enabled: !!user,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    queryFn: () => apiRequest("/api/user/profile", "GET"),
+  });
+
+  const { data: technicianRecord, isLoading: technicianLoading } = useQuery({
+    queryKey: ["/api/technicians/me"],
+    enabled: !!user,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    queryFn: () => apiRequest("/api/technicians/me", "GET"),
+  });
+
+  const effectiveStatus = (technicianRecord as any)?.status || applicationStatus || null;
+  const isApproved = effectiveStatus === "approved";
+  const isPending = effectiveStatus === "pending";
+  const isRejected = effectiveStatus === "rejected";
+  const hasExistingApplication = Boolean(effectiveStatus);
+  const showApplicationStatus = hasExistingApplication && !technicianLoading;
+
+  const profileComplete = Boolean(
+    profile?.firstName &&
+      profile?.lastName &&
+      profile?.email &&
+      profile?.phone &&
+      profile?.profileImageUrl
+  );
+
+  const missingProfileFields = [
+    !profile?.firstName || !profile?.lastName ? (lang === "ar" ? "الاسم الكامل" : "Full name") : null,
+    !profile?.email ? (lang === "ar" ? "البريد الإلكتروني" : "Email") : null,
+    !profile?.phone ? (lang === "ar" ? "رقم الجوال" : "Phone") : null,
+    !profile?.profileImageUrl ? (lang === "ar" ? "صورة الملف الشخصي" : "Profile photo") : null,
+  ].filter(Boolean) as string[];
+
+  useEffect(() => {
+    const firstName = profile?.firstName || user?.firstName || "";
+    const lastName = profile?.lastName || user?.lastName || "";
+    const fullName = `${firstName} ${lastName}`.trim();
+    setFormData((prev) => ({
+      ...prev,
+      fullName,
+      email: profile?.email || user?.email || "",
+      phoneNumber: profile?.phone || user?.phone || "",
+    }));
+  }, [profile, user]);
+
+  useEffect(() => {
+    // Redirect approved technicians straight to dashboard.
+    if (isApproved) {
+      navigate("/technician");
+    }
+  }, [isApproved, navigate]);
+
+  useEffect(() => {
+    saveDraft();
+  }, [formData]);
 
   const saveDraft = () => {
     if (typeof localStorage === "undefined") return;
@@ -127,6 +189,8 @@ export default function TechnicianRegistration() {
         description: t("applicationSuccessDesc"),
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/technicians/me"] });
+      setApplicationStatus("pending");
     },
     onError: (error: any) => {
       const normalizeFieldErrors = (fieldErrors: any): FieldErrors => {
@@ -206,6 +270,27 @@ export default function TechnicianRegistration() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profileComplete) {
+      toast({
+        title: lang === "ar" ? "أكمل بياناتك أولاً" : "Complete your profile first",
+        description:
+          lang === "ar"
+            ? "يرجى تعبئة بياناتك الشخصية وصورة الملف من صفحة بياناتي."
+            : "Please fill your personal profile and photo before applying.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (hasExistingApplication) {
+      toast({
+        title: lang === "ar" ? "طلب قائم" : "Application already submitted",
+        description:
+          lang === "ar"
+            ? "تم إرسال طلبك مسبقًا، يرجى انتظار رد الإدارة."
+            : "Your application is already submitted. Please wait for admin response.",
+      });
+      return;
+    }
     const newErrors: FieldErrors = {};
     const docs = gatherDocuments();
 
@@ -253,6 +338,7 @@ export default function TechnicianRegistration() {
 
   const inputErrorClass = (field: string) =>
     errors[field] ? "border-destructive focus-visible:ring-destructive" : "";
+  const identityReadOnlyClass = "bg-muted/50 text-muted-foreground cursor-not-allowed";
 
   return (
     <div className="min-h-screen relative bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -327,7 +413,79 @@ export default function TechnicianRegistration() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          {profileLoading || technicianLoading ? (
+            <div className="mb-4 text-center text-sm font-medium text-muted-foreground bg-muted/40 p-3 rounded-lg border border-border/40">
+              {lang === "ar" ? "جارٍ تحميل البيانات..." : "Loading your data..."}
+            </div>
+          ) : null}
+
+          {!profileComplete && !profileLoading && (
+            <Card className="mb-4 bg-amber-500/10 border border-amber-500/30">
+              <CardHeader>
+                <CardTitle className="text-base text-amber-700">
+                  {lang === "ar" ? "أكمل بياناتك أولاً" : "Complete your profile first"}
+                </CardTitle>
+                <CardDescription className="text-amber-700/80">
+                  {lang === "ar"
+                    ? "لا يمكن التقديم كفني قبل تعبئة البيانات الأساسية في صفحة بياناتي."
+                    : "You must complete your profile before submitting a technician application."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {missingProfileFields.length > 0 && (
+                  <div className="text-sm text-amber-800">
+                    {lang === "ar" ? "الحقول الناقصة:" : "Missing fields:"} {missingProfileFields.join("، ")}
+                  </div>
+                )}
+                <Button type="button" onClick={() => navigate("/profile")} data-testid="button-go-profile">
+                  {lang === "ar" ? "اذهب إلى بياناتي" : "Go to Profile"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {showApplicationStatus && (
+            <Card className="mb-4 bg-primary/10 border border-primary/20">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {isPending
+                    ? lang === "ar"
+                      ? "تم إرسال طلبك"
+                      : "Application submitted"
+                    : isRejected
+                    ? lang === "ar"
+                      ? "تم رفض الطلب"
+                      : "Application rejected"
+                    : lang === "ar"
+                    ? "طلبك معتمد"
+                    : "Application approved"}
+                </CardTitle>
+                <CardDescription>
+                  {isPending
+                    ? lang === "ar"
+                      ? "يرجى انتظار رد الإدارة. لا يمكنك التقديم مرة أخرى."
+                      : "Please wait for admin response. You cannot submit another application."
+                    : isRejected
+                    ? lang === "ar"
+                      ? "يرجى التواصل مع الإدارة لمراجعة الطلب."
+                      : "Please contact admin for further instructions."
+                    : lang === "ar"
+                    ? "سيتم تحويلك إلى لوحة الفني."
+                    : "You will be redirected to the technician dashboard."}
+                </CardDescription>
+              </CardHeader>
+              {!isApproved && (
+                <CardContent>
+                  <Button type="button" variant="outline" onClick={() => navigate("/support")}>
+                    {lang === "ar" ? "التواصل مع الدعم" : "Contact support"}
+                  </Button>
+                </CardContent>
+              )}
+            </Card>
+          )}
+
+          {!hasExistingApplication && (
+            <form onSubmit={handleSubmit}>
             {/* Personal Information Card */}
             <Card className="mb-4 bg-background/85 dark:bg-slate-900/80 backdrop-blur-md border border-border/40">
               <CardHeader>
@@ -343,11 +501,14 @@ export default function TechnicianRegistration() {
                   <Input
                     id="fullName"
                     value={formData.fullName}
-                    onChange={(e) => handleInputChange("fullName", e.target.value)}
+                    readOnly
                     placeholder={t("fullNamePlaceholder")}
-                    className={inputErrorClass("name")}
+                    className={`${inputErrorClass("name")} ${identityReadOnlyClass}`}
                     data-testid="input-fullname"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
+                  </p>
                   {errors.name && <p className="text-destructive text-sm">{errors.name}</p>}
                 </div>
 
@@ -358,11 +519,14 @@ export default function TechnicianRegistration() {
                     id="email"
                     type="email"
                     value={formData.email}
-                    onChange={(e) => handleInputChange("email", e.target.value)}
+                    readOnly
                     placeholder="example@email.com"
-                    className={inputErrorClass("email")}
+                    className={`${inputErrorClass("email")} ${identityReadOnlyClass}`}
                     data-testid="input-email"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
+                  </p>
                   {errors.email && <p className="text-destructive text-sm">{errors.email}</p>}
                 </div>
 
@@ -373,11 +537,14 @@ export default function TechnicianRegistration() {
                     id="phone"
                     type="tel"
                     value={formData.phoneNumber}
-                    onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
+                    readOnly
                     placeholder={t("phonePlaceholder")}
-                    className={inputErrorClass("phone_number")}
+                    className={`${inputErrorClass("phone_number")} ${identityReadOnlyClass}`}
                     data-testid="input-phone"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
+                  </p>
                   {errors.phone_number && <p className="text-destructive text-sm">{errors.phone_number}</p>}
                 </div>
 
@@ -601,7 +768,7 @@ export default function TechnicianRegistration() {
               type="submit"
               size="lg"
               className="w-full bg-primary hover:bg-primary/90 text-lg py-6"
-              disabled={submitMutation.isPending}
+              disabled={submitMutation.isPending || !profileComplete || hasExistingApplication}
               data-testid="button-submit-application"
             >
               {submitMutation.isPending ? (
@@ -617,6 +784,7 @@ export default function TechnicianRegistration() {
               )}
             </Button>
           </form>
+          )}
         </main>
       </div>
     </div>
