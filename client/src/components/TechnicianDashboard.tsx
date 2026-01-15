@@ -233,14 +233,16 @@ export default function TechnicianDashboard() {
     refetchOnWindowFocus: true,
     refetchInterval: (data) => {
       const status = (data as any)?.status;
-      if (!data || status === "pending") return 15000;
+      const approvalStatus = status === "online" || status === "offline" ? "approved" : status;
+      if (!data || approvalStatus === "pending") return 15000;
       return false;
     },
   });
   const status = (technician as any)?.status;
+  const approvalStatus = status === "online" || status === "offline" ? "approved" : status;
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
-  const currentOnline = status === "online";
-  const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+  const currentOnline = (technician as any)?.is_available ?? (technician as any)?.isAvailable ?? false;
+  const isApprovedStatus = approvalStatus === "approved";
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<TechnicianOrder[]>({
     queryKey: ['/api/technician/orders'],
@@ -256,9 +258,14 @@ export default function TechnicianDashboard() {
       return apiRequest('/api/technicians/me/availability', 'PATCH', { is_available: next });
     },
     onSuccess: (updated: any) => {
-      const online = String(updated?.status || "").toLowerCase() === "online";
-      setIsOnline(online);
+      const online = updated?.is_available ?? updated?.isAvailable ?? false;
+      setIsOnline(Boolean(online));
       queryClient.invalidateQueries({ queryKey: ['/api/technicians/me'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/technicians'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/technicians/locations'] });
+      queryClient.invalidateQueries({
+        predicate: (query) => (query.queryKey as any[])[0] === "/api/technicians/nearby",
+      });
     },
     onError: () => {
       toast({
@@ -397,7 +404,7 @@ export default function TechnicianDashboard() {
     );
   }
 
-  if (status === 'pending') {
+  if (approvalStatus === 'pending') {
     return (
       <PageBackground>
         <div className="min-h-screen flex items-center justify-center p-4">
@@ -415,7 +422,7 @@ export default function TechnicianDashboard() {
     );
   }
 
-  if (status === 'rejected') {
+  if (approvalStatus === 'rejected') {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md text-center">

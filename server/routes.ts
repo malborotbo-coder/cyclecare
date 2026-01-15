@@ -770,7 +770,7 @@ async function ensureTechnicianRoleFromProfile(userUuid: string): Promise<boolea
   const technician = Array.isArray(data) ? data[0] : data?.[0];
   if (!technician) return false;
   const status = String(technician.status || "").toLowerCase();
-  const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+  const isApprovedStatus = status === "approved";
   if (!isApprovedStatus || technician.is_active === false) return false;
   try {
     await ensureRoleAssignment(userUuid, "technician", userUuid);
@@ -2191,13 +2191,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isAvailable: technician.is_available,
         });
         const status = technician.status;
-        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        const isApprovedStatus = status === "approved";
         if (!isApprovedStatus || technician.is_active === false) {
           return res.status(403).json({ message: "Technician not active" });
         }
         const patch: Record<string, any> = {
           is_available: desired,
-          status: desired ? "online" : "offline",
         };
         if (desired && (technician.is_active === null || technician.is_active === undefined)) {
           patch.is_active = true;
@@ -2267,12 +2266,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isAvailable: technician.is_available,
         });
         const status = technician.status;
-        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        const isApprovedStatus = status === "approved";
         if ((!isApprovedStatus || technician.is_active === false) && !guard.auth.isAdmin) {
           return res.status(403).json({ message: "Technician not active" });
         }
         const patch: Record<string, any> = {
-          status: online ? "online" : "offline",
           is_available: online,
         };
         if (online && (technician.is_active === null || technician.is_active === undefined)) {
@@ -2353,7 +2351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: technician.status,
         isActive: technician.is_active,
       });
-      if (technician.status !== "online") {
+      if (technician.status !== "approved" || technician.is_active === false || technician.is_available !== true) {
         return res.status(403).json({ message: "Technician is offline" });
       }
       // Upsert location
@@ -2400,7 +2398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const techFilter =
-        "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)";
+        "/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)";
       console.info("[TECH][NEARBY][QUERY]", { filter: techFilter, lat, lng });
       const { resp: techResp, data: techData } = await pgFetch(techFilter);
       if (!techResp.ok) {
@@ -3496,7 +3494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(data) ? data[0] : data?.[0];
         const status = technician?.status;
-        const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+        const isApprovedStatus = status === "approved";
         if (!technician || !isApprovedStatus || technician.is_active !== true) {
           return res.json([]);
         }
@@ -3523,7 +3521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const technician = Array.isArray(data) ? data[0] : data?.[0];
       const status = technician?.status;
-      const isApprovedStatus = ["approved", "online", "offline"].includes(status);
+      const isApprovedStatus = status === "approved";
       if (!technician || !isApprovedStatus || technician.is_active !== true) {
         return res.json([]);
       }
@@ -4198,7 +4196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!guard.ok) return;
       try {
         const techFilter =
-          "/technicians?status=eq.online&is_active=eq.true&is_available=eq.true&select=id,user_id,phone_number,location,latitude,longitude,rating,review_count,user:users(email,first_name,last_name)";
+          "/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&select=id,user_id,phone_number,location,latitude,longitude,rating,review_count,user:users(email,first_name,last_name)";
         console.info("[ADMIN][TECH][LOC][QUERY]", { filter: techFilter });
         const { resp: techResp, data: techData } = await pgFetch(techFilter);
         if (!techResp.ok) {
