@@ -112,8 +112,8 @@ export default function ServiceBooking() {
         location: "Riyadh",
         latitude: 24.7136,
         longitude: 46.6753,
-        rating: 4.8,
-        reviewCount: 120,
+        rating: 0,
+        reviewCount: 0,
         isAvailable: true,
         is_available: true,
         isApproved: true,
@@ -123,7 +123,9 @@ export default function ServiceBooking() {
         iban: null,
         createdAt: now,
         updatedAt: now,
-        distanceKm: 0,
+        distanceKm: 1.2,
+        etaMinutes: 12,
+        pricePreview: { total: 150 },
         isMock: true,
       } as Technician,
     ];
@@ -131,17 +133,16 @@ export default function ServiceBooking() {
 
   const techniciansList = useMemo<Technician[]>(() => {
     const safeTechnicians = Array.isArray(technicians) ? technicians : [];
-    const realTechnicians = safeTechnicians.filter((tech: any) => {
-      const isMock = tech?.isMock || tech?.id?.toString().startsWith("mock-");
-      return !isMock;
+    const liveTechnicians = safeTechnicians.filter((tech: any) => !tech?.isMock);
+    const merged = [...liveTechnicians, ...fallbackTechnicians];
+    const seen = new Set<string>();
+    return merged.filter((tech: any) => {
+      const id = tech?.id;
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
     });
-    if (realTechnicians.length > 0) {
-      return realTechnicians;
-    }
-    if (safeTechnicians.length > 0) {
-      return safeTechnicians;
-    }
-    return fallbackTechnicians;
   }, [technicians, fallbackTechnicians]);
 
   useEffect(() => {
@@ -604,13 +605,11 @@ export default function ServiceBooking() {
                 {loadingTechnicians ? (
                   <p>جاري التحميل...</p>
                 ) : (
-                  <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-3">
+                  <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-4">
                     {techniciansList && techniciansList.length > 0 ? (
                       techniciansList.map((tech, idx) => (
                         (() => {
-                          const isMockTech =
-                            (tech as any)?.isMock ||
-                            (typeof tech.id === "string" && tech.id.startsWith("mock-"));
+                          const isMockTech = Boolean((tech as any)?.isMock);
                           const user = (tech as any)?.user;
                           const nameFromUser = user
                             ? [user.first_name, user.last_name].filter(Boolean).join(" ")
@@ -620,51 +619,91 @@ export default function ServiceBooking() {
                           const displayName =
                             tech.name?.trim()
                               ? tech.name
-                              : nameFromUser || `فني #${idx + 1}`;
+                              : nameFromUser || "فني معتمد";
+                          const isAvailable = Boolean(tech.isAvailable ?? (tech as any).is_available);
+                          const distanceKm = Number(tech.distanceKm);
+                          const etaMinutes = Number(tech.etaMinutes);
+                          const priceTotalRaw = (tech as any)?.pricePreview?.total;
+                          const priceTotal = Number(priceTotalRaw);
+                          const isSelected = tech.id === selectedTechnicianId;
                           return (
-                        <Label
-                          key={tech.id}
-                          htmlFor={tech.id}
-                          className="flex items-center gap-4 p-4 rounded-md border-2 cursor-pointer hover-elevate bg-white/85 text-foreground dark:bg-white/5 dark:text-white border-white/30 dark:border-white/10"
-                          data-testid={`option-technician-${idx}`}
-                        >
-                          <RadioGroupItem value={tech.id} id={tech.id} />
-                          <div className="flex items-center gap-3 flex-1">
-                            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                              <User className="w-6 h-6 text-primary" />
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold">{displayName}</span>
-                                {isMockTech ? (
-                                  <Badge variant="secondary" className="text-xs">
-                                    تجريبي
-                                  </Badge>
-                                ) : null}
+                            <div
+                              key={tech.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setSelectedTechnicianId(tech.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedTechnicianId(tech.id);
+                                }
+                              }}
+                              className={`rounded-2xl border p-4 transition ${isSelected ? "border-primary bg-white shadow-md" : "border-white/30 bg-white/80"} text-foreground dark:border-white/10 dark:bg-white/5 dark:text-white`}
+                              data-testid={`card-technician-${idx}`}
+                              aria-selected={isSelected}
+                            >
+                              <RadioGroupItem value={tech.id} id={`tech-${tech.id}`} className="sr-only" />
+                              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                <div className="flex items-center gap-4">
+                                  <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <User className="h-7 w-7 text-primary" />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-base font-semibold">{displayName}</span>
+                                      {isMockTech ? (
+                                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+                                          اختبار
+                                        </Badge>
+                                      ) : (
+                                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+                                          ● متصل
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground dark:text-white/70">
+                                      <span>⭐ {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}</span>
+                                      <span>•</span>
+                                      <span>{reviewCount} تقييم</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-white/70">
+                                      <div className="flex items-center gap-1">
+                                        <Route className="h-3 w-3" />
+                                        <span>{Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : "--"} كم</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        <span>{Number.isFinite(etaMinutes) ? Math.max(1, Math.round(etaMinutes)) : "--"} دقيقة</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <MapPin className="h-3 w-3" />
+                                        <span>{isAvailable ? "متاح" : "غير متصل"}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <FileText className="h-3 w-3" />
+                                        <span>
+                                          {Number.isFinite(priceTotal)
+                                            ? `${priceTotal.toFixed(2)} ر.س`
+                                            : "--"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={isSelected ? "default" : "outline"}
+                                  disabled={!isAvailable && !isMockTech}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedTechnicianId(tech.id);
+                                  }}
+                                >
+                                  اختيار الفني
+                                </Button>
                               </div>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>⭐ {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}</span>
-                                <span>•</span>
-                                <span>{reviewCount} تقييم</span>
-                                {Number(tech.yearsOfExperience ?? (tech as any).years_of_experience ?? 0) > 0 && (
-                                  <>
-                                    <span>•</span>
-                                    <span>
-                                      {Number(tech.yearsOfExperience ?? (tech as any).years_of_experience)} سنة خبرة
-                                    </span>
-                                  </>
-                                )}
-                                {tech.distanceKm !== undefined && (
-                                  <>
-                                    <span>•</span>
-                                    <span>{Number(tech.distanceKm).toFixed(1)} كم</span>
-                                  </>
-                                )}
-                              </div>
                             </div>
-                            <Badge>{tech.isAvailable || (tech as any).is_available ? "متاح" : "مشغول"}</Badge>
-                          </div>
-                        </Label>
                           );
                         })()
                       ))
@@ -703,7 +742,7 @@ export default function ServiceBooking() {
                           <span className="font-semibold">
                             {selectedTechnician.name?.trim()
                               ? selectedTechnician.name
-                              : `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`}
+                              : "فني معتمد"}
                           </span>
                           <div className="flex items-center gap-2 text-muted-foreground dark:text-white/70">
                             <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
@@ -839,7 +878,7 @@ export default function ServiceBooking() {
                       serviceName: services.find((s) => s.id === selectedService)?.name || "خدمة",
                       technicianName:
                         selectedTechnician?.name ||
-                        `فني #${Math.max(1, techniciansList.findIndex((t) => t.id === selectedTechnicianId) + 1)}`,
+                        "فني معتمد",
                       technicianRating: Number(selectedTechnician.rating ?? 0),
                       technicianDistanceKm: selectedTechnician.distanceKm ?? 0,
                       technicianEtaMinutes: selectedTechnician.etaMinutes ?? 25,
