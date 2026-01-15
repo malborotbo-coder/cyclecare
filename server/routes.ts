@@ -1312,7 +1312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { userId, phoneNumber } = auth;
 
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
       
       if (user) {
         if (phoneNumber && !user.phone) {
