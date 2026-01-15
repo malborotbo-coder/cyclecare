@@ -155,6 +155,9 @@ export default function ServiceBooking() {
     () => techniciansList.find((t) => t.id === selectedTechnicianId),
     [techniciansList, selectedTechnicianId],
   );
+  const resolvedTechnicianId = useMemo(() => {
+    return selectedTechnician?.id || selectedTechnicianId;
+  }, [selectedTechnician, selectedTechnicianId]);
 
   useEffect(() => {
     if (!user) return;
@@ -296,7 +299,7 @@ export default function ServiceBooking() {
   /* ------------------ BOOKING ------------------ */
 
   const submitBooking = async () => {
-    if (!selectedService || !selectedTechnicianId || !costBreakdown) {
+    if (!selectedService || !resolvedTechnicianId || !costBreakdown) {
       toast({
         title: "خطأ",
         description: "الرجاء إكمال جميع الخطوات",
@@ -310,7 +313,7 @@ export default function ServiceBooking() {
     try {
       const payload = {
         serviceType: selectedService,
-        technicianId: selectedTechnicianId,
+        technicianId: resolvedTechnicianId,
         notes,
         latitude: location.lat,
         longitude: location.lng,
@@ -616,11 +619,18 @@ export default function ServiceBooking() {
                             : "";
                           const ratingValue = Number(tech.rating ?? 0);
                           const reviewCount = Number((tech as any)?.reviewCount ?? (tech as any)?.review_count ?? 0);
-                          const displayName =
-                            tech.name?.trim()
-                              ? tech.name
-                              : nameFromUser || "فني معتمد";
+                          const displayName = nameFromUser || "فني معتمد";
                           const isAvailable = Boolean(tech.isAvailable ?? (tech as any).is_available);
+                          const phoneNumber = (tech as any).phoneNumber ?? (tech as any).phone_number ?? null;
+                          const yearsOfExperience =
+                            (tech as any).yearsOfExperience ?? (tech as any).years_of_experience ?? null;
+                          const locationLabel =
+                            (tech as any).location ??
+                            (tech as any).national_address ??
+                            (tech as any).nationalAddress ??
+                            null;
+                          const techId = typeof tech.id === "string" ? tech.id : "";
+                          const idSuffix = techId ? techId.slice(-6) : "";
                           const distanceKm = Number(tech.distanceKm);
                           const etaMinutes = Number(tech.etaMinutes);
                           const priceTotalRaw = (tech as any)?.pricePreview?.total;
@@ -661,11 +671,25 @@ export default function ServiceBooking() {
                                         </Badge>
                                       )}
                                     </div>
+                                    {!isMockTech && idSuffix ? (
+                                      <div className="text-xs text-muted-foreground dark:text-white/70">
+                                        ID: ••••{idSuffix}
+                                      </div>
+                                    ) : null}
                                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground dark:text-white/70">
                                       <span>⭐ {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}</span>
                                       <span>•</span>
                                       <span>{reviewCount} تقييم</span>
                                     </div>
+                                    {!isMockTech && (phoneNumber || yearsOfExperience || locationLabel) ? (
+                                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground dark:text-white/70">
+                                        {phoneNumber ? <span>📞 {phoneNumber}</span> : null}
+                                        {yearsOfExperience
+                                          ? <span>خبرة {Number(yearsOfExperience)} سنة</span>
+                                          : null}
+                                        {locationLabel ? <span>📍 {locationLabel}</span> : null}
+                                      </div>
+                                    ) : null}
                                     <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-white/70">
                                       <div className="flex items-center gap-1">
                                         <Route className="h-3 w-3" />
@@ -866,7 +890,7 @@ export default function ServiceBooking() {
                   try {
                     const response = await apiRequest("/api/orders/mock-checkout", "POST", {
                       serviceRequestId: createdServiceRequestId,
-                      technicianId: selectedTechnicianId,
+                      technicianId: resolvedTechnicianId,
                       breakdown: costBreakdown,
                       paymentMethod: method,
                       discountCode: appliedDiscount?.code ?? null,
