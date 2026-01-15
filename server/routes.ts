@@ -3525,7 +3525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!technician || !isApprovedStatus || technician.is_active !== true) {
         return res.json([]);
       }
-      const statusFilter = "assigned,pending,accepted,in_progress,created";
+      const statusFilter = "assigned,pending,accepted,in_progress,created,on_the_way,working,completed";
       console.log("[TECH][ORDERS][FETCH]", {
         technicianId: technician.id,
         statusFilter,
@@ -3568,6 +3568,263 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json([]);
     }
   });
+
+  app.post(
+    "/api/technician/orders/:id/accept",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+        );
+        if (!techResp.ok) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(techData) ? techData[0] : techData?.[0];
+        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const orderId = req.params.id;
+        const { resp: srResp, data: srData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}&limit=1`,
+        );
+        if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+          return res.status(404).json({ message: "Service request not found" });
+        }
+        const request = srData[0];
+        if (request.status === "completed") {
+          return res.status(409).json({ message: "Order already completed" });
+        }
+        const assignedTech = request.technician_id ?? request.technicianId;
+        if (assignedTech && assignedTech !== technician.id) {
+          return res.status(403).json({ message: "Order assigned to another technician" });
+        }
+        if (request.status === "accepted") {
+          return res.json(request);
+        }
+        const payload = {
+          status: "accepted",
+          accepted_at: new Date().toISOString(),
+          technician_id: technician.id,
+        };
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
+          { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
+        );
+        if (!updResp.ok) {
+          return res.status(500).json({ message: "Failed to accept order" });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        console.log("[TECH][ORDER][ACCEPT]", {
+          technicianId: technician.id,
+          orderId,
+        });
+        res.json({
+          ...updated,
+          clientMessage: "تم قبول طلبك بواسطة الفني",
+        });
+      } catch (error) {
+        console.error("[TECH][ORDER][ACCEPT] Error:", error);
+        res.status(500).json({ message: "Failed to accept order" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/technician/orders/:id/reject",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+        );
+        if (!techResp.ok) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(techData) ? techData[0] : techData?.[0];
+        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const orderId = req.params.id;
+        const { resp: srResp, data: srData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}&limit=1`,
+        );
+        if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+          return res.status(404).json({ message: "Service request not found" });
+        }
+        const request = srData[0];
+        if (request.status === "completed") {
+          return res.status(409).json({ message: "Order already completed" });
+        }
+        const assignedTech = request.technician_id ?? request.technicianId;
+        if (assignedTech && assignedTech !== technician.id) {
+          return res.status(403).json({ message: "Order assigned to another technician" });
+        }
+        if (request.status === "rejected_by_technician") {
+          return res.json(request);
+        }
+        const payload = {
+          status: "rejected_by_technician",
+          rejected_at: new Date().toISOString(),
+          technician_id: null,
+        };
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
+          { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
+        );
+        if (!updResp.ok) {
+          return res.status(500).json({ message: "Failed to reject order" });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        console.log("[TECH][ORDER][REJECT]", {
+          technicianId: technician.id,
+          orderId,
+        });
+        res.json(updated);
+      } catch (error) {
+        console.error("[TECH][ORDER][REJECT] Error:", error);
+        res.status(500).json({ message: "Failed to reject order" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/service-requests/:id/status",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+        );
+        if (!techResp.ok) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(techData) ? techData[0] : techData?.[0];
+        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const orderId = req.params.id;
+        const nextStatus = String(req.body?.status || "");
+        const allowedStatuses = ["on_the_way", "working", "in_progress"];
+        if (!allowedStatuses.includes(nextStatus)) {
+          return res.status(400).json({ message: "Invalid status transition" });
+        }
+        const { resp: srResp, data: srData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}&limit=1`,
+        );
+        if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+          return res.status(404).json({ message: "Service request not found" });
+        }
+        const request = srData[0];
+        if (request.status === "completed") {
+          return res.status(409).json({ message: "Order already completed" });
+        }
+        const assignedTech = request.technician_id ?? request.technicianId;
+        if (!assignedTech || assignedTech !== technician.id) {
+          return res.status(403).json({ message: "Order not assigned to technician" });
+        }
+        if (request.status === nextStatus) {
+          return res.json(request);
+        }
+        const payload = { status: nextStatus };
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
+          { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
+        );
+        if (!updResp.ok) {
+          return res.status(500).json({ message: "Failed to update status" });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        console.log("[TECH][ORDER][STATUS_CHANGE]", {
+          technicianId: technician.id,
+          orderId,
+          status: nextStatus,
+        });
+        res.json(updated);
+      } catch (error) {
+        console.error("[TECH][ORDER][STATUS_CHANGE] Error:", error);
+        res.status(500).json({ message: "Failed to update status" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/technician/orders/:id/complete",
+    isAuthenticated,
+    bikePhotoUpload,
+    async (req: any, res) => {
+      try {
+        const auth = getAuthContext(req);
+        if (!auth) return res.status(401).json({ message: "Unauthorized" });
+        const userUuid = await ensureUserUuid(auth);
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
+        );
+        if (!techResp.ok) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+        const technician = Array.isArray(techData) ? techData[0] : techData?.[0];
+        if (!technician || technician.status !== "approved" || technician.is_active !== true) {
+          return res.status(403).json({ message: "Technician not active" });
+        }
+        const orderId = req.params.id;
+        const { resp: srResp, data: srData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}&limit=1`,
+        );
+        if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+          return res.status(404).json({ message: "Service request not found" });
+        }
+        const request = srData[0];
+        if (request.status === "completed") {
+          return res.json(request);
+        }
+        const assignedTech = request.technician_id ?? request.technicianId;
+        if (!assignedTech || assignedTech !== technician.id) {
+          return res.status(403).json({ message: "Order not assigned to technician" });
+        }
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file) {
+          return res.status(400).json({ message: "Completion photo required" });
+        }
+        const path = `orders/${orderId}/after.jpg`;
+        const imageUrl = await uploadToStorageRest({
+          file,
+          path,
+          bucket: "service-completions",
+        });
+        const payload = {
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          completed_image_url: imageUrl,
+        };
+        const { resp: updResp, data: updData } = await pgFetch(
+          `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
+          { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
+        );
+        if (!updResp.ok) {
+          return res.status(500).json({ message: "Failed to complete order" });
+        }
+        const updated = Array.isArray(updData) ? updData[0] : updData;
+        console.log("[TECH][ORDER][COMPLETE]", {
+          technicianId: technician.id,
+          orderId,
+        });
+        res.json(updated);
+      } catch (error) {
+        console.error("[TECH][ORDER][COMPLETE] Error:", error);
+        res.status(500).json({ message: "Failed to complete order" });
+      }
+    },
+  );
 
   app.post("/api/service-requests", async (req: any, res) => {
     try {
@@ -3743,6 +4000,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(403).json({ message: "Forbidden" });
         }
 
+        if (existingRequest.status === "completed" && req.body?.status && req.body.status !== "completed") {
+          return res.status(409).json({ message: "Order already completed" });
+        }
+
         if (isTechnician && typeof req.body?.status === "string") {
           const nextStatus = req.body.status;
           const action =
@@ -3771,6 +4032,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  app.get("/api/technician-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const orderId = typeof req.query?.orderId === "string" ? req.query.orderId : null;
+      const filter = orderId
+        ? `/technician_reviews?user_id=eq.${encodeURIComponent(userUuid)}&order_id=eq.${encodeURIComponent(orderId)}`
+        : `/technician_reviews?user_id=eq.${encodeURIComponent(userUuid)}`;
+      const { resp, data } = await pgFetch(filter);
+      if (!resp.ok) {
+        return res.json([]);
+      }
+      res.json(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("[REVIEWS][LIST] Error:", error);
+      res.json([]);
+    }
+  });
+
+  app.post("/api/technician-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const { orderId, rating, comment } = req.body || {};
+      const numericRating = Number(rating);
+      if (!orderId || !Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5) {
+        return res.status(400).json({ message: "Invalid rating payload" });
+      }
+      const { resp: srResp, data: srData } = await pgFetch(
+        `/service_requests?id=eq.${encodeURIComponent(orderId)}&limit=1`,
+      );
+      if (!srResp.ok || !Array.isArray(srData) || srData.length === 0) {
+        return res.status(404).json({ message: "Service request not found" });
+      }
+      const request = srData[0];
+      const requestUserId = request.user_id ?? request.userId;
+      const technicianId = request.technician_id ?? request.technicianId;
+      if (!technicianId) {
+        return res.status(400).json({ message: "No technician assigned" });
+      }
+      if (requestUserId !== userUuid) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (request.status !== "completed") {
+        return res.status(400).json({ message: "Order not completed" });
+      }
+      const payload = {
+        technician_id: technicianId,
+        order_id: orderId,
+        user_id: userUuid,
+        rating: numericRating,
+        comment: comment || null,
+      };
+      const { resp: reviewResp, data: reviewData } = await pgFetch(
+        `/technician_reviews?on_conflict=order_id,user_id`,
+        {
+          method: "POST",
+          body: [payload],
+          headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        },
+      );
+      if (!reviewResp.ok) {
+        return res.status(500).json({ message: "Failed to save review" });
+      }
+      const saved = Array.isArray(reviewData) ? reviewData[0] : reviewData;
+      const { resp: listResp, data: listData } = await pgFetch(
+        `/technician_reviews?technician_id=eq.${encodeURIComponent(technicianId)}&select=rating`,
+      );
+      if (listResp.ok && Array.isArray(listData) && listData.length > 0) {
+        const total = listData.reduce((sum: number, row: any) => sum + Number(row.rating || 0), 0);
+        const count = listData.length;
+        const avg = Number((total / count).toFixed(2));
+        await pgFetch(`/technicians?id=eq.${encodeURIComponent(technicianId)}`, {
+          method: "PATCH",
+          body: { rating: avg, review_count: count },
+          headers: { Prefer: "return=representation" },
+        }).catch(() => {});
+      }
+      res.status(201).json(saved);
+    } catch (error) {
+      console.error("[REVIEWS][CREATE] Error:", error);
+      res.status(500).json({ message: "Failed to create review" });
+    }
+  });
 
   // Support tickets (admin/support)
   app.get("/api/admin/support-tickets", isAuthenticated, async (req, res) => {
