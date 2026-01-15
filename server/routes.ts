@@ -3525,8 +3525,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!technician || !isApprovedStatus || technician.is_active !== true) {
         return res.json([]);
       }
-      const requests = await storage.getTechnicianServiceRequests(technician.id);
-      const safeRequests = Array.isArray(requests) ? requests : [];
+      const statusFilter = "assigned,pending,accepted,in_progress,created";
+      console.log("[TECH][ORDERS][FETCH]", {
+        technicianId: technician.id,
+        statusFilter,
+      });
+      const { resp: reqResp, data: reqData } = await pgFetch(
+        `/service_requests?technician_id=eq.${encodeURIComponent(technician.id)}&status=in.(${statusFilter})&order=created_at.desc`,
+      );
+      if (!reqResp.ok) {
+        console.log("[TECH][ORDERS][FETCH][FAILED]", { status: reqResp.status, body: reqData });
+        return res.json([]);
+      }
+      const safeRequests = Array.isArray(reqData) ? reqData : [];
       const requestIds = safeRequests.map((request) => request.id).filter(Boolean);
       let invoiceByRequestId = new Map<string, any>();
       if (requestIds.length > 0) {
@@ -3730,6 +3741,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!isOwner && !isTechnician) {
           return res.status(403).json({ message: "Forbidden" });
+        }
+
+        if (isTechnician && typeof req.body?.status === "string") {
+          const nextStatus = req.body.status;
+          const action =
+            nextStatus === "accepted"
+              ? "ACCEPT"
+              : nextStatus === "rejected"
+              ? "REJECT"
+              : nextStatus === "completed"
+              ? "COMPLETE"
+              : "UPDATE";
+          console.log(`[TECH][ORDERS][${action}]`, {
+            technicianId: technician?.id,
+            orderId: req.params.id,
+            nextStatus,
+          });
         }
 
         const request = await storage.updateServiceRequest(
