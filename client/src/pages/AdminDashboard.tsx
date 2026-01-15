@@ -2263,7 +2263,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="w-full overflow-x-auto">
-                      <Table>
+                      <Table className="min-w-[640px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{txt.bikeType}</TableHead>
@@ -2528,7 +2528,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="w-full overflow-x-auto">
-                      <Table>
+                      <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{txt.orderNumber}</TableHead>
@@ -2639,7 +2639,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
                     <div className="w-full overflow-x-auto">
-                      <Table>
+                      <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{txt.orderNumber}</TableHead>
@@ -2727,7 +2727,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-8 text-muted-foreground">{txt.supportNoData}</div>
                   ) : (
                     <div className="w-full overflow-x-auto">
-                      <Table>
+                      <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{txt.name}</TableHead>

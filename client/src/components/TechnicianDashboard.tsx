@@ -23,6 +23,9 @@ type TechnicianOrder = ServiceRequest & {
 interface ServiceRequestCardProps extends ServiceRequest {
   onAccept?: (id: string) => void;
   onDecline?: (id: string) => void;
+  onStatusChange?: (id: string, status: string) => void;
+  onComplete?: (id: string, file: File) => void;
+  isBusy?: boolean;
   lang: 'ar' | 'en';
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
@@ -39,11 +42,15 @@ function ServiceRequestCard({
   createdAt,
   onAccept,
   onDecline,
+  onStatusChange,
+  onComplete,
+  isBusy,
   lang,
   invoiceNumber,
   invoiceStatus,
   invoiceTotal,
 }: ServiceRequestCardProps) {
+  const [completionFile, setCompletionFile] = useState<File | null>(null);
   const formatCurrency = (value?: number | string | null) => {
     if (value === null || value === undefined || value === "") return null;
     const numeric = Number(value);
@@ -76,15 +83,20 @@ function ServiceRequestCard({
   const getStatusLabel = () => {
     const labels = {
       pending: lang === 'ar' ? 'جديد' : 'New',
-      accepted: lang === 'ar' ? 'قيد التنفيذ' : 'In Progress',
+      accepted: lang === 'ar' ? 'تم استلام الطلب' : 'Accepted',
+      assigned: lang === 'ar' ? 'تم الإسناد' : 'Assigned',
+      created: lang === 'ar' ? 'جديد' : 'New',
+      on_the_way: lang === 'ar' ? 'الفني في الطريق' : 'On the way',
+      working: lang === 'ar' ? 'جاري تنفيذ الصيانة' : 'Working',
       in_progress: lang === 'ar' ? 'قيد التنفيذ' : 'In Progress',
       completed: lang === 'ar' ? 'مكتمل' : 'Completed',
+      rejected_by_technician: lang === 'ar' ? 'مرفوض من الفني' : 'Rejected',
     };
     return labels[status as keyof typeof labels] || status;
   };
 
   return (
-    <Card className={`border-r-4 ${status === 'pending' ? 'border-r-primary' : status === 'accepted' || status === 'in_progress' ? 'border-r-blue-500' : 'border-r-green-500'}`}>
+    <Card className={`border-r-4 ${status === 'pending' ? 'border-r-primary' : status === 'accepted' || status === 'on_the_way' || status === 'working' || status === 'in_progress' ? 'border-r-blue-500' : 'border-r-green-500'}`}>
       <CardHeader>
         <div className="flex items-start justify-between">
           <div>
@@ -138,6 +150,7 @@ function ServiceRequestCard({
             <Button 
               className="flex-1"
               onClick={() => onAccept?.(id)}
+              disabled={isBusy}
               data-testid={`button-accept-${id}`}
             >
               <CheckCircle className="w-4 h-4 ml-2" />
@@ -146,6 +159,7 @@ function ServiceRequestCard({
             <Button 
               variant="outline"
               onClick={() => onDecline?.(id)}
+              disabled={isBusy}
               data-testid={`button-decline-${id}`}
             >
               <XCircle className="w-4 h-4 ml-2" />
@@ -153,8 +167,60 @@ function ServiceRequestCard({
             </Button>
           </div>
         )}
+
+        {status === 'accepted' && (
+          <div className="flex gap-2 pt-2">
+            <Button
+              className="flex-1"
+              onClick={() => onStatusChange?.(id, 'on_the_way')}
+              disabled={isBusy}
+              data-testid={`button-on-the-way-${id}`}
+            >
+              {lang === 'ar' ? 'الفني في الطريق' : 'On the way'}
+            </Button>
+          </div>
+        )}
+
+        {status === 'on_the_way' && (
+          <div className="flex gap-2 pt-2">
+            <Button
+              className="flex-1"
+              onClick={() => onStatusChange?.(id, 'working')}
+              disabled={isBusy}
+              data-testid={`button-working-${id}`}
+            >
+              {lang === 'ar' ? 'جاري تنفيذ الصيانة' : 'Working'}
+            </Button>
+          </div>
+        )}
+
+        {(status === 'working' || status === 'in_progress') && (
+          <div className="space-y-2 pt-2">
+            <Label className="text-xs text-muted-foreground">
+              {lang === 'ar' ? 'صورة بعد الصيانة (مطلوبة)' : 'After service photo (required)'}
+            </Label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                setCompletionFile(file);
+              }}
+              className="w-full rounded-md border border-border bg-background p-2 text-xs"
+              data-testid={`input-complete-photo-${id}`}
+            />
+            <Button
+              className="w-full"
+              onClick={() => completionFile && onComplete?.(id, completionFile)}
+              disabled={isBusy || !completionFile}
+              data-testid={`button-complete-${id}`}
+            >
+              {lang === 'ar' ? 'تم الانتهاء من الصيانة' : 'Complete'}
+            </Button>
+          </div>
+        )}
         
-        {(status === 'accepted' || status === 'in_progress') && (
+        {(status === 'accepted' || status === 'on_the_way' || status === 'working' || status === 'in_progress') && (
           <Button variant="outline" className="w-full" data-testid={`button-contact-${id}`}>
             <Phone className="w-4 h-4 ml-2" />
             {lang === 'ar' ? 'الاتصال بالعميل' : 'Contact Customer'}
@@ -353,9 +419,51 @@ export default function TechnicianDashboard() {
     return () => stopLocationTracking();
   }, [isApprovedStatus, isActive, isOnline]);
 
-  const updateStatus = useMutation({
+  const acceptMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest(`/api/technician/orders/${id}/accept`, 'POST');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/technician/orders'] });
+      toast({
+        title: lang === 'ar' ? 'تم القبول' : 'Accepted',
+        description: lang === 'ar' ? 'تم قبول الطلب بنجاح' : 'Order accepted',
+      });
+    },
+    onError: (error) => {
+      console.error("[TECH][UI][ACCEPT][ERROR]", error);
+      toast({
+        title: lang === 'ar' ? 'تعذر القبول' : 'Accept failed',
+        description: lang === 'ar' ? 'لم يتم قبول الطلب' : 'Could not accept order',
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest(`/api/technician/orders/${id}/reject`, 'POST');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/technician/orders'] });
+      toast({
+        title: lang === 'ar' ? 'تم الرفض' : 'Rejected',
+        description: lang === 'ar' ? 'تم رفض الطلب' : 'Order rejected',
+      });
+    },
+    onError: (error) => {
+      console.error("[TECH][UI][REJECT][ERROR]", error);
+      toast({
+        title: lang === 'ar' ? 'تعذر الرفض' : 'Reject failed',
+        description: lang === 'ar' ? 'لم يتم رفض الطلب' : 'Could not reject order',
+        variant: "destructive",
+      });
+    },
+  });
+
+  const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest(`/api/service-requests/${id}`, 'PATCH', { status });
+      return apiRequest(`/api/service-requests/${id}/status`, 'PATCH', { status });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/technician/orders'] });
@@ -364,14 +472,53 @@ export default function TechnicianDashboard() {
         description: lang === 'ar' ? 'تم تحديث حالة الطلب' : 'Request status updated',
       });
     },
+    onError: (error) => {
+      console.error("[TECH][UI][STATUS][ERROR]", error);
+      toast({
+        title: lang === 'ar' ? 'تعذر التحديث' : 'Update failed',
+        description: lang === 'ar' ? 'لم يتم تحديث حالة الطلب' : 'Could not update status',
+        variant: "destructive",
+      });
+    },
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const form = new FormData();
+      form.append("photo", file);
+      return apiRequest(`/api/technician/orders/${id}/complete`, 'POST', form);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/technician/orders'] });
+      toast({
+        title: lang === 'ar' ? 'تم الإنهاء' : 'Completed',
+        description: lang === 'ar' ? 'تم إنهاء الطلب بنجاح' : 'Order completed',
+      });
+    },
+    onError: (error) => {
+      console.error("[TECH][UI][COMPLETE][ERROR]", error);
+      toast({
+        title: lang === 'ar' ? 'تعذر الإنهاء' : 'Complete failed',
+        description: lang === 'ar' ? 'لم يتم إنهاء الطلب' : 'Could not complete order',
+        variant: "destructive",
+      });
+    },
   });
 
   const handleAccept = (id: string) => {
-    updateStatus.mutate({ id, status: 'accepted' });
+    acceptMutation.mutate(id);
   };
 
   const handleDecline = (id: string) => {
-    updateStatus.mutate({ id, status: 'cancelled' });
+    rejectMutation.mutate(id);
+  };
+
+  const handleStatusChange = (id: string, status: string) => {
+    statusMutation.mutate({ id, status });
+  };
+
+  const handleComplete = (id: string, file: File) => {
+    completeMutation.mutate({ id, file });
   };
 
   if (techLoading) {
@@ -454,9 +601,16 @@ export default function TechnicianDashboard() {
     );
   }
 
-  const pendingRequests = safeRequests.filter(r => r.status === 'pending');
-  const inProgressRequests = safeRequests.filter(r => r.status === 'accepted' || r.status === 'in_progress');
+  const pendingRequests = safeRequests.filter(r => ['pending', 'assigned', 'created'].includes(r.status || ''));
+  const inProgressRequests = safeRequests.filter(r =>
+    ['accepted', 'on_the_way', 'working', 'in_progress'].includes(r.status || ''),
+  );
   const completedRequests = safeRequests.filter(r => r.status === 'completed');
+  const isActionBusy =
+    acceptMutation.isPending ||
+    rejectMutation.isPending ||
+    statusMutation.isPending ||
+    completeMutation.isPending;
 
   return (
     <PageBackground>
@@ -537,6 +691,9 @@ export default function TechnicianDashboard() {
                     {...request} 
                     onAccept={handleAccept}
                     onDecline={handleDecline}
+                    onStatusChange={handleStatusChange}
+                    onComplete={handleComplete}
+                    isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
                   />
                 ))
@@ -551,6 +708,9 @@ export default function TechnicianDashboard() {
                   <ServiceRequestCard 
                     key={request.id} 
                     {...request}
+                    onStatusChange={handleStatusChange}
+                    onComplete={handleComplete}
+                    isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
                   />
                 ))
@@ -565,6 +725,7 @@ export default function TechnicianDashboard() {
                   <ServiceRequestCard 
                     key={request.id} 
                     {...request}
+                    isBusy={isActionBusy}
                     lang={lang as 'ar' | 'en'}
                   />
                 ))

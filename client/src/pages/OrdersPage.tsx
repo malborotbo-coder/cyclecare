@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ClipboardList,
   Download,
@@ -19,7 +21,8 @@ import { loadMockOrders, type StoredOrder } from "@/lib/mockOrders";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
-import type { Order } from "@shared/schema";
+import type { Order, ServiceRequest } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 const statusConfig: Record<
   StoredOrder["status"],
@@ -50,6 +53,20 @@ export default function OrdersPage() {
     queryKey: ["/api/shop/orders"],
   });
   const shopOrders = Array.isArray(shopOrdersData) ? shopOrdersData : [];
+  const { data: serviceRequestsData } = useQuery<ServiceRequest[]>({
+    queryKey: ["/api/service-requests"],
+    enabled: !!user,
+  });
+  const serviceRequests = Array.isArray(serviceRequestsData) ? serviceRequestsData : [];
+  const { data: reviewsData, refetch: refetchReviews } = useQuery<any[]>({
+    queryKey: ["/api/technician-reviews"],
+    enabled: !!user,
+  });
+  const reviews = Array.isArray(reviewsData) ? reviewsData : [];
+  const [reviewTarget, setReviewTarget] = useState<ServiceRequest | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   const totals = useMemo(() => {
     const serviceTotal = serviceOrders.reduce((sum, order) => sum + order.total, 0);
@@ -59,6 +76,38 @@ export default function OrdersPage() {
       shopOrders.filter((order) => order.status !== "completed").length;
     return { totalSpent: serviceTotal + shopTotal, activeCount };
   }, [serviceOrders, shopOrders]);
+
+  useEffect(() => {
+    if (!user || reviewTarget) return;
+    const ratedOrderIds = new Set(
+      reviews.map((review) => review.order_id ?? review.orderId).filter(Boolean),
+    );
+    const pending = serviceRequests.find(
+      (request) => request.status === "completed" && !ratedOrderIds.has(request.id),
+    );
+    if (pending) {
+      setReviewTarget(pending);
+      setReviewRating(5);
+      setReviewComment("");
+    }
+  }, [reviews, serviceRequests, reviewTarget, user]);
+
+  const submitReview = async () => {
+    if (!reviewTarget) return;
+    setReviewSubmitting(true);
+    try {
+      await apiRequest("/api/technician-reviews", "POST", {
+        orderId: reviewTarget.id,
+        rating: reviewRating,
+        comment: reviewComment,
+      });
+      await refetchReviews();
+      setReviewTarget(null);
+      setReviewComment("");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   const downloadInvoice = (order: StoredOrder) => {
     const invoice = {
@@ -197,7 +246,44 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="container max-w-6xl mx-auto p-4 space-y-6">
+    <>
+      <Dialog open={!!reviewTarget} onOpenChange={(open) => !open && setReviewTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{lang === "ar" ? "قيّم الفني" : "Rate the technician"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-center gap-2">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={reviewRating >= value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setReviewRating(value)}
+                >
+                  ★
+                </Button>
+              ))}
+            </div>
+            <Textarea
+              placeholder={lang === "ar" ? "ملاحظات إضافية (اختياري)" : "Optional comment"}
+              value={reviewComment}
+              onChange={(event) => setReviewComment(event.target.value)}
+            />
+            <Button className="w-full" onClick={submitReview} disabled={reviewSubmitting}>
+              {reviewSubmitting
+                ? lang === "ar"
+                  ? "جارٍ الإرسال..."
+                  : "Submitting..."
+                : lang === "ar"
+                ? "إرسال التقييم"
+                : "Submit"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <div className="container max-w-6xl mx-auto p-4 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <ClipboardList className="w-7 h-7 text-primary" />
@@ -530,6 +616,6 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

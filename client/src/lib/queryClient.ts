@@ -61,7 +61,9 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<any> {
   const lang = getLanguagePreference();
-  const headers = await getAuthHeadersAsync(!!data, lang);
+  const isFormData =
+    typeof FormData !== "undefined" && data instanceof FormData;
+  const headers = await getAuthHeadersAsync(!isFormData && !!data, lang);
   const targetUrl = buildApiUrl(url);
   if (debugApi && !seenDebugTargets.has(targetUrl)) {
     seenDebugTargets.add(targetUrl);
@@ -85,7 +87,7 @@ export async function apiRequest(
     const res = await fetchWithFirebaseAuth(targetUrl, {
       method,
       headers,
-      body: data ? JSON.stringify(data) : undefined,
+      body: data ? (isFormData ? (data as FormData) : JSON.stringify(data)) : undefined,
       credentials: isNative ? "omit" : "include",
     });
 
