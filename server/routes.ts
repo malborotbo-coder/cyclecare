@@ -1279,7 +1279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { userId, isAdmin, phoneNumber } = auth;
 
       // Try to get user from database
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
       
       if (user) {
         // Return existing user with admin status
@@ -1315,11 +1315,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       
       if (user) {
+        if (phoneNumber && !user.phone) {
+          try {
+            user = await storage.upsertUser({ id: userId, phone: phoneNumber });
+          } catch (error) {
+            console.warn("[PROFILE] Failed to persist phone number", error);
+          }
+        }
         res.json({
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
-          phone: phoneNumber || null,
+          phone: phoneNumber || user.phone || null,
           profileImageUrl: user.profileImageUrl || null,
         });
       } else {
@@ -1357,6 +1364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: firstName || user.firstName,
           lastName: lastName || user.lastName,
           email: email || user.email,
+          phone: phoneNumber || user.phone,
           profileImageUrl: profileImageUrl ?? user.profileImageUrl,
         });
       } else {
@@ -1366,6 +1374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName,
           lastName,
           email: email || `${userId}@phone.user`,
+          phone: phoneNumber || null,
           isAdmin,
           profileImageUrl: profileImageUrl || null,
         });
@@ -2003,7 +2012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const files: Express.Multer.File[] = req.files || [];
         const errors: Record<string, string> = {};
-        const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
+        const allowedTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "application/pdf"];
         const maxSize = 5 * 1024 * 1024;
 
         if (!req.body.phone_number && !req.body.phoneNumber) {

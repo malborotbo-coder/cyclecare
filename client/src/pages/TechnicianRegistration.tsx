@@ -15,9 +15,17 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import type { Technician } from "@shared/schema";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
 type FieldErrors = Record<string, string>;
+type ProfileData = {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  profileImageUrl?: string | null;
+};
 
 export default function TechnicianRegistration() {
   const [, navigate] = useLocation();
@@ -70,7 +78,7 @@ export default function TechnicianRegistration() {
     }
   }, []);
 
-  const { data: profile, isLoading: profileLoading } = useQuery({
+  const { data: profile, isLoading: profileLoading } = useQuery<ProfileData>({
     queryKey: ["/api/user/profile"],
     enabled: !!user,
     staleTime: 0,
@@ -78,7 +86,7 @@ export default function TechnicianRegistration() {
     queryFn: () => apiRequest("/api/user/profile", "GET"),
   });
 
-  const { data: technicianRecord, isLoading: technicianLoading } = useQuery({
+  const { data: technicianRecord, isLoading: technicianLoading } = useQuery<Technician | null>({
     queryKey: ["/api/technicians/me"],
     enabled: !!user,
     staleTime: 0,
@@ -313,7 +321,7 @@ export default function TechnicianRegistration() {
       }
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
+    const allowedTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "application/pdf"];
     const maxSize = 5 * 1024 * 1024;
     if (docs.length > 0) {
       for (const file of docs) {
@@ -437,7 +445,7 @@ export default function TechnicianRegistration() {
                     {lang === "ar" ? "الحقول الناقصة:" : "Missing fields:"} {missingProfileFields.join("، ")}
                   </div>
                 )}
-                <Button type="button" onClick={() => navigate("/profile")} data-testid="button-go-profile">
+                <Button type="button" onClick={() => navigate("/my-profile")} data-testid="button-go-profile">
                   {lang === "ar" ? "اذهب إلى بياناتي" : "Go to Profile"}
                 </Button>
               </CardContent>

@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare, FileSpreadsheet } from "lucide-react";
+import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare, FileSpreadsheet, MoreVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
@@ -13,6 +13,7 @@ import html2canvas from "html2canvas";
 import * as XLSX from "xlsx";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -1537,6 +1538,7 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/locations"] });
       toast({
         title: txt.rejectSuccess,
       });
@@ -1558,6 +1560,7 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/locations"] });
       toast({ title: lang === 'ar' ? 'تم إيقاف الفني' : 'Technician suspended' });
     },
   });
@@ -1568,9 +1571,45 @@ export default function AdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/locations"] });
       toast({ title: lang === 'ar' ? 'تم تفعيل الفني' : 'Technician reactivated' });
     },
   });
+
+  const deleteTechnicianMutation = useMutation({
+    mutationFn: async (technicianId: string) => {
+      return await apiRequest(`/api/admin/technicians/${technicianId}`, "DELETE");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/locations"] });
+      toast({ title: lang === 'ar' ? 'تم حذف الفني' : 'Technician deleted' });
+    },
+    onError: () => {
+      toast({ title: txt.error, variant: "destructive" });
+    },
+  });
+
+  const handleTechnicianAction = (
+    action: "approve" | "reject" | "suspend" | "reactivate" | "delete",
+    technicianId?: string | null,
+  ) => {
+    if (!technicianId) return;
+    const messages = {
+      approve: lang === "ar" ? "هل تريد اعتماد الفني؟" : "Approve this technician?",
+      reject: lang === "ar" ? "هل تريد رفض طلب الفني؟" : "Reject this application?",
+      suspend: lang === "ar" ? "هل تريد إيقاف الفني مؤقتًا؟" : "Suspend this technician?",
+      reactivate: lang === "ar" ? "هل تريد إعادة تفعيل الفني؟" : "Reactivate this technician?",
+      delete: lang === "ar" ? "هل تريد حذف الفني نهائيًا؟" : "Delete this technician permanently?",
+    };
+    if (!confirm(messages[action])) return;
+    if (action === "approve") return approveTechnicianMutation.mutate(technicianId);
+    if (action === "reject") return rejectTechnicianMutation.mutate(technicianId);
+    if (action === "suspend") return suspendTechnicianMutation.mutate(technicianId);
+    if (action === "reactivate") return reactivateTechnicianMutation.mutate(technicianId);
+    if (action === "delete") return deleteTechnicianMutation.mutate(technicianId);
+  };
 
   const assignRoleMutation = useMutation({
     mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
@@ -2330,16 +2369,36 @@ export default function AdminDashboard() {
                                   <Badge variant="secondary">{txt.pending}</Badge>
                                 </div>
                                 <div className="flex flex-wrap gap-2 mt-3">
-                                  <Button size="sm" onClick={() => tech.id && approveTechnicianMutation.mutate(tech.id)} disabled={approveTechnicianMutation.isPending}>
-                                    {txt.approve}
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => tech.id && rejectTechnicianMutation.mutate(tech.id)} disabled={rejectTechnicianMutation.isPending}>
-                                    {txt.reject}
-                                  </Button>
-                                  <Button size="sm" variant="outline" onClick={() => tech.id && handleViewDocuments(tech.id)}>
-                                    <Eye className="w-4 h-4 mr-1" />
-                                    {tech.id && expandedTechnicianIds.has(tech.id) ? (lang === 'ar' ? 'إخفاء المستندات' : 'Hide Documents') : txt.documents}
-                                  </Button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button size="sm" variant="outline">
+                                        <MoreVertical className="w-4 h-4 mr-1" />
+                                        {lang === "ar" ? "إجراءات" : "Actions"}
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem
+                                        onClick={() => handleTechnicianAction("approve", tech.id)}
+                                        disabled={approveTechnicianMutation.isPending}
+                                      >
+                                        {txt.approve}
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleTechnicianAction("reject", tech.id)}
+                                        disabled={rejectTechnicianMutation.isPending}
+                                      >
+                                        {txt.reject}
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => tech.id && handleViewDocuments(tech.id)}>
+                                        {tech.id && expandedTechnicianIds.has(tech.id)
+                                          ? lang === "ar"
+                                            ? "إخفاء المستندات"
+                                            : "Hide Documents"
+                                          : txt.documents}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 </div>
                                 {tech.id && expandedTechnicianIds.has(tech.id) && (
                                   <div className="mt-3">
@@ -2405,9 +2464,29 @@ export default function AdminDashboard() {
                                 </div>
                               </div>
                               <div className="flex flex-wrap gap-2 mt-3">
-                                <Button size="sm" variant="outline" onClick={() => tech.id && suspendTechnicianMutation.mutate(tech.id)} disabled={suspendTechnicianMutation.isPending}>
-                                  {lang === 'ar' ? 'إيقاف مؤقت' : 'Suspend'}
-                                </Button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="outline">
+                                      <MoreVertical className="w-4 h-4 mr-1" />
+                                      {lang === "ar" ? "إجراءات" : "Actions"}
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => handleTechnicianAction("suspend", tech.id)}
+                                      disabled={suspendTechnicianMutation.isPending}
+                                    >
+                                      {lang === "ar" ? "إيقاف مؤقت" : "Suspend"}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleTechnicianAction("delete", tech.id)}
+                                      disabled={deleteTechnicianMutation.isPending}
+                                    >
+                                      {lang === "ar" ? "حذف الفني" : "Delete technician"}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </Card>
                           ))}
@@ -2436,11 +2515,31 @@ export default function AdminDashboard() {
                                 <Badge variant="secondary">{tech.status === 'rejected' ? txt.reject : txt.pending}</Badge>
                               </div>
                               <div className="flex flex-wrap gap-2 mt-3">
-                                {tech.status === 'approved' && (
-                                  <Button size="sm" onClick={() => tech.id && reactivateTechnicianMutation.mutate(tech.id)} disabled={reactivateTechnicianMutation.isPending}>
-                                    {lang === 'ar' ? 'تفعيل' : 'Reactivate'}
-                                  </Button>
-                                )}
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="outline">
+                                      <MoreVertical className="w-4 h-4 mr-1" />
+                                      {lang === "ar" ? "إجراءات" : "Actions"}
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {tech.status === "approved" && (
+                                      <DropdownMenuItem
+                                        onClick={() => handleTechnicianAction("reactivate", tech.id)}
+                                        disabled={reactivateTechnicianMutation.isPending}
+                                      >
+                                        {lang === "ar" ? "تفعيل" : "Reactivate"}
+                                      </DropdownMenuItem>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleTechnicianAction("delete", tech.id)}
+                                      disabled={deleteTechnicianMutation.isPending}
+                                    >
+                                      {lang === "ar" ? "حذف الفني" : "Delete technician"}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             </Card>
                           ))}

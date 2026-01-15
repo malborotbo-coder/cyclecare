@@ -11,6 +11,7 @@ import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient"
 import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
 import { buildApiUrl } from "@/lib/apiConfig";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 export default function ProfilePage() {
@@ -106,7 +107,7 @@ export default function ProfilePage() {
       const headers = await getAuthHeadersAsync(false, lang);
       const form = new FormData();
       form.append("photo", file);
-      const res = await fetch(buildApiUrl("/api/user/profile/photo"), {
+      const res = await fetchWithFirebaseAuth(buildApiUrl("/api/user/profile/photo"), {
         method: "POST",
         headers,
         body: form,

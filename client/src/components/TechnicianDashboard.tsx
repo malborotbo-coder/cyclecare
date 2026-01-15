@@ -612,13 +612,7 @@ export default function TechnicianDashboard() {
       });
     },
     onError: (error) => {
-      console.error("[TECH][UI][COMPLETE][ERROR]", error);
-      toast({
-        title: lang === 'ar' ? 'تعذر حفظ الإنهاء الآن' : 'Completion not synced',
-        description: lang === 'ar'
-          ? 'تم تحديث الواجهة، وسيتم المزامنة لاحقاً.'
-          : 'UI updated; sync will be retried later.',
-      });
+      console.warn("[TECH][UI][COMPLETE][ERROR]", error);
     },
   });
 

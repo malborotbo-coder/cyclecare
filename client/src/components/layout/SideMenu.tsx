@@ -41,7 +41,8 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       parts: "القطع",
       technician: "الفني",
       admin: "المسؤول",
-      profile: "دراجتي",
+      profile: "بياناتي",
+      bikes: "دراجتي",
       logout: "تسجيل الخروج",
       login: "تسجيل الدخول",
       orders: "طلباتي",
@@ -54,7 +55,8 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       parts: "Parts",
       technician: "Technician",
       admin: "Admin",
-      profile: "My Bike",
+      profile: "My Profile",
+      bikes: "My Bike",
       logout: "Logout",
       login: "Sign In",
       orders: "My Orders",
@@ -71,7 +73,8 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       : [
           { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
           { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
-          { id: "bike", path: "/profile", icon: Bike, label: t[lang].profile },
+          { id: "profile", path: "/my-profile", icon: User, label: t[lang].profile },
+          { id: "bike", path: "/bikes", icon: Bike, label: t[lang].bikes },
         ]),
   ];
 
