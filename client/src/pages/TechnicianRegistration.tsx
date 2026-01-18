@@ -56,6 +56,11 @@ export default function TechnicianRegistration() {
     commercialRegister: "",
     iban: "",
   });
+  const dirtyFieldsRef = useRef<Record<string, boolean>>({});
+
+  const markDirty = (field: string) => {
+    dirtyFieldsRef.current[field] = true;
+  };
 
   // File names for display
   const [fileNames, setFileNames] = useState({
@@ -112,12 +117,19 @@ export default function TechnicianRegistration() {
     const firstName = profile?.firstName || user?.firstName || "";
     const lastName = profile?.lastName || user?.lastName || "";
     const fullName = `${firstName} ${lastName}`.trim();
-    setFormData((prev) => ({
-      ...prev,
-      fullName,
-      email: profile?.email || user?.email || "",
-      phoneNumber: profile?.phone || user?.phone || "",
-    }));
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        fullName: dirtyFieldsRef.current.fullName ? prev.fullName : fullName,
+        email: dirtyFieldsRef.current.email ? prev.email : profile?.email || user?.email || "",
+        phoneNumber: dirtyFieldsRef.current.phoneNumber ? prev.phoneNumber : profile?.phone || user?.phone || "",
+      };
+      const unchanged =
+        next.fullName === prev.fullName &&
+        next.email === prev.email &&
+        next.phoneNumber === prev.phoneNumber;
+      return unchanged ? prev : next;
+    });
   }, [profile, user]);
 
   useEffect(() => {
@@ -252,6 +264,7 @@ export default function TechnicianRegistration() {
   });
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
+    markDirty(field);
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 

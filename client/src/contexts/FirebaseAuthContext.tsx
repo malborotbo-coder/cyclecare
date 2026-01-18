@@ -56,6 +56,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [authReady, setAuthReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [firebaseReady, setFirebaseReady] = useState(false);
   const GUEST_MODE_KEY = "guest_mode";
   const GUEST_TOKEN_KEY = "guest_token";
 
@@ -138,11 +139,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setFirebaseUser(nextUser);
+      setFirebaseReady(true);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
+    if (!firebaseReady) return;
     checkSession();
     
     // Listen for token updates from AuthCallback
@@ -153,7 +156,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     
     window.addEventListener("auth-token-updated", handleTokenUpdate);
     return () => window.removeEventListener("auth-token-updated", handleTokenUpdate);
-  }, [checkSession, firebaseUser]);
+  }, [checkSession, firebaseUser, firebaseReady]);
 
   const logout = async () => {
     try {

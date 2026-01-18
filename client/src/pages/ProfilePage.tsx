@@ -70,12 +70,18 @@ export default function ProfilePage() {
     }
     setFormData((prev) => {
       const dirty = dirtyFieldsRef.current;
-      return {
+      const merged = {
         firstName: dirty.firstName ? prev.firstName : next.firstName,
         lastName: dirty.lastName ? prev.lastName : next.lastName,
         email: dirty.email ? prev.email : next.email,
         phone: dirty.phone ? prev.phone : next.phone,
       };
+      const unchanged =
+        merged.firstName === prev.firstName &&
+        merged.lastName === prev.lastName &&
+        merged.email === prev.email &&
+        merged.phone === prev.phone;
+      return unchanged ? prev : merged;
     });
   };
 
