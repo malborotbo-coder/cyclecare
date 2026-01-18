@@ -592,25 +592,6 @@ const profilePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
-const readUserField = (row: any, camel: string, snake: string) =>
-  row?.[camel] ?? row?.[snake] ?? null;
-
-const normalizeUserRow = (row: any) =>
-  row
-    ? {
-        id: row.id,
-        firstName: readUserField(row, "firstName", "first_name"),
-        lastName: readUserField(row, "lastName", "last_name"),
-        email: readUserField(row, "email", "email"),
-        phone: readUserField(row, "phone", "phone"),
-        profileImageUrl: readUserField(row, "profileImageUrl", "profile_image_url"),
-        avatarUrl: readUserField(row, "avatarUrl", "avatar_url"),
-        authProvider: readUserField(row, "authProvider", "auth_provider"),
-        authProviderId: readUserField(row, "authProviderId", "auth_provider_id"),
-        isAdmin: row?.isAdmin ?? row?.is_admin ?? false,
-      }
-    : null;
-
 async function fetchUserRest(userId: string) {
   const { resp, data } = await pgFetch(
     `/users?id=eq.${encodeURIComponent(userId)}&select=id,first_name,last_name,email,phone,profile_image_url,avatar_url,auth_provider,auth_provider_id,is_admin&limit=1`,
