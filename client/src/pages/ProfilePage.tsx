@@ -24,6 +24,20 @@ type ProfileFormData = {
   phone: string;
 };
 
+const PageBackground = ({ children }: { children: ReactNode }) => (
+  <div className="relative min-h-screen bg-background">
+    <div className="absolute inset-0">
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${workshopBg})` }}
+        aria-hidden="true"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/50" aria-hidden="true" />
+    </div>
+    <div className="relative z-10">{children}</div>
+  </div>
+);
+
 export default function ProfilePage() {
   const { lang } = useLanguage();
   const { toast } = useToast();
@@ -272,20 +286,6 @@ export default function ProfilePage() {
     }
     e.target.value = "";
   };
-
-  const PageBackground = ({ children }: { children: ReactNode }) => (
-    <div className="relative min-h-screen bg-background">
-      <div className="absolute inset-0">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${workshopBg})` }}
-          aria-hidden="true"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/50" aria-hidden="true" />
-      </div>
-      <div className="relative z-10">{children}</div>
-    </div>
-  );
 
   const labels = {
     ar: {

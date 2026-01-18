@@ -32,7 +32,11 @@ export async function ensureStorageBucket(bucket: string, options: StorageBucket
     return { exists: true, created: false };
   }
 
-  if (checkResp.status !== 404) {
+  const missingBucket =
+    checkResp.status === 404 ||
+    (checkResp.status === 400 && checkBody.toLowerCase().includes("bucket not found"));
+
+  if (!missingBucket) {
     console.error("[STORAGE][BUCKET][CHECK_FAILED]", {
       bucket,
       status: checkResp.status,

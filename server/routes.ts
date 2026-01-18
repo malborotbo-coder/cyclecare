@@ -592,6 +592,65 @@ const profilePhotoUpload = (req: any, res: any, next: any) => {
   });
 };
 
+const readUserField = (row: any, camel: string, snake: string) =>
+  row?.[camel] ?? row?.[snake] ?? null;
+
+const normalizeUserRow = (row: any) =>
+  row
+    ? {
+        id: row.id,
+        firstName: readUserField(row, "firstName", "first_name"),
+        lastName: readUserField(row, "lastName", "last_name"),
+        email: readUserField(row, "email", "email"),
+        phone: readUserField(row, "phone", "phone"),
+        profileImageUrl: readUserField(row, "profileImageUrl", "profile_image_url"),
+        avatarUrl: readUserField(row, "avatarUrl", "avatar_url"),
+        authProvider: readUserField(row, "authProvider", "auth_provider"),
+        authProviderId: readUserField(row, "authProviderId", "auth_provider_id"),
+        isAdmin: row?.isAdmin ?? row?.is_admin ?? false,
+      }
+    : null;
+
+async function fetchUserRest(userId: string) {
+  const { resp, data } = await pgFetch(
+    `/users?id=eq.${encodeURIComponent(userId)}&select=id,first_name,last_name,email,phone,profile_image_url,avatar_url,auth_provider,auth_provider_id,is_admin&limit=1`,
+  );
+  if (!resp.ok) {
+    console.warn("[PROFILE][REST][FETCH_FAILED]", { status: resp.status, body: data });
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return normalizeUserRow(row);
+}
+
+async function upsertUserRest(payload: Record<string, any>) {
+  const { resp, data } = await pgFetch("/users", {
+    method: "POST",
+    body: [payload],
+    headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+  });
+  if (!resp.ok) {
+    console.warn("[PROFILE][REST][UPSERT_FAILED]", { status: resp.status, body: data });
+    throw new Error("PROFILE_REST_UPSERT_FAILED");
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return normalizeUserRow(row);
+}
+
+async function updateUserRest(userId: string, payload: Record<string, any>) {
+  const { resp, data } = await pgFetch(`/users?id=eq.${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: payload,
+    headers: { Prefer: "return=representation" },
+  });
+  if (!resp.ok) {
+    console.warn("[PROFILE][REST][UPDATE_FAILED]", { status: resp.status, body: data });
+    throw new Error("PROFILE_REST_UPDATE_FAILED");
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return normalizeUserRow(row);
+}
+
 const handleProfileAvatarUpload = async (req: any, res: any) => {
   try {
     const auth = getAuthContext(req);
@@ -667,6 +726,19 @@ const handleProfileAvatarUpload = async (req: any, res: any) => {
         userId: userUuid,
         message: error?.message,
       });
+      try {
+        const restUser = await updateUserRest(userUuid, {
+          profile_image_url: publicUrl,
+          avatar_url: publicUrl,
+        });
+        saved = true;
+        savedUrl = restUser?.avatarUrl || restUser?.profileImageUrl || null;
+      } catch (restError: any) {
+        console.error("[PROFILE][AVATAR][REST_SAVE_FAILED]", {
+          userId: userUuid,
+          message: restError?.message,
+        });
+      }
     }
 
     return res.json({ imageUrl: savedUrl || publicUrl, uploaded: true, saved });
@@ -1400,23 +1472,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userUuid = await ensureUserUuid(auth);
       const jwtUser = (req as any).jwtUser;
       const firebaseUser = req.firebaseUser;
-      let user = await storage.getUser(userUuid);
+      let user: any | null = null;
+      try {
+        user = await storage.getUser(userUuid);
+      } catch (error: any) {
+        console.error("[PROFILE][DB][FETCH_FAILED]", { message: error?.message });
+        user = await fetchUserRest(userUuid);
+      }
 
       if (!user) {
         const providerHint = jwtUser ? "google" : phoneNumber ? "phone" : auth.email ? "firebase" : "app";
         const avatarFallback = jwtUser?.profileImageUrl || firebaseUser?.picture || null;
-        user = await storage.upsertUser({
-          id: userUuid,
-          email: auth.email || null,
-          phone: phoneNumber || null,
-          firstName: jwtUser?.firstName || null,
-          lastName: jwtUser?.lastName || null,
-          authProvider: providerHint,
-          authProviderId: auth.userId,
-          profileImageUrl: avatarFallback,
-          avatarUrl: avatarFallback,
-          isAdmin: auth.isAdmin === true,
-        });
+        try {
+          user = await storage.upsertUser({
+            id: userUuid,
+            email: auth.email || null,
+            phone: phoneNumber || null,
+            firstName: jwtUser?.firstName || null,
+            lastName: jwtUser?.lastName || null,
+            authProvider: providerHint,
+            authProviderId: auth.userId,
+            profileImageUrl: avatarFallback,
+            avatarUrl: avatarFallback,
+            isAdmin: auth.isAdmin === true,
+          });
+        } catch (error: any) {
+          console.error("[PROFILE][DB][UPSERT_FAILED]", { message: error?.message });
+          try {
+            user = await upsertUserRest({
+              id: userUuid,
+              email: auth.email || null,
+              phone: phoneNumber || null,
+              first_name: jwtUser?.firstName || null,
+              last_name: jwtUser?.lastName || null,
+              auth_provider: providerHint,
+              auth_provider_id: auth.userId,
+              profile_image_url: avatarFallback,
+              avatar_url: avatarFallback,
+              is_admin: auth.isAdmin === true,
+            });
+          } catch (restError: any) {
+            console.error("[PROFILE][REST][UPSERT_FAILED]", { message: restError?.message });
+          }
+        }
       }
       
       if (user) {
@@ -1425,6 +1523,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             user = await storage.upsertUser({ id: userUuid, phone: phoneNumber });
           } catch (error) {
             console.warn("[PROFILE] Failed to persist phone number", error);
+            try {
+              user = await updateUserRest(userUuid, { phone: phoneNumber });
+            } catch (restError: any) {
+              console.warn("[PROFILE][REST] Failed to persist phone number", restError?.message);
+            }
           }
         }
         res.json({
@@ -1476,35 +1579,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const resolvedPhone = phoneNumber || phone || null;
 
       // Check if user exists
-      let user = await storage.getUser(userUuid);
+      let user: any | null = null;
+      try {
+        user = await storage.getUser(userUuid);
+      } catch (error: any) {
+        console.error("[PROFILE][DB][FETCH_FAILED]", { message: error?.message });
+        user = await fetchUserRest(userUuid);
+      }
       
       if (user) {
         // Update existing user using upsert
-        user = await storage.upsertUser({
-          id: userUuid,
-          firstName: firstName || user.firstName,
-          lastName: lastName || user.lastName,
-          email: email || user.email,
-          phone: resolvedPhone ?? user.phone,
-          profileImageUrl: resolvedAvatar ?? user.profileImageUrl,
-          avatarUrl: resolvedAvatar ?? user.avatarUrl,
-        });
+        try {
+          user = await storage.upsertUser({
+            id: userUuid,
+            firstName: firstName || user.firstName,
+            lastName: lastName || user.lastName,
+            email: email || user.email,
+            phone: resolvedPhone ?? user.phone,
+            profileImageUrl: resolvedAvatar ?? user.profileImageUrl,
+            avatarUrl: resolvedAvatar ?? user.avatarUrl,
+          });
+        } catch (error: any) {
+          console.error("[PROFILE][DB][UPDATE_FAILED]", { message: error?.message });
+          const updatePayload: Record<string, any> = {};
+          if (firstName) updatePayload.first_name = firstName;
+          if (lastName) updatePayload.last_name = lastName;
+          if (email) updatePayload.email = email;
+          if (resolvedPhone) updatePayload.phone = resolvedPhone;
+          if (resolvedAvatar) {
+            updatePayload.profile_image_url = resolvedAvatar;
+            updatePayload.avatar_url = resolvedAvatar;
+          }
+          if (Object.keys(updatePayload).length > 0) {
+            user = await updateUserRest(userUuid, updatePayload);
+          }
+        }
       } else {
         const jwtUser = (req as any).jwtUser;
         const providerHint = jwtUser ? "google" : phoneNumber ? "phone" : auth.email ? "firebase" : "app";
         // Create new user
-        user = await storage.createUser({
-          id: userUuid,
-          firstName: firstName || jwtUser?.firstName || null,
-          lastName: lastName || jwtUser?.lastName || null,
-          email: email || auth.email || `${auth.userId}@phone.user`,
-          phone: resolvedPhone,
-          authProvider: providerHint,
-          authProviderId: auth.userId,
-          isAdmin,
-          profileImageUrl: resolvedAvatar || null,
-          avatarUrl: resolvedAvatar || null,
-        });
+        try {
+          user = await storage.createUser({
+            id: userUuid,
+            firstName: firstName || jwtUser?.firstName || null,
+            lastName: lastName || jwtUser?.lastName || null,
+            email: email || auth.email || `${auth.userId}@phone.user`,
+            phone: resolvedPhone,
+            authProvider: providerHint,
+            authProviderId: auth.userId,
+            isAdmin,
+            profileImageUrl: resolvedAvatar || null,
+            avatarUrl: resolvedAvatar || null,
+          });
+        } catch (error: any) {
+          console.error("[PROFILE][DB][CREATE_FAILED]", { message: error?.message });
+          user = await upsertUserRest({
+            id: userUuid,
+            first_name: firstName || jwtUser?.firstName || null,
+            last_name: lastName || jwtUser?.lastName || null,
+            email: email || auth.email || `${auth.userId}@phone.user`,
+            phone: resolvedPhone,
+            auth_provider: providerHint,
+            auth_provider_id: auth.userId,
+            is_admin: isAdmin,
+            profile_image_url: resolvedAvatar || null,
+            avatar_url: resolvedAvatar || null,
+          });
+        }
       }
 
       res.json({
@@ -1518,8 +1659,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatarUrl: user?.avatarUrl || null,
         },
       });
-    } catch (error) {
-      console.error("Error updating profile:", error);
+    } catch (error: any) {
+      console.error("[PROFILE][UPDATE][ERROR]", {
+        message: error?.message,
+        stack: error?.stack,
+      });
       res.status(500).json({ message: "Failed to update profile" });
     }
   });
