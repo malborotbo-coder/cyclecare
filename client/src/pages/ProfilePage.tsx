@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const nativeAuth = useNativeAuth();
   const { user, isGuest, authReady } = useFirebaseAuth();
   const isNative = Capacitor.isNativePlatform();
+  const isSignedIn = Boolean(user || nativeUser);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -286,6 +287,27 @@ export default function ProfilePage() {
     </div>
   );
 
+  if (!authReady) {
+    return (
+      <PageBackground>
+        <main
+          className="container mx-auto px-4 pb-10 max-w-lg"
+          style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
+          dir={lang === "ar" ? "rtl" : "ltr"}
+        >
+          <Card className="shadow-xl bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
+            <CardContent className="py-10 flex items-center justify-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <span className="text-muted-foreground">
+                {lang === "ar" ? "جاري التحميل..." : "Loading..."}
+              </span>
+            </CardContent>
+          </Card>
+        </main>
+      </PageBackground>
+    );
+  }
+
   const labels = {
     ar: {
       title: "الملف الشخصي",
@@ -323,7 +345,6 @@ export default function ProfilePage() {
 
   const l = labels[lang === "ar" ? "ar" : "en"];
   const isRTL = lang === "ar";
-  const isSignedIn = Boolean(user || nativeUser);
   const authErrorCopy = authError ? getUnauthorizedCopy(authError) : null;
 
   return (
