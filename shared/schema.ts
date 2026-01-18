@@ -55,6 +55,7 @@ export const users = pgTable("users", {
   authProvider: varchar("auth_provider"),
   authProviderId: varchar("auth_provider_id"),
   profileImageUrl: varchar("profile_image_url"),
+  avatarUrl: varchar("avatar_url"),
   isTechnician: boolean("is_technician").default(false),
   isAdmin: boolean("is_admin").default(false),
   createdAt: timestamp("created_at").defaultNow(),

@@ -183,6 +183,7 @@ export class DatabaseStorage implements IStorage {
     if (userData.lastName !== undefined) updateData.lastName = userData.lastName;
     if (userData.phone !== undefined) updateData.phone = userData.phone;
     if (userData.profileImageUrl !== undefined) updateData.profileImageUrl = userData.profileImageUrl;
+    if (userData.avatarUrl !== undefined) updateData.avatarUrl = userData.avatarUrl;
     if (userData.isAdmin !== undefined) updateData.isAdmin = userData.isAdmin;
     
     const [user] = await db

@@ -38,6 +38,7 @@ const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
+const PROFILE_IMAGE_BUCKET = process.env.PROFILE_IMAGE_BUCKET || "profile-images";
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
 const upload = multer({
@@ -326,6 +327,7 @@ const normalizeUserRow = (row: any) => ({
   authProvider: row.auth_provider ?? row.authProvider ?? null,
   authProviderId: row.auth_provider_id ?? row.authProviderId ?? null,
   profileImageUrl: row.profile_image_url ?? row.profileImageUrl ?? null,
+  avatarUrl: row.avatar_url ?? row.avatarUrl ?? null,
   isTechnician: row.is_technician ?? row.isTechnician ?? false,
   isAdmin: row.is_admin ?? row.isAdmin ?? false,
   createdAt: row.created_at ?? row.createdAt ?? null,
@@ -588,6 +590,65 @@ const profilePhotoUpload = (req: any, res: any, next: any) => {
     }
     next();
   });
+};
+
+const handleProfileAvatarUpload = async (req: any, res: any) => {
+  try {
+    const auth = getAuthContext(req);
+    if (!auth) {
+      return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED", reason: "missing_token" });
+    }
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ message: "No photo uploaded" });
+    }
+
+    const ext = (file.originalname.split(".").pop() || "jpg").toLowerCase();
+    const path = `profile-avatars/${auth.userId}/${Date.now()}.${ext}`;
+
+    try {
+      await ensureStorageBucket(PROFILE_IMAGE_BUCKET, { public: true });
+    } catch (error: any) {
+      console.error("[PROFILE][AVATAR][BUCKET]", {
+        bucket: PROFILE_IMAGE_BUCKET,
+        message: error?.message,
+      });
+      return res.status(500).json({
+        code: "STORAGE_BUCKET_MISSING",
+        message: "Profile image storage is not available",
+        bucket: PROFILE_IMAGE_BUCKET,
+      });
+    }
+
+    console.log("[PROFILE][AVATAR][UPLOAD]", { bucket: PROFILE_IMAGE_BUCKET, path });
+
+    let publicUrl: string;
+    try {
+      publicUrl = await uploadToStorageRest({
+        file,
+        path,
+        bucket: PROFILE_IMAGE_BUCKET,
+      });
+    } catch (error: any) {
+      console.error("[PROFILE][AVATAR][UPLOAD_FAILED]", {
+        bucket: PROFILE_IMAGE_BUCKET,
+        path,
+        message: error?.message,
+      });
+      return res.status(500).json({ code: "PROFILE_UPLOAD_FAILED", message: "Failed to upload profile image" });
+    }
+
+    const user = await storage.upsertUser({
+      id: auth.userId,
+      profileImageUrl: publicUrl,
+      avatarUrl: publicUrl,
+    });
+
+    return res.json({ imageUrl: user?.avatarUrl || publicUrl, uploaded: true });
+  } catch (error) {
+    console.error("[PROFILE][AVATAR] Error:", error);
+    return res.status(500).json({ message: "Failed to upload profile photo" });
+  }
 };
 
 const buildOrderNumber = () => {
@@ -1327,7 +1388,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastName: user.lastName,
           email: user.email,
           phone: phoneNumber || user.phone || null,
-          profileImageUrl: user.profileImageUrl || null,
+          profileImageUrl: user.avatarUrl || user.profileImageUrl || null,
+          avatarUrl: user.avatarUrl || null,
         });
       } else {
         res.json({
@@ -1336,6 +1398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: null,
           phone: phoneNumber || null,
           profileImageUrl: null,
+          avatarUrl: null,
         });
       }
     } catch (error) {
@@ -1352,7 +1415,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { userId, phoneNumber, isAdmin } = auth;
 
-      const { firstName, lastName, email, profileImageUrl } = req.body;
+      const { firstName, lastName, email, profileImageUrl, avatarUrl, phone } = req.body;
+      const resolvedAvatar = avatarUrl ?? profileImageUrl;
+      const resolvedPhone = phoneNumber || phone || null;
 
       // Check if user exists
       let user = await storage.getUser(userId);
@@ -1364,8 +1429,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: firstName || user.firstName,
           lastName: lastName || user.lastName,
           email: email || user.email,
-          phone: phoneNumber || user.phone,
-          profileImageUrl: profileImageUrl ?? user.profileImageUrl,
+          phone: resolvedPhone ?? user.phone,
+          profileImageUrl: resolvedAvatar ?? user.profileImageUrl,
+          avatarUrl: resolvedAvatar ?? user.avatarUrl,
         });
       } else {
         // Create new user
@@ -1374,9 +1440,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName,
           lastName,
           email: email || `${userId}@phone.user`,
-          phone: phoneNumber || null,
+          phone: resolvedPhone,
           isAdmin,
-          profileImageUrl: profileImageUrl || null,
+          profileImageUrl: resolvedAvatar || null,
+          avatarUrl: resolvedAvatar || null,
         });
       }
 
@@ -1386,8 +1453,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: user?.firstName,
           lastName: user?.lastName,
           email: user?.email,
-          phone: phoneNumber || null,
-          profileImageUrl: user?.profileImageUrl || null,
+          phone: resolvedPhone,
+          profileImageUrl: user?.avatarUrl || user?.profileImageUrl || null,
+          avatarUrl: user?.avatarUrl || null,
         },
       });
     } catch (error) {
@@ -1396,35 +1464,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, async (req: any, res) => {
-    try {
-      const auth = getAuthContext(req);
-      if (!auth) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-      const file = (req as any).file as Express.Multer.File | undefined;
-      if (!file) {
-        return res.status(400).json({ message: "No photo uploaded" });
-      }
-
-      const ext = file.originalname.split(".").pop() || "jpg";
-      const path = `profile/${auth.userId}-${Date.now()}.${ext}`;
-      const publicUrl = await uploadBufferToStorage({ file, path });
-      if (!publicUrl) {
-        return res.status(500).json({ code: "PROFILE_UPLOAD_FAILED", message: "Failed to upload profile image" });
-      }
-
-      const user = await storage.upsertUser({
-        id: auth.userId,
-        profileImageUrl: publicUrl,
-      });
-
-      res.json({ imageUrl: user.profileImageUrl || publicUrl });
-    } catch (error) {
-      console.error("Error uploading profile photo:", error);
-      res.status(500).json({ message: "Failed to upload profile photo" });
-    }
-  });
+  app.post("/api/user/profile/avatar", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
+  app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
 
   app.post("/api/support/tickets", upload.single("attachment"), async (req: any, res) => {
     try {

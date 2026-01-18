@@ -1,4 +1,4 @@
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, ReactNode, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,17 @@ import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
+
+type ProfileFormData = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+};
 
 export default function ProfilePage() {
   const { lang } = useLanguage();
@@ -27,13 +37,64 @@ export default function ProfilePage() {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [firebasePhone, setFirebasePhone] = useState<string>("");
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ProfileFormData>({
     firstName: "",
     lastName: "",
     email: "",
     phone: "",
   });
+  const initialDataRef = useRef<ProfileFormData | null>(null);
+  const dirtyFieldsRef = useRef<Record<keyof ProfileFormData, boolean>>({
+    firstName: false,
+    lastName: false,
+    email: false,
+    phone: false,
+  });
+
+  const markDirty = (field: keyof ProfileFormData) => {
+    dirtyFieldsRef.current[field] = true;
+  };
+
+  const applyProfileData = (incoming: Partial<ProfileFormData>) => {
+    const next: ProfileFormData = {
+      firstName: incoming.firstName ?? "",
+      lastName: incoming.lastName ?? "",
+      email: incoming.email ?? "",
+      phone: incoming.phone ?? "",
+    };
+    if (!initialDataRef.current) {
+      initialDataRef.current = next;
+    }
+    setFormData((prev) => {
+      const dirty = dirtyFieldsRef.current;
+      return {
+        firstName: dirty.firstName ? prev.firstName : next.firstName,
+        lastName: dirty.lastName ? prev.lastName : next.lastName,
+        email: dirty.email ? prev.email : next.email,
+        phone: dirty.phone ? prev.phone : next.phone,
+      };
+    });
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setFirebasePhone(firebaseUser?.phoneNumber || "");
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!firebasePhone) return;
+    setFormData((prev) => {
+      if (dirtyFieldsRef.current.phone) {
+        return prev;
+      }
+      return { ...prev, phone: firebasePhone };
+    });
+  }, [firebasePhone]);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -44,17 +105,24 @@ export default function ProfilePage() {
       }
       try {
         const response = await apiRequest("/api/user/profile", "GET");
-        setFormData({
+        const resolvedPhone = firebasePhone || response.phone || nativeUser?.phone || "";
+        applyProfileData({
           firstName: response.firstName || "",
           lastName: response.lastName || "",
           email: response.email || "",
-          phone: response.phone || nativeUser?.phone || "",
+          phone: resolvedPhone,
         });
-        setProfileImageUrl(response.profileImageUrl || nativeUser?.profileImageUrl || null);
-      } catch (error) {
+        setProfileImageUrl(
+          response.avatarUrl || response.profileImageUrl || nativeUser?.profileImageUrl || null
+        );
+        setAuthError(null);
+      } catch (error: any) {
         console.error("Failed to load profile:", error);
-        if (nativeUser) {
-          setFormData({
+        const isUnauthorized = error?.code === "UNAUTHORIZED" || error?.status === 401;
+        if (isUnauthorized) {
+          setAuthError(error?.raw?.reason || "unauthorized");
+        } else if (nativeUser) {
+          applyProfileData({
             firstName: nativeUser.firstName || "",
             lastName: nativeUser.lastName || "",
             email: nativeUser.email || "",
@@ -68,7 +136,29 @@ export default function ProfilePage() {
     };
 
     loadUserData();
-  }, [nativeUser, isNative]);
+  }, [nativeUser, isNative, firebasePhone]);
+
+  const getUnauthorizedCopy = (reason?: string | null) => {
+    const normalized = reason || "unauthorized";
+    if (normalized === "missing_token") {
+      return lang === "ar"
+        ? "غير مسجل الدخول. يرجى تسجيل الدخول أولاً."
+        : "You are not signed in. Please log in first.";
+    }
+    if (normalized === "token_verification_failed") {
+      return lang === "ar"
+        ? "مشكلة في التحقق من التوكن. يرجى إعادة تسجيل الدخول."
+        : "Token verification failed. Please sign in again.";
+    }
+    if (normalized === "invalid_session") {
+      return lang === "ar"
+        ? "انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى."
+        : "Your session expired. Please sign in again.";
+    }
+    return lang === "ar"
+      ? "غير مصرح لك بهذا الإجراء. يرجى تسجيل الدخول."
+      : "You are not authorized. Please sign in.";
+  };
 
   const handleSave = async () => {
     if (authReady && (isGuest || !isSignedIn)) {
@@ -84,7 +174,13 @@ export default function ProfilePage() {
     }
     setIsSaving(true);
     try {
-      await apiRequest("/api/user/profile", "POST", { ...formData, profileImageUrl });
+      const payload = {
+        ...formData,
+        phone: firebasePhone || formData.phone,
+        profileImageUrl,
+      };
+      await apiRequest("/api/user/profile", "POST", payload);
+      setAuthError(null);
       
       if (nativeAuth && nativeUser) {
         nativeAuth.updateUser({
@@ -105,6 +201,9 @@ export default function ProfilePage() {
     } catch (error: any) {
       const isUnauthorized = error?.code === "UNAUTHORIZED" || error?.status === 401;
       console.error("Failed to save profile:", error);
+      if (isUnauthorized) {
+        setAuthError(error?.raw?.reason || "unauthorized");
+      }
       toast({
         title: lang === "ar" ? "حدث خطأ" : "Error",
         description: isUnauthorized
@@ -136,7 +235,7 @@ export default function ProfilePage() {
       const headers = await getAuthHeadersAsync(false, lang);
       const form = new FormData();
       form.append("photo", file);
-      const res = await fetchWithFirebaseAuth(buildApiUrl("/api/user/profile/photo"), {
+      const res = await fetchWithFirebaseAuth(buildApiUrl("/api/user/profile/avatar"), {
         method: "POST",
         headers,
         body: form,
@@ -158,6 +257,7 @@ export default function ProfilePage() {
         const serverMessage =
           bodyJson?.message ||
           bodyJson?.error ||
+          bodyJson?.reason ||
           (bodyText ? bodyText.slice(0, 120) : "");
         throw new Error(
           isUnauthorized
@@ -172,11 +272,16 @@ export default function ProfilePage() {
       if (nativeAuth && nativeUser) {
         nativeAuth.updateUser({ profileImageUrl: data.imageUrl });
       }
+      setAuthError(null);
       toast({
         title: lang === "ar" ? "تم رفع الصورة" : "Photo uploaded",
       });
     } catch (error: any) {
       console.error("Profile photo upload failed:", error);
+      const unauthorized = error?.message?.includes("تسجيل الدخول") || error?.message?.includes("sign in");
+      if (unauthorized) {
+        setAuthError("unauthorized");
+      }
       toast({
         title: lang === "ar" ? "فشل رفع الصورة" : "Failed to upload photo",
         description:
@@ -249,6 +354,8 @@ export default function ProfilePage() {
   const l = labels[lang === "ar" ? "ar" : "en"];
   const isRTL = lang === "ar";
   const isSignedIn = Boolean(user || nativeUser);
+  const phoneReadOnly = Boolean(firebasePhone);
+  const authErrorCopy = authError ? getUnauthorizedCopy(authError) : null;
 
   return (
     <PageBackground>
@@ -306,6 +413,23 @@ export default function ProfilePage() {
               </div>
             ) : (
               <>
+                {authErrorCopy && (
+                  <div className="rounded-lg border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground">
+                    <div className="flex flex-col gap-3">
+                      <span>{authErrorCopy}</span>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setPostLoginRedirect("/profile");
+                          window.location.href = "/auth";
+                        }}
+                      >
+                        {lang === "ar" ? "تسجيل دخول مرة أخرى" : "Sign in again"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {authReady && (isGuest || !isSignedIn) && (
                   <div className="rounded-lg border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground">
                     {lang === "ar"
@@ -321,7 +445,10 @@ export default function ProfilePage() {
                       <Input
                         id="firstName"
                         value={formData.firstName}
-                        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                        onChange={(e) => {
+                          markDirty("firstName");
+                          setFormData({ ...formData, firstName: e.target.value });
+                        }}
                         placeholder={l.firstNamePlaceholder}
                         className={isRTL ? "pr-10" : "pl-10"}
                         data-testid="input-first-name"
@@ -333,7 +460,10 @@ export default function ProfilePage() {
                     <Input
                       id="lastName"
                       value={formData.lastName}
-                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      onChange={(e) => {
+                        markDirty("lastName");
+                        setFormData({ ...formData, lastName: e.target.value });
+                      }}
                       placeholder={l.lastNamePlaceholder}
                       data-testid="input-last-name"
                     />
@@ -348,7 +478,10 @@ export default function ProfilePage() {
                       id="email"
                       type="email"
                       value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      onChange={(e) => {
+                        markDirty("email");
+                        setFormData({ ...formData, email: e.target.value });
+                      }}
                       placeholder={l.emailPlaceholder}
                       className={isRTL ? "pr-10" : "pl-10"}
                       data-testid="input-email"
@@ -364,15 +497,25 @@ export default function ProfilePage() {
                       id="phone"
                       type="tel"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      onChange={(e) => {
+                        if (phoneReadOnly) return;
+                        markDirty("phone");
+                        setFormData({ ...formData, phone: e.target.value });
+                      }}
                       placeholder={l.phonePlaceholder}
                       className={isRTL ? "pr-10" : "pl-10"}
-                      disabled
+                      readOnly={phoneReadOnly}
                       data-testid="input-phone"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {lang === "ar" ? "رقم الجوال غير قابل للتعديل" : "Phone number cannot be changed"}
+                    {phoneReadOnly
+                      ? lang === "ar"
+                        ? "رقم الجوال غير قابل للتعديل"
+                        : "Phone number cannot be changed"
+                      : lang === "ar"
+                      ? "يمكنك تعديل رقم الجوال عند الحاجة"
+                      : "You can update your phone number if needed"}
                   </p>
                 </div>
 

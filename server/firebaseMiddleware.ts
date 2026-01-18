@@ -88,6 +88,7 @@ declare global {
       firebaseUser?: any;
       userId?: string;
       jwtUser?: any;
+      authError?: { code: string; message?: string };
     }
   }
 }
@@ -97,9 +98,14 @@ export async function setupFirebaseAuth(app: Express) {
 
   // Middleware to verify Firebase ID tokens or phone session tokens
   app.use("/api", async (req: Request, res: Response, next: NextFunction) => {
-    const token = req.headers.authorization?.split("Bearer ")[1];
+    const authHeader = req.headers.authorization;
+    const tokenMatch = authHeader?.match(/^Bearer\s+(.+)$/i);
+    const token = tokenMatch?.[1]?.trim();
 
     if (!token) {
+      if (authHeader) {
+        req.authError = { code: "invalid_token", message: "authorization_header_invalid" };
+      }
       return next();
     }
 
@@ -119,6 +125,7 @@ export async function setupFirebaseAuth(app: Express) {
           const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
           if (payload.iss === APP_JWT_ISSUER && payload.aud === APP_JWT_AUDIENCE) {
             console.warn("[Auth] Skipping Firebase check for app JWT with invalid signature/expiry");
+            req.authError = { code: "invalid_token", message: "app_jwt_invalid" };
             return next();
           }
         } catch (e) {
@@ -144,6 +151,8 @@ export async function setupFirebaseAuth(app: Express) {
           console.log(`[Phone Auth DB] User: ${dbSession.phoneNumber}, isAdmin: ${isAdmin}`);
           return next();
         }
+        req.authError = { code: "invalid_session", message: "phone_session_not_found" };
+        return next();
       }
       
       // Check if it's a legacy phone token (phone_XXXXXXXXX format)
@@ -185,8 +194,15 @@ export async function setupFirebaseAuth(app: Express) {
         req.firebaseUser = decoded;
         req.userId = decoded.uid;
       }
-    } catch (error) {
-      console.error("[Firebase Auth] Token verification error:", error);
+    } catch (error: any) {
+      req.authError = { code: "token_verification_failed", message: error?.message };
+      console.error("[Firebase Auth] Token verification error:", {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack,
+        tokenPrefix: token?.slice(0, 12),
+        tokenLength: token?.length,
+      });
     }
 
     next();
@@ -435,8 +451,9 @@ export const isAuthenticated = (
   
   // Check for JWT token in Authorization header (Google OAuth / custom JWT)
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
+  const tokenMatch = authHeader?.match(/^Bearer\s+(.+)$/i);
+  if (tokenMatch) {
+    const token = tokenMatch[1];
     const payload = verifyJWT(token);
     
     if (payload) {
@@ -460,8 +477,11 @@ export const isAuthenticated = (
     return next();
   }
   
-  console.log("[Auth Check] No authenticated user found");
-  return res.status(401).json({ message: "Unauthorized" });
+  const hasAuthHeader = Boolean(req.headers.authorization);
+  const reason =
+    (req as any).authError?.code || (hasAuthHeader ? "invalid_token" : "missing_token");
+  console.log("[Auth Check] No authenticated user found", { reason });
+  return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED", reason });
 };
 
 export const isAdmin = async (

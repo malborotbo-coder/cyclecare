@@ -9,13 +9,13 @@ const baseFetch = globalThis.fetch.bind(globalThis);
 
 const isApiRequest = (url: string) => url.includes("/api/");
 
-async function getFirebaseIdToken(forceRefresh = false): Promise<string | null> {
+async function getFirebaseIdToken(forceRefresh = true): Promise<string | null> {
   const user = auth.currentUser;
   if (!user) return null;
   try {
     return await user.getIdToken(forceRefresh);
   } catch (err) {
-    console.warn("[Auth] Failed to get Firebase ID token", err);
+    console.error("[Auth] Failed to get Firebase ID token", err);
     return null;
   }
 }
@@ -56,7 +56,7 @@ export async function fetchWithFirebaseAuth(
   let usedToken: string | null = null;
 
   if (isApiRequest(urlString)) {
-    const token = await getFirebaseIdToken(false);
+    const token = await getFirebaseIdToken(true);
     if (token) {
       usedToken = token;
       headers.set("Authorization", `Bearer ${token}`);
