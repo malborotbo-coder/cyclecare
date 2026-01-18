@@ -12,6 +12,7 @@ import { useState, useEffect, lazy, Suspense } from "react";
 import HomePage from "@/components/HomePage";
 import ServiceBooking from "@/components/ServiceBooking";
 import BikeProfile from "@/components/BikeProfile";
+import BikeLogPage from "@/pages/BikeLogPage";
 import PartsCatalog from "@/components/PartsCatalog";
 import TechnicianDashboard from "@/components/TechnicianDashboard";
 import TechnicianRegistration from "./pages/TechnicianRegistration";
@@ -273,6 +274,12 @@ function Router() {
               <Route path="/bikes">
                 <AppLayout>
                   <BikeProfile />
+                </AppLayout>
+              </Route>
+
+              <Route path="/bike-log">
+                <AppLayout>
+                  <BikeLogPage />
                 </AppLayout>
               </Route>
 

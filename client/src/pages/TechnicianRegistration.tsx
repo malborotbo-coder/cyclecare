@@ -365,6 +365,7 @@ export default function TechnicianRegistration() {
     if (Object.keys(newErrors).length > 0) return;
 
     const payload = new FormData();
+    payload.append("full_name", formData.fullName.trim());
     payload.append("phone_number", formData.phoneNumber.trim());
     if (formData.experienceYears.trim()) {
       payload.append("years_of_experience", formData.experienceYears.trim());

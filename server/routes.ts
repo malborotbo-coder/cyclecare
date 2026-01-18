@@ -31,7 +31,7 @@ import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac } from "crypto";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
@@ -39,6 +39,12 @@ const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
 const PROFILE_IMAGE_BUCKET = process.env.PROFILE_IMAGE_BUCKET || "profile-images";
+const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
+const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
+const STRAVA_REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
+const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
+const STRAVA_AUTHORIZE_URL = "https://www.strava.com/oauth/authorize";
+const STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities";
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
 const upload = multer({
@@ -179,6 +185,32 @@ const parseJsonValue = (value: any) => {
     }
   }
   return value;
+};
+
+const buildStravaState = (userId: string, timestamp: number, secret: string) => {
+  const payload = JSON.stringify({ userId, ts: timestamp });
+  const sig = createHmac("sha256", secret).update(payload).digest("hex");
+  const encoded = Buffer.from(payload).toString("base64url");
+  return `${encoded}.${sig}`;
+};
+
+const parseStravaState = (state: string, secret: string) => {
+  const [encoded, sig] = state.split(".");
+  if (!encoded || !sig) return null;
+  const payload = Buffer.from(encoded, "base64url").toString("utf8");
+  const expected = createHmac("sha256", secret).update(payload).digest("hex");
+  if (expected !== sig) return null;
+  try {
+    return JSON.parse(payload) as { userId: string; ts: number };
+  } catch {
+    return null;
+  }
+};
+
+const ensureStravaConfig = () => {
+  if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET || !STRAVA_REDIRECT_URI) {
+    throw new Error("STRAVA_CONFIG_MISSING");
+  }
 };
 
 const buildDefaultRoute = (location?: string): RouteSummary => ({
@@ -631,6 +663,53 @@ async function updateUserRest(userId: string, payload: Record<string, any>) {
   }
   const row = Array.isArray(data) ? data[0] : data?.[0];
   return normalizeUserRow(row);
+}
+
+async function getStravaAccount(userId: string) {
+  const { resp, data } = await pgFetch(
+    `/user_strava_accounts?user_id=eq.${encodeURIComponent(userId)}&limit=1`,
+  );
+  if (!resp.ok) {
+    console.warn("[STRAVA][ACCOUNT][FETCH_FAILED]", { status: resp.status, body: data });
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return row || null;
+}
+
+async function upsertStravaAccount(payload: Record<string, any>) {
+  const { resp, data } = await pgFetch("/user_strava_accounts?on_conflict=user_id", {
+    method: "POST",
+    body: [payload],
+    headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+  });
+  if (!resp.ok) {
+    console.warn("[STRAVA][ACCOUNT][UPSERT_FAILED]", { status: resp.status, body: data });
+    throw new Error("STRAVA_ACCOUNT_UPSERT_FAILED");
+  }
+  return Array.isArray(data) ? data[0] : data?.[0];
+}
+
+async function getLastMaintenanceDate(userUuid: string): Promise<string | null> {
+  try {
+    const { resp: bikesResp, data: bikesData } = await pgFetch(
+      `/bikes?user_id=eq.${encodeURIComponent(userUuid)}&select=id`,
+    );
+    if (!bikesResp.ok) return null;
+    const bikes = Array.isArray(bikesData) ? bikesData : [];
+    const bikeIds = bikes.map((bike: any) => bike?.id).filter(Boolean);
+    if (bikeIds.length === 0) return null;
+    const ids = bikeIds.map((id: string) => encodeURIComponent(id)).join(",");
+    const { resp: recordsResp, data: recordsData } = await pgFetch(
+      `/maintenance_records?bike_id=in.(${ids})&select=created_at&order=created_at.desc&limit=1`,
+    );
+    if (!recordsResp.ok) return null;
+    const row = Array.isArray(recordsData) ? recordsData[0] : recordsData?.[0];
+    return row?.created_at || null;
+  } catch (error: any) {
+    console.error("[STRAVA][MAINTENANCE][FETCH_FAILED]", { message: error?.message });
+    return null;
+  }
 }
 
 const handleProfileAvatarUpload = async (req: any, res: any) => {
@@ -1653,6 +1732,209 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/user/profile/avatar", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
   app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
 
+  // Strava OAuth
+  app.get("/api/strava/connect", isAuthenticated, async (req: any, res) => {
+    try {
+      ensureStravaConfig();
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const secret = process.env.SESSION_SECRET;
+      if (!secret) {
+        console.error("[STRAVA][CONNECT] Missing SESSION_SECRET");
+        return res.status(500).json({ message: "Server misconfiguration" });
+      }
+      const userUuid = await ensureUserUuid(auth);
+      const state = buildStravaState(userUuid, Date.now(), secret);
+      const params = new URLSearchParams({
+        client_id: String(STRAVA_CLIENT_ID),
+        response_type: "code",
+        redirect_uri: String(STRAVA_REDIRECT_URI),
+        scope: "read",
+        approval_prompt: "auto",
+        state,
+      });
+      const url = `${STRAVA_AUTHORIZE_URL}?${params.toString()}`;
+      return res.redirect(url);
+    } catch (error: any) {
+      console.error("[STRAVA][CONNECT] Error:", { message: error?.message, stack: error?.stack });
+      return res.status(500).json({ message: "Failed to start Strava connection" });
+    }
+  });
+
+  app.get("/api/strava/callback", async (req, res) => {
+    try {
+      ensureStravaConfig();
+      const secret = process.env.SESSION_SECRET;
+      if (!secret) {
+        console.error("[STRAVA][CALLBACK] Missing SESSION_SECRET");
+        return res.status(500).json({ message: "Server misconfiguration" });
+      }
+      const { code, state, error } = req.query || {};
+      if (error) {
+        console.warn("[STRAVA][CALLBACK] Denied:", error);
+        return res.redirect("/bike-log?strava=denied");
+      }
+      if (!code || !state) {
+        return res.status(400).json({ message: "Invalid Strava callback" });
+      }
+      const parsed = parseStravaState(String(state), secret);
+      if (!parsed?.userId || !parsed?.ts) {
+        return res.status(400).json({ message: "Invalid Strava state" });
+      }
+      if (Date.now() - parsed.ts > 15 * 60 * 1000) {
+        return res.status(400).json({ message: "Strava state expired" });
+      }
+
+      const tokenResp = await fetch(STRAVA_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: STRAVA_CLIENT_ID,
+          client_secret: STRAVA_CLIENT_SECRET,
+          code,
+          grant_type: "authorization_code",
+        }),
+      });
+      const tokenData = await tokenResp.json().catch(() => ({}));
+      if (!tokenResp.ok) {
+        console.error("[STRAVA][CALLBACK] Token exchange failed", {
+          status: tokenResp.status,
+          body: tokenData,
+        });
+        return res.status(500).json({ message: "Failed to connect Strava" });
+      }
+
+      await upsertStravaAccount({
+        user_id: parsed.userId,
+        athlete_id: tokenData?.athlete?.id || null,
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+        expires_at: tokenData.expires_at,
+      });
+
+      return res.redirect("/bike-log");
+    } catch (error: any) {
+      console.error("[STRAVA][CALLBACK] Error:", { message: error?.message, stack: error?.stack });
+      return res.status(500).json({ message: "Failed to connect Strava" });
+    }
+  });
+
+  app.get("/api/strava/activities", isAuthenticated, async (req: any, res) => {
+    try {
+      ensureStravaConfig();
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+
+      let account = await getStravaAccount(userUuid);
+      if (!account) {
+        return res.status(404).json({
+          code: "STRAVA_NOT_CONNECTED",
+          message: "Strava account is not connected",
+        });
+      }
+
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      if (!Number.isFinite(Number(account.expires_at)) || Number(account.expires_at) <= nowSeconds) {
+        const refreshResp = await fetch(STRAVA_TOKEN_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_id: STRAVA_CLIENT_ID,
+            client_secret: STRAVA_CLIENT_SECRET,
+            refresh_token: account.refresh_token,
+            grant_type: "refresh_token",
+          }),
+        });
+        const refreshData = await refreshResp.json().catch(() => ({}));
+        if (!refreshResp.ok) {
+          console.error("[STRAVA][REFRESH] Failed", { status: refreshResp.status, body: refreshData });
+          return res.status(401).json({
+            code: "STRAVA_TOKEN_EXPIRED",
+            message: "Strava token expired. Please reconnect.",
+          });
+        }
+        account = await upsertStravaAccount({
+          user_id: userUuid,
+          athlete_id: refreshData?.athlete?.id || account.athlete_id,
+          access_token: refreshData.access_token,
+          refresh_token: refreshData.refresh_token,
+          expires_at: refreshData.expires_at,
+        });
+      }
+
+      const activitiesResp = await fetch(`${STRAVA_ACTIVITIES_URL}?per_page=200`, {
+        headers: { Authorization: `Bearer ${account.access_token}` },
+      });
+      const activitiesData = await activitiesResp.json().catch(() => []);
+      if (!activitiesResp.ok) {
+        console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
+        const status = activitiesResp.status === 401 ? 401 : 500;
+        return res.status(status).json({
+          code: activitiesResp.status === 401 ? "STRAVA_TOKEN_EXPIRED" : "STRAVA_FETCH_FAILED",
+          message:
+            activitiesResp.status === 401
+              ? "Strava token expired. Please reconnect."
+              : "Failed to fetch Strava activities",
+        });
+      }
+
+      const rides = (Array.isArray(activitiesData) ? activitiesData : []).filter(
+        (activity: any) => activity?.type === "Ride",
+      );
+      const rideCount = rides.length;
+      const totalDistanceKm = Number(
+        (rides.reduce((sum, ride) => sum + Number(ride?.distance || 0), 0) / 1000).toFixed(1),
+      );
+
+      const lastRide = rides.reduce((latest: any, current: any) => {
+        if (!latest) return current;
+        const latestDate = new Date(latest.start_date || 0).getTime();
+        const currentDate = new Date(current.start_date || 0).getTime();
+        return currentDate > latestDate ? current : latest;
+      }, null as any);
+
+      const lastServiceAt = await getLastMaintenanceDate(userUuid);
+      const distanceSinceLastServiceMeters = rides.reduce((sum, ride) => {
+        if (!lastServiceAt) return sum + Number(ride?.distance || 0);
+        const rideDate = new Date(ride.start_date || 0).getTime();
+        const serviceDate = new Date(lastServiceAt).getTime();
+        if (Number.isNaN(rideDate) || Number.isNaN(serviceDate)) return sum;
+        if (rideDate >= serviceDate) {
+          return sum + Number(ride?.distance || 0);
+        }
+        return sum;
+      }, 0);
+      const distanceSinceLastServiceKm = Number((distanceSinceLastServiceMeters / 1000).toFixed(1));
+
+      const serviceIntervalKm = 150;
+      const remainingKm = Number((serviceIntervalKm - distanceSinceLastServiceKm).toFixed(1));
+      const maintenanceStatus =
+        remainingKm <= 0 ? "OVERDUE" : remainingKm < 30 ? "NEAR" : "OK";
+
+      return res.json({
+        connected: true,
+        rideCount,
+        totalDistanceKm,
+        lastRide: lastRide
+          ? {
+              name: lastRide.name,
+              distanceKm: Number((Number(lastRide.distance || 0) / 1000).toFixed(1)),
+              startDate: lastRide.start_date,
+            }
+          : null,
+        lastServiceAt,
+        distanceSinceLastServiceKm,
+        remainingKm,
+        maintenanceStatus,
+        serviceIntervalKm,
+      });
+    } catch (error: any) {
+      console.error("[STRAVA][ACTIVITIES] Error:", { message: error?.message, stack: error?.stack });
+      return res.status(500).json({ message: "Failed to fetch Strava activities" });
+    }
+  });
+
   app.post("/api/support/tickets", upload.single("attachment"), async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
@@ -2245,8 +2527,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         const lang = getRequestLang(req);
-        const user = await storage.getUser(userUuid);
-        const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+        let user: any | null = null;
+        try {
+          user = await storage.getUser(userUuid);
+        } catch (error: any) {
+          console.error("[TECH][APPLY][USER_FETCH_FAILED]", { message: error?.message });
+          user = await fetchUserRest(userUuid);
+        }
+        const requestFullName = (req.body.full_name || req.body.fullName || req.body.name || "").trim();
+        const fullName =
+          requestFullName || [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
 
         const fileGroups = (req.files || {}) as Record<string, Express.Multer.File[]>;
         const profileImageFile = fileGroups.profileImage?.[0];
@@ -2337,6 +2627,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ fieldErrors: errors });
         }
 
+        const { resp: existingResp, data: existingData } = await pgFetch(
+          `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active&limit=1`,
+        );
+        if (existingResp.ok) {
+          const existing = Array.isArray(existingData) ? existingData[0] : existingData?.[0];
+          if (existing?.id) {
+            const status = String(existing.status || "").toLowerCase();
+            if (status === "rejected") {
+              await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(existing.id)}`, {
+                method: "DELETE",
+              }).catch((error) => {
+                console.error("[TECH][APPLY][CLEANUP][DOCS_FAILED]", {
+                  technicianId: existing.id,
+                  message: error?.message,
+                });
+              });
+              await pgFetch(`/technician_locations?technician_id=eq.${encodeURIComponent(existing.id)}`, {
+                method: "DELETE",
+              }).catch((error) => {
+                console.error("[TECH][APPLY][CLEANUP][LOC_FAILED]", {
+                  technicianId: existing.id,
+                  message: error?.message,
+                });
+              });
+              await pgFetch(`/technicians?id=eq.${encodeURIComponent(existing.id)}`, {
+                method: "DELETE",
+              }).catch((error) => {
+                console.error("[TECH][APPLY][CLEANUP][TECH_FAILED]", {
+                  technicianId: existing.id,
+                  message: error?.message,
+                });
+              });
+            } else {
+              return res.status(409).json({
+                code: "TECH_APPLICATION_EXISTS",
+                message:
+                  lang === "ar"
+                    ? "يوجد طلب فني قائم بالفعل. يرجى انتظار رد الإدارة."
+                    : "A technician application already exists. Please wait for admin review.",
+              });
+            }
+          }
+        }
+
         const techPayload: Record<string, any> = {
           user_id: userUuid,
           phone_number: phoneNumber,
@@ -2375,6 +2709,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         if (!createResp.ok) {
           console.error("[TECH][APPLY][FAILED]", { status: createResp.status, body: createData });
+          const duplicate =
+            createResp.status === 409 ||
+            createData?.code === "23505" ||
+            `${createData?.message || ""}`.toLowerCase().includes("duplicate");
+          if (duplicate) {
+            throw new AppError({
+              code: "VALIDATION_ERROR",
+              status: 409,
+              message:
+                lang === "ar"
+                  ? "يوجد طلب فني قائم بالفعل. يرجى انتظار رد الإدارة."
+                  : "A technician application already exists. Please wait for admin review.",
+            });
+          }
           throw new AppError({
             code: "TECH_APPLY_FAILED",
             status: createResp.status || 500,
@@ -2460,7 +2808,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         const handled = handleRouteError(error, req, res);
         if (handled) return handled;
-        console.error("[TECH][APPLY] Error:", error);
+        console.error("[TECH][APPLY] Error:", {
+          message: (error as any)?.message,
+          stack: (error as any)?.stack,
+        });
         res.status(500).json({ message: "Failed to submit application" });
       }
     },
