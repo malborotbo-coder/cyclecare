@@ -31,7 +31,7 @@ export default function TechnicianRegistration() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { lang, toggleLanguage, t } = useLanguage();
-  const { user } = useFirebaseAuth();
+  const { user, authReady } = useFirebaseAuth();
   const isRTL = lang === "ar";
   const [errors, setErrors] = useState<FieldErrors>({});
   const [successMessage, setSuccessMessage] = useState("");
@@ -56,10 +56,12 @@ export default function TechnicianRegistration() {
     commercialRegister: "",
     iban: "",
   });
-  const dirtyFieldsRef = useRef<Record<string, boolean>>({});
+  const initializedRef = useRef(false);
 
-  const markDirty = (field: string) => {
-    dirtyFieldsRef.current[field] = true;
+  const markInitialized = () => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+    }
   };
 
   // File names for display
@@ -76,7 +78,10 @@ export default function TechnicianRegistration() {
     if (!raw) return;
     try {
       const draft = JSON.parse(raw);
-      setFormData((prev) => ({ ...prev, ...draft }));
+      if (!initializedRef.current) {
+        setFormData((prev) => ({ ...prev, ...draft }));
+        markInitialized();
+      }
       setDraftRestored(true);
     } catch {
       localStorage.removeItem(DRAFT_KEY);
@@ -85,17 +90,17 @@ export default function TechnicianRegistration() {
 
   const { data: profile, isLoading: profileLoading } = useQuery<ProfileData>({
     queryKey: ["/api/user/profile"],
-    enabled: !!user,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    enabled: authReady && !!user,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
     queryFn: () => apiRequest("/api/user/profile", "GET"),
   });
 
   const { data: technicianRecord, isLoading: technicianLoading } = useQuery<Technician | null>({
     queryKey: ["/api/technicians/me"],
-    enabled: !!user,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    enabled: authReady && !!user,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
     queryFn: () => apiRequest("/api/technicians/me", "GET"),
   });
 
@@ -114,23 +119,18 @@ export default function TechnicianRegistration() {
   ].filter(Boolean) as string[];
 
   useEffect(() => {
+    if (initializedRef.current || !user || profileLoading) return;
     const firstName = profile?.firstName || user?.firstName || "";
     const lastName = profile?.lastName || user?.lastName || "";
     const fullName = `${firstName} ${lastName}`.trim();
-    setFormData((prev) => {
-      const next = {
-        ...prev,
-        fullName: dirtyFieldsRef.current.fullName ? prev.fullName : fullName,
-        email: dirtyFieldsRef.current.email ? prev.email : profile?.email || user?.email || "",
-        phoneNumber: dirtyFieldsRef.current.phoneNumber ? prev.phoneNumber : profile?.phone || user?.phone || "",
-      };
-      const unchanged =
-        next.fullName === prev.fullName &&
-        next.email === prev.email &&
-        next.phoneNumber === prev.phoneNumber;
-      return unchanged ? prev : next;
-    });
-  }, [profile, user]);
+    setFormData((prev) => ({
+      ...prev,
+      fullName,
+      email: profile?.email || user?.email || "",
+      phoneNumber: profile?.phone || user?.phone || "",
+    }));
+    markInitialized();
+  }, [profile, user, profileLoading]);
 
   useEffect(() => {
     // Redirect approved technicians straight to dashboard.
@@ -264,7 +264,7 @@ export default function TechnicianRegistration() {
   });
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
-    markDirty(field);
+    markInitialized();
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 

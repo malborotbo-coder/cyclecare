@@ -14,7 +14,6 @@ import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSess
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { auth } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
@@ -38,7 +37,7 @@ export default function ProfilePage() {
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [firebasePhone, setFirebasePhone] = useState<string>("");
+  const [phoneReadOnly, setPhoneReadOnly] = useState(false);
 
   const [formData, setFormData] = useState<ProfileFormData>({
     firstName: "",
@@ -46,63 +45,16 @@ export default function ProfilePage() {
     email: "",
     phone: "",
   });
-  const initialDataRef = useRef<ProfileFormData | null>(null);
-  const dirtyFieldsRef = useRef<Record<keyof ProfileFormData, boolean>>({
-    firstName: false,
-    lastName: false,
-    email: false,
-    phone: false,
-  });
+  const initializedRef = useRef(false);
 
-  const markDirty = (field: keyof ProfileFormData) => {
-    dirtyFieldsRef.current[field] = true;
-  };
-
-  const applyProfileData = (incoming: Partial<ProfileFormData>) => {
-    const next: ProfileFormData = {
-      firstName: incoming.firstName ?? "",
-      lastName: incoming.lastName ?? "",
-      email: incoming.email ?? "",
-      phone: incoming.phone ?? "",
-    };
-    if (!initialDataRef.current) {
-      initialDataRef.current = next;
+  const markInitialized = () => {
+    if (!initializedRef.current) {
+      initializedRef.current = true;
     }
-    setFormData((prev) => {
-      const dirty = dirtyFieldsRef.current;
-      const merged = {
-        firstName: dirty.firstName ? prev.firstName : next.firstName,
-        lastName: dirty.lastName ? prev.lastName : next.lastName,
-        email: dirty.email ? prev.email : next.email,
-        phone: dirty.phone ? prev.phone : next.phone,
-      };
-      const unchanged =
-        merged.firstName === prev.firstName &&
-        merged.lastName === prev.lastName &&
-        merged.email === prev.email &&
-        merged.phone === prev.phone;
-      return unchanged ? prev : merged;
-    });
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setFirebasePhone(firebaseUser?.phoneNumber || "");
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!firebasePhone) return;
-    setFormData((prev) => {
-      if (dirtyFieldsRef.current.phone) {
-        return prev;
-      }
-      return { ...prev, phone: firebasePhone };
-    });
-  }, [firebasePhone]);
-
-  useEffect(() => {
+    if (!authReady || initializedRef.current || !isSignedIn) return;
     const loadUserData = async () => {
       setIsLoading(true);
       if (isNative) {
@@ -111,38 +63,45 @@ export default function ProfilePage() {
       }
       try {
         const response = await apiRequest("/api/user/profile", "GET");
-        const resolvedPhone = firebasePhone || response.phone || nativeUser?.phone || "";
-        applyProfileData({
-          firstName: response.firstName || "",
-          lastName: response.lastName || "",
-          email: response.email || "",
-          phone: resolvedPhone,
-        });
-        setProfileImageUrl(
-          response.avatarUrl || response.profileImageUrl || nativeUser?.profileImageUrl || null
-        );
-        setAuthError(null);
+        if (!initializedRef.current) {
+          const phoneFromAuth = auth.currentUser?.phoneNumber || "";
+          const resolvedPhone = phoneFromAuth || response.phone || nativeUser?.phone || "";
+          setFormData({
+            firstName: response.firstName || "",
+            lastName: response.lastName || "",
+            email: response.email || "",
+            phone: resolvedPhone,
+          });
+          setPhoneReadOnly(Boolean(phoneFromAuth));
+          setProfileImageUrl(
+            response.avatarUrl || response.profileImageUrl || nativeUser?.profileImageUrl || null
+          );
+          setAuthError(null);
+          markInitialized();
+        }
       } catch (error: any) {
         console.error("Failed to load profile:", error);
         const isUnauthorized = error?.code === "UNAUTHORIZED" || error?.status === 401;
         if (isUnauthorized) {
           setAuthError(error?.raw?.reason || "unauthorized");
-        } else if (nativeUser) {
-          applyProfileData({
+        } else if (nativeUser && !initializedRef.current) {
+          setFormData({
             firstName: nativeUser.firstName || "",
             lastName: nativeUser.lastName || "",
             email: nativeUser.email || "",
             phone: nativeUser.phone || "",
           });
           setProfileImageUrl(nativeUser.profileImageUrl || null);
+          markInitialized();
         }
       } finally {
         setIsLoading(false);
+        markInitialized();
       }
     };
 
     loadUserData();
-  }, [nativeUser, isNative, firebasePhone]);
+  }, [authReady, isNative, nativeUser, isSignedIn]);
 
   const getUnauthorizedCopy = (reason?: string | null) => {
     const normalized = reason || "unauthorized";
@@ -187,7 +146,7 @@ export default function ProfilePage() {
     try {
       const payload = {
         ...formData,
-        phone: firebasePhone || formData.phone,
+        phone: formData.phone,
         profileImageUrl,
       };
       await apiRequest("/api/user/profile", "POST", payload);
@@ -365,7 +324,6 @@ export default function ProfilePage() {
   const l = labels[lang === "ar" ? "ar" : "en"];
   const isRTL = lang === "ar";
   const isSignedIn = Boolean(user || nativeUser);
-  const phoneReadOnly = Boolean(firebasePhone);
   const authErrorCopy = authError ? getUnauthorizedCopy(authError) : null;
 
   return (
@@ -457,7 +415,7 @@ export default function ProfilePage() {
                         id="firstName"
                         value={formData.firstName}
                         onChange={(e) => {
-                          markDirty("firstName");
+                          markInitialized();
                           setFormData({ ...formData, firstName: e.target.value });
                         }}
                         placeholder={l.firstNamePlaceholder}
@@ -472,7 +430,7 @@ export default function ProfilePage() {
                       id="lastName"
                       value={formData.lastName}
                       onChange={(e) => {
-                        markDirty("lastName");
+                        markInitialized();
                         setFormData({ ...formData, lastName: e.target.value });
                       }}
                       placeholder={l.lastNamePlaceholder}
@@ -490,7 +448,7 @@ export default function ProfilePage() {
                       type="email"
                       value={formData.email}
                       onChange={(e) => {
-                        markDirty("email");
+                        markInitialized();
                         setFormData({ ...formData, email: e.target.value });
                       }}
                       placeholder={l.emailPlaceholder}
@@ -510,7 +468,7 @@ export default function ProfilePage() {
                       value={formData.phone}
                       onChange={(e) => {
                         if (phoneReadOnly) return;
-                        markDirty("phone");
+                        markInitialized();
                         setFormData({ ...formData, phone: e.target.value });
                       }}
                       placeholder={l.phonePlaceholder}

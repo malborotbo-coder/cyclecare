@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { resolveApiUrl } from "./apiConfig";
-import { auth, waitForAuthReady } from "./firebase";
+import { auth } from "./firebase";
 import { getBestAuthToken } from "./authStorage";
 
 const platform = Capacitor.getPlatform();
@@ -56,7 +56,6 @@ export async function fetchWithFirebaseAuth(
   let usedToken: string | null = null;
 
   if (isApiRequest(urlString)) {
-    await waitForAuthReady();
     const token = await getFirebaseIdToken(true);
     if (token) {
       usedToken = token;

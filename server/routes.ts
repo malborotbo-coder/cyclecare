@@ -1404,9 +1404,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         res.json({
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
+          firstName: user.firstName ?? null,
+          lastName: user.lastName ?? null,
+          email: user.email ?? null,
           phone: phoneNumber || user.phone || null,
           profileImageUrl: user.avatarUrl || user.profileImageUrl || null,
           avatarUrl: user.avatarUrl || null,
@@ -1475,9 +1475,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         message: "Profile updated successfully",
         user: {
-          firstName: user?.firstName,
-          lastName: user?.lastName,
-          email: user?.email,
+          firstName: user?.firstName ?? null,
+          lastName: user?.lastName ?? null,
+          email: user?.email ?? null,
           phone: resolvedPhone,
           profileImageUrl: user?.avatarUrl || user?.profileImageUrl || null,
           avatarUrl: user?.avatarUrl || null,

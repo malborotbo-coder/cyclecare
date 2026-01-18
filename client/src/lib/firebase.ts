@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, indexedDBLocalPersistence, browserLocalPersistence, initializeAuth, onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
+import { getAuth, indexedDBLocalPersistence, browserLocalPersistence, initializeAuth } from "firebase/auth";
 import { Capacitor } from "@capacitor/core";
 
 const firebaseConfig = {
@@ -52,16 +52,3 @@ try {
 }
 
 export { auth };
-
-let authReadyPromise: Promise<FirebaseUser | null> | null = null;
-
-export function waitForAuthReady(): Promise<FirebaseUser | null> {
-  if (authReadyPromise) return authReadyPromise;
-  authReadyPromise = new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      unsubscribe();
-      resolve(user);
-    });
-  });
-  return authReadyPromise;
-}
