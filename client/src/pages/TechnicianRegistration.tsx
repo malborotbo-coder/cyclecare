@@ -386,7 +386,7 @@ export default function TechnicianRegistration() {
     errors[field] ? "border-destructive focus-visible:ring-destructive" : "";
   const identityReadOnlyClass = "bg-muted/50 text-muted-foreground cursor-not-allowed";
   const errorMessageClass =
-    "rounded-md border border-destructive bg-destructive px-3 py-2 text-sm text-destructive-foreground";
+    "rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground";
   const nationalAddressPattern = /^[A-Z]{4}\d{4}$/;
   const profileImageSelected = Boolean(fileNames.profileImage || profile?.profileImageUrl);
   const nationalAddressValid = nationalAddressPattern.test(
@@ -459,7 +459,7 @@ export default function TechnicianRegistration() {
           </div>
 
           {draftRestored && (
-            <div className="mb-4 text-center text-sm font-medium text-amber-600 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20">
+            <div className="mb-4 text-center text-sm font-semibold text-white bg-amber-500 p-3 rounded-lg border border-amber-600">
               {lang === "ar"
                 ? "تم استرجاع بيانات النموذج. يرجى إعادة رفع المستندات لإكمال الطلب."
                 : "We restored your form data. Please re-attach your documents to continue."}
@@ -479,12 +479,12 @@ export default function TechnicianRegistration() {
           ) : null}
 
           {!profileComplete && !profileLoading && (
-            <Card className="mb-4 bg-destructive/10 border border-destructive/30">
+            <Card className="mb-4 bg-destructive border border-destructive shadow-sm">
               <CardHeader>
-                <CardTitle className="text-base text-destructive">
+                <CardTitle className="text-base font-semibold text-destructive-foreground">
                   {lang === "ar" ? "أكمل بياناتك أولاً" : "Complete your profile first"}
                 </CardTitle>
-                <CardDescription className="text-destructive/90">
+                <CardDescription className="text-destructive-foreground/90">
                   {lang === "ar"
                     ? "لا يمكن التقديم كفني قبل تعبئة البيانات الأساسية في صفحة بياناتي."
                     : "You must complete your profile before submitting a technician application."}
@@ -492,7 +492,7 @@ export default function TechnicianRegistration() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {missingProfileFields.length > 0 && (
-                  <div className="text-sm text-destructive">
+                  <div className="text-sm font-semibold text-destructive-foreground">
                     {lang === "ar" ? "الحقول الناقصة:" : "Missing fields:"} {missingProfileFields.join("، ")}
                   </div>
                 )}

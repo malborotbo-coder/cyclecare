@@ -3975,6 +3975,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "Failed to complete order" });
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
+        const requestNotes = typeof request?.notes === "string" ? request.notes : "";
+        const shopOrderMatch = requestNotes.match(/SHOP_ORDER_ID:\s*([a-zA-Z0-9-]+)/i);
+        if (shopOrderMatch?.[1]) {
+          const shopOrderId = shopOrderMatch[1];
+          try {
+            const { resp: shopResp, data: shopData } = await pgFetch(
+              `/orders?id=eq.${encodeURIComponent(shopOrderId)}&limit=1`,
+            );
+            if (shopResp.ok) {
+              const shopOrder = Array.isArray(shopData) ? shopData[0] : shopData?.[0];
+              const currentSteps = Array.isArray(shopOrder?.tracking_steps)
+                ? shopOrder.tracking_steps
+                : typeof shopOrder?.tracking_steps === "string"
+                ? parseJsonValue(shopOrder.tracking_steps)
+                : null;
+              const completedSteps = Array.isArray(currentSteps)
+                ? currentSteps.map((step: any) => ({
+                    ...step,
+                    status: "done",
+                    timestamp: step?.timestamp || new Date().toISOString(),
+                  }))
+                : undefined;
+              const patchBody: Record<string, any> = { status: "completed" };
+              if (completedSteps) {
+                patchBody.tracking_steps = completedSteps;
+              }
+              const { resp: patchResp, data: patchData } = await pgFetch(
+                `/orders?id=eq.${encodeURIComponent(shopOrderId)}`,
+                { method: "PATCH", body: patchBody, headers: { Prefer: "return=representation" } },
+              );
+              if (!patchResp.ok) {
+                console.error("[SHOP][ORDER][COMPLETE][FAILED]", {
+                  orderId: shopOrderId,
+                  status: patchResp.status,
+                  body: patchData,
+                });
+              }
+            }
+          } catch (error) {
+            console.error("[SHOP][ORDER][COMPLETE][ERROR]", {
+              orderId: shopOrderMatch[1],
+              error,
+            });
+          }
+        }
         console.log("[TECH][ORDER][COMPLETE]", {
           technicianId: technician.id,
           orderId,

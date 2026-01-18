@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { Save, User, Mail, Phone, Loader2, Camera } from "lucide-react";
 import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient";
 import { Capacitor } from "@capacitor/core";
@@ -15,10 +16,11 @@ import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
 export default function ProfilePage() {
-  const { t, lang, toggleLanguage } = useLanguage();
+  const { lang } = useLanguage();
   const { toast } = useToast();
   const nativeUser = useNativeUser();
   const nativeAuth = useNativeAuth();
+  const { user, isGuest, authReady } = useFirebaseAuth();
   const isNative = Capacitor.isNativePlatform();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -69,6 +71,17 @@ export default function ProfilePage() {
   }, [nativeUser, isNative]);
 
   const handleSave = async () => {
+    if (authReady && (isGuest || !isSignedIn)) {
+      toast({
+        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Sign in required",
+        description:
+          lang === "ar"
+            ? "يرجى تسجيل الدخول لحفظ بياناتك."
+            : "Please sign in to save your profile.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsSaving(true);
     try {
       await apiRequest("/api/user/profile", "POST", { ...formData, profileImageUrl });
@@ -90,10 +103,15 @@ export default function ProfilePage() {
         description: lang === "ar" ? "تم تحديث بياناتك الشخصية" : "Your profile has been updated",
       });
     } catch (error: any) {
+      const isUnauthorized = error?.code === "UNAUTHORIZED" || error?.status === 401;
       console.error("Failed to save profile:", error);
       toast({
         title: lang === "ar" ? "حدث خطأ" : "Error",
-        description: error.message || (lang === "ar" ? "فشل في حفظ البيانات" : "Failed to save profile"),
+        description: isUnauthorized
+          ? lang === "ar"
+            ? "يرجى تسجيل الدخول مرة أخرى ثم حاول الحفظ."
+            : "Please sign in again and try saving."
+          : error.message || (lang === "ar" ? "فشل في حفظ البيانات" : "Failed to save profile"),
         variant: "destructive",
       });
     } finally {
@@ -102,6 +120,17 @@ export default function ProfilePage() {
   };
 
   const handleProfilePhotoUpload = async (file: File) => {
+    if (authReady && (isGuest || !isSignedIn)) {
+      toast({
+        title: lang === "ar" ? "تسجيل الدخول مطلوب" : "Sign in required",
+        description:
+          lang === "ar"
+            ? "يرجى تسجيل الدخول لرفع الصورة."
+            : "Please sign in to upload a photo.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsUploadingPhoto(true);
     try {
       const headers = await getAuthHeadersAsync(false, lang);
@@ -111,10 +140,32 @@ export default function ProfilePage() {
         method: "POST",
         headers,
         body: form,
-        credentials: "include", // allow either JWT or cookie-based sessions
+        credentials: isNative ? "omit" : "include", // allow either JWT or cookie-based sessions
       });
       if (!res.ok) {
-        throw new Error("Failed to upload photo");
+        const bodyText = await res.text().catch(() => "");
+        let bodyJson: any = null;
+        try {
+          bodyJson = bodyText ? JSON.parse(bodyText) : null;
+        } catch {
+          bodyJson = null;
+        }
+        console.error("[Profile Photo Upload] Failed", {
+          status: res.status,
+          body: bodyText.slice(0, 200),
+        });
+        const isUnauthorized = res.status === 401 || res.status === 403;
+        const serverMessage =
+          bodyJson?.message ||
+          bodyJson?.error ||
+          (bodyText ? bodyText.slice(0, 120) : "");
+        throw new Error(
+          isUnauthorized
+            ? lang === "ar"
+              ? "يرجى تسجيل الدخول مرة أخرى"
+              : "Please sign in again"
+            : serverMessage || "Failed to upload photo"
+        );
       }
       const data = await res.json();
       setProfileImageUrl(data.imageUrl || null);
@@ -128,7 +179,9 @@ export default function ProfilePage() {
       console.error("Profile photo upload failed:", error);
       toast({
         title: lang === "ar" ? "فشل رفع الصورة" : "Failed to upload photo",
-        description: lang === "ar" ? "تحقق من الملف وحاول مرة أخرى" : "Please check the file and try again",
+        description:
+          error?.message ||
+          (lang === "ar" ? "تحقق من الملف وحاول مرة أخرى" : "Please check the file and try again"),
         variant: "destructive",
       });
     } finally {
@@ -141,6 +194,7 @@ export default function ProfilePage() {
     if (file) {
       handleProfilePhotoUpload(file);
     }
+    e.target.value = "";
   };
 
   const PageBackground = ({ children }: { children: ReactNode }) => (
@@ -151,7 +205,7 @@ export default function ProfilePage() {
           style={{ backgroundImage: `url(${workshopBg})` }}
           aria-hidden="true"
         />
-        <div className="absolute inset-0 bg-black/30" aria-hidden="true" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/50" aria-hidden="true" />
       </div>
       <div className="relative z-10">{children}</div>
     </div>
@@ -194,6 +248,7 @@ export default function ProfilePage() {
 
   const l = labels[lang === "ar" ? "ar" : "en"];
   const isRTL = lang === "ar";
+  const isSignedIn = Boolean(user || nativeUser);
 
   return (
     <PageBackground>
@@ -202,31 +257,46 @@ export default function ProfilePage() {
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
         dir={isRTL ? "rtl" : "ltr"}
       >
-        <Card className="shadow-lg bg-black/50 backdrop-blur-md border border-white/10 text-white">
+        <Card className="shadow-xl bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
           <CardHeader className="text-center">
-            <div className="mx-auto w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mb-4 overflow-hidden border border-primary/20 relative">
+            <input
+              id="profile-photo-input"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoSelect}
+              disabled={isUploadingPhoto || (authReady && (isGuest || !isSignedIn))}
+            />
+            <div className="mx-auto w-24 h-24 rounded-full bg-muted/30 flex items-center justify-center mb-4 overflow-hidden border border-border/60 relative">
               {profileImageUrl ? (
                 <img src={profileImageUrl} alt="profile" className="w-full h-full object-cover" />
               ) : (
                 <User className="w-10 h-10 text-primary" />
               )}
-              <label className="absolute bottom-1 right-1 bg-primary text-white rounded-full p-2 cursor-pointer shadow">
+              <label
+                htmlFor="profile-photo-input"
+                className="absolute bottom-1 right-1 bg-primary text-primary-foreground rounded-full p-2 cursor-pointer shadow"
+              >
                 {isUploadingPhoto ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Camera className="w-4 h-4" />
                 )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handlePhotoSelect}
-                  disabled={isUploadingPhoto}
-                />
               </label>
             </div>
-            <CardTitle className="text-2xl text-white">{l.title}</CardTitle>
-            <CardDescription className="text-white/80">{l.description}</CardDescription>
+            <Button asChild variant="outline" size="sm" className="mx-auto">
+              <label htmlFor="profile-photo-input" className="cursor-pointer">
+                {isUploadingPhoto
+                  ? lang === "ar"
+                    ? "جارٍ رفع الصورة..."
+                    : "Uploading photo..."
+                  : lang === "ar"
+                  ? "تحديث الصورة"
+                  : "Update photo"}
+              </label>
+            </Button>
+            <CardTitle className="text-2xl text-foreground">{l.title}</CardTitle>
+            <CardDescription className="text-muted-foreground">{l.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {isLoading ? (
@@ -236,17 +306,24 @@ export default function ProfilePage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                {authReady && (isGuest || !isSignedIn) && (
+                  <div className="rounded-lg border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground">
+                    {lang === "ar"
+                      ? "تحتاج إلى تسجيل الدخول لحفظ بياناتك أو رفع الصورة."
+                      : "You need to sign in to save changes or upload a photo."}
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="firstName">{l.firstName}</Label>
                     <div className="relative">
-                      <User className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                      <User className={`absolute top-3 w-4 h-4 text-muted-foreground ${isRTL ? "right-3" : "left-3"}`} />
                       <Input
                         id="firstName"
                         value={formData.firstName}
                         onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                         placeholder={l.firstNamePlaceholder}
-                        className="pl-10"
+                        className={isRTL ? "pr-10" : "pl-10"}
                         data-testid="input-first-name"
                       />
                     </div>
@@ -266,14 +343,14 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <Label htmlFor="email">{l.email}</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                    <Mail className={`absolute top-3 w-4 h-4 text-muted-foreground ${isRTL ? "right-3" : "left-3"}`} />
                     <Input
                       id="email"
                       type="email"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       placeholder={l.emailPlaceholder}
-                      className="pl-10"
+                      className={isRTL ? "pr-10" : "pl-10"}
                       data-testid="input-email"
                     />
                   </div>
@@ -282,14 +359,14 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <Label htmlFor="phone">{l.phone}</Label>
                   <div className="relative">
-                    <Phone className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                    <Phone className={`absolute top-3 w-4 h-4 text-muted-foreground ${isRTL ? "right-3" : "left-3"}`} />
                     <Input
                       id="phone"
                       type="tel"
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       placeholder={l.phonePlaceholder}
-                      className="pl-10"
+                      className={isRTL ? "pr-10" : "pl-10"}
                       disabled
                       data-testid="input-phone"
                     />
@@ -327,38 +404,10 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                {isNative && (
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-muted">
-                    <div>
-                      <p className="font-semibold text-sm">{lang === "ar" ? "البصمة / Face ID" : "Biometrics"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {biometricEnabled
-                          ? lang === "ar" ? "مفعّل حالياً. يمكنك إيقافه هنا." : "Enabled. You can disable it here."
-                          : lang === "ar" ? "غير مفعّل حالياً." : "Not enabled currently."}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        await disableBiometricSession();
-                        setBiometricEnabled(false);
-                        toast({
-                          title: lang === "ar" ? "تم الإيقاف" : "Disabled",
-                          description: lang === "ar" ? "تم إيقاف الدخول بالبصمة" : "Biometric unlock disabled",
-                        });
-                      }}
-                      disabled={!biometricEnabled}
-                    >
-                      {biometricEnabled ? (lang === "ar" ? "إيقاف" : "Disable") : (lang === "ar" ? "غير مفعّل" : "Disabled")}
-                    </Button>
-                  </div>
-                )}
-
                 <Button 
                   onClick={handleSave} 
                   className="w-full"
-                  disabled={isSaving}
+                  disabled={isSaving || (authReady && (isGuest || !isSignedIn))}
                   data-testid="button-save-profile"
                 >
                   {isSaving ? (

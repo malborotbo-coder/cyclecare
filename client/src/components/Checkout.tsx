@@ -6,15 +6,17 @@ import { Label } from "@/components/ui/label";
 import { useCart } from "@/contexts/CartContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, CheckCircle2, ExternalLink, Navigation } from "lucide-react";
+import { MapPin, CheckCircle2, ExternalLink, Navigation, User } from "lucide-react";
 import PaymentOptions from "@/components/PaymentOptions";
 import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Badge } from "@/components/ui/badge";
 import type { PaymentMethod } from "@shared/schema";
 
-type CheckoutStep = "confirm" | "payment" | "success";
+type CheckoutStep = "confirm" | "technician" | "payment" | "success";
 
 const STORE_LOCATION = { lat: 24.7136, lng: 46.6753 };
 const DELIVERY_CONFIG = { base: 10, perKm: 2, min: 10, max: 60 };
@@ -31,6 +33,10 @@ export default function Checkout() {
   const [geoLocation, setGeoLocation] = useState({ lat: 24.7136, lng: 46.6753 });
   const [locationText, setLocationText] = useState(lang === "ar" ? "الرياض" : "Riyadh");
   const [createdOrder, setCreatedOrder] = useState<any>(null);
+  const [assignmentOnly, setAssignmentOnly] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState("");
+  const [hasSelectedLocation, setHasSelectedLocation] = useState(false);
   const [discountCode, setDiscountCode] = useState("");
   const [appliedDiscount, setAppliedDiscount] = useState<{
     code: string;
@@ -54,6 +60,13 @@ export default function Checkout() {
       address: "عنوان التوصيل",
       payment: "طرق الدفع",
       continuePayment: "متابعة للدفع",
+      chooseTechnician: "اختيار الفني",
+      assignTechnician: "إرسال الطلب للفني",
+      technicianTitle: "اختيار الفني",
+      technicianHint: "اختر الفني المناسب ليبدأ تنفيذ الطلب.",
+      locationRequired: "يجب تحديد موقعك باستخدام الخريطة أولاً.",
+      orderAssigned: "تم إرسال الطلب للفني بنجاح",
+      assignmentWarning: "تم إنشاء الطلب، لكن تعذر إرسال الطلب إلى الفني. تواصل مع الدعم.",
       backToCart: "العودة للسلة",
       loading: "جاري المعالجة...",
       orderSuccess: "تم تأكيد الدفع بنجاح",
@@ -85,6 +98,13 @@ export default function Checkout() {
       address: "Delivery Address",
       payment: "Payment Methods",
       continuePayment: "Continue to payment",
+      chooseTechnician: "Choose technician",
+      assignTechnician: "Send order to technician",
+      technicianTitle: "Choose technician",
+      technicianHint: "Select the best technician to start the order.",
+      locationRequired: "Please select your location from the map first.",
+      orderAssigned: "Order sent to technician successfully",
+      assignmentWarning: "Order created, but failed to notify the technician. Please contact support.",
       backToCart: "Back to cart",
       loading: "Processing...",
       orderSuccess: "Payment confirmed successfully",
@@ -163,6 +183,14 @@ export default function Checkout() {
     }
   }, [appliedDiscount, computedSubtotal]);
 
+  useEffect(() => {
+    setStep("confirm");
+    setAssignmentOnly(false);
+    setAssignmentError(null);
+    setSelectedTechnicianId("");
+    setHasSelectedLocation(false);
+  }, [deliveryOption]);
+
   const handleApplyDiscount = async () => {
     const code = discountCode.trim();
     const invalidMessage = lang === "ar" ? "كود الخصم غير صالح" : "Discount code is invalid";
@@ -211,6 +239,64 @@ export default function Checkout() {
     }
     return `${geoLocation.lat},${geoLocation.lng}`;
   }, [deliveryAddress, geoLocation]);
+
+  const { data: techniciansData = [], isLoading: techniciansLoading } = useQuery({
+    queryKey: ["/api/technicians/nearby", geoLocation.lat, geoLocation.lng],
+    enabled: deliveryOption === "delivery_installation" && hasSelectedLocation,
+    queryFn: async () => {
+      return await apiRequest(
+        `/api/technicians/nearby?lat=${geoLocation.lat}&lng=${geoLocation.lng}`,
+        "GET",
+      );
+    },
+  });
+
+  const techniciansList = useMemo(() => {
+    const safe = Array.isArray(techniciansData) ? techniciansData : [];
+    return safe.filter((tech) => tech && tech.id);
+  }, [techniciansData]);
+
+  useEffect(() => {
+    if (deliveryOption !== "delivery_installation") {
+      setSelectedTechnicianId("");
+      setAssignmentOnly(false);
+      setAssignmentError(null);
+      return;
+    }
+    if (!selectedTechnicianId && techniciansList.length > 0) {
+      setSelectedTechnicianId(techniciansList[0].id);
+    }
+  }, [deliveryOption, selectedTechnicianId, techniciansList]);
+
+  const selectedTechnician = useMemo(
+    () => techniciansList.find((tech: any) => tech.id === selectedTechnicianId),
+    [techniciansList, selectedTechnicianId],
+  );
+
+  const buildOrderPayload = (method: PaymentMethod | "mock") => {
+    const isDelivery = deliveryOption === "delivery_installation";
+    return {
+      deliveryType: isDelivery ? "delivery" : "pickup",
+      deliveryOption,
+      deliveryAddress: isDelivery ? deliveryAddress : null,
+      deliveryLat: isDelivery ? geoLocation.lat : null,
+      deliveryLng: isDelivery ? geoLocation.lng : null,
+      deliveryDistanceKm: isDelivery ? deliveryDistanceKm : 0,
+      paymentMethod: method,
+      items: items.map((item) => ({
+        partId: item.part.id,
+        name: lang === "ar" ? item.part.name : item.part.nameEn,
+        quantity: item.quantity,
+        unitPrice: item.part.price,
+        total: Number(item.part.price) * item.quantity,
+      })),
+      subtotal: checkoutSubtotal.toString(),
+      taxAmount: checkoutTax.toString(),
+      taxRate: "15",
+      total: checkoutTotal.toString(),
+      discountCode: appliedDiscount?.code ?? null,
+    };
+  };
 
   const successItems = useMemo(() => {
     const raw = createdOrder?.items;
@@ -283,28 +369,7 @@ export default function Checkout() {
         throw new Error(lang === "ar" ? "يرجى إدخال عنوان التوصيل" : "Please enter delivery address");
       }
 
-      const orderData = {
-        deliveryType: isDelivery ? "delivery" : "pickup",
-        deliveryOption,
-        deliveryAddress: isDelivery ? deliveryAddress : null,
-        deliveryLat: isDelivery ? geoLocation.lat : null,
-        deliveryLng: isDelivery ? geoLocation.lng : null,
-        deliveryDistanceKm: isDelivery ? deliveryDistanceKm : 0,
-        paymentMethod: method,
-        items: items.map(item => ({
-          partId: item.part.id,
-          name: lang === "ar" ? item.part.name : item.part.nameEn,
-          quantity: item.quantity,
-          unitPrice: item.part.price,
-          total: Number(item.part.price) * item.quantity,
-        })),
-        subtotal: checkoutSubtotal.toString(),
-        taxAmount: checkoutTax.toString(),
-        taxRate: "15",
-        total: checkoutTotal.toString(),
-        discountCode: appliedDiscount?.code ?? null,
-      };
-
+      const orderData = buildOrderPayload(method);
       return await apiRequest("/api/shop/mock-checkout", "POST", orderData);
     },
     onSuccess: (order) => {
@@ -312,6 +377,8 @@ export default function Checkout() {
       clearCart();
       queryClient.invalidateQueries({ queryKey: ["/api/shop/orders"] });
       setCreatedOrder(order);
+      setAssignmentOnly(false);
+      setAssignmentError(null);
       setStep("success");
     },
     onError: (error: any) => {
@@ -335,16 +402,94 @@ export default function Checkout() {
   }
 
   const canProceed = deliveryOption === "pickup" || deliveryAddress.trim().length > 0;
+  const canProceedDelivery = deliveryOption === "pickup"
+    ? canProceed
+    : deliveryAddress.trim().length > 0 && hasSelectedLocation;
   const invoiceNumber =
     createdOrder?.invoiceNumber || createdOrder?.invoice_number || createdOrder?.invoiceId || "-";
   const orderNumber = createdOrder?.orderNumber || createdOrder?.order_number || "-";
+  const successTitle = assignmentOnly ? labelsText.orderAssigned : labelsText.orderSuccess;
+
+  const assignToTechnicianMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTechnicianId) {
+        throw new Error(lang === "ar" ? "يرجى اختيار الفني" : "Please select a technician");
+      }
+      if (!hasSelectedLocation || !deliveryAddress.trim()) {
+        throw new Error(labelsText.locationRequired);
+      }
+
+      const order = await apiRequest("/api/shop/mock-checkout", "POST", buildOrderPayload("mock"));
+      const orderId = order?.id;
+      const orderNumberValue = order?.orderNumber || order?.order_number || "";
+      const itemsSummary = items
+        .map((item) => `${lang === "ar" ? item.part.name : item.part.nameEn} × ${item.quantity}`)
+        .join(", ");
+      const notes = [
+        lang === "ar"
+          ? `طلب متجر رقم ${orderNumberValue || "-"}`
+          : `Shop order #${orderNumberValue || "-"}`,
+        itemsSummary ? `${lang === "ar" ? "العناصر" : "Items"}: ${itemsSummary}` : null,
+        orderId ? `SHOP_ORDER_ID:${orderId}` : null,
+        orderNumberValue ? `SHOP_ORDER_NUMBER:${orderNumberValue}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let assignmentErrorMessage: string | null = null;
+      try {
+        await apiRequest("/api/service-requests", "POST", {
+          technicianId: selectedTechnicianId,
+          serviceType: "delivery_installation",
+          latitude: geoLocation.lat,
+          longitude: geoLocation.lng,
+          location: deliveryAddress || locationText,
+          notes,
+          status: "assigned",
+        });
+      } catch (error: any) {
+        console.error("[SHOP][ASSIGN][FAILED]", error);
+        assignmentErrorMessage =
+          error?.message ||
+          (lang === "ar"
+            ? "تعذر إرسال الطلب إلى الفني"
+            : "Failed to notify technician");
+      }
+
+      return { order, assignmentErrorMessage };
+    },
+    onSuccess: ({ order, assignmentErrorMessage }) => {
+      clearCart();
+      queryClient.invalidateQueries({ queryKey: ["/api/shop/orders"] });
+      setCreatedOrder(order);
+      setAssignmentOnly(true);
+      setAssignmentError(assignmentErrorMessage);
+      if (assignmentErrorMessage) {
+        toast({
+          title: lang === "ar" ? "تنبيه" : "Warning",
+          description: labelsText.assignmentWarning,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: labelsText.orderAssigned });
+      }
+      setStep("success");
+    },
+    onError: (error: any) => {
+      toast({
+        title: lang === "ar" ? "تعذر الإرسال" : "Assignment failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/20 pb-32">
       <div className="container mx-auto px-4 py-6 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">{labelsText.title}</h1>
-          {step === "payment" && (
+          {(step === "payment" || step === "technician") && (
             <Button variant="outline" onClick={() => setStep("confirm")}>
               {labelsText.backToCart}
             </Button>
@@ -393,9 +538,15 @@ export default function Checkout() {
                           if (value.trim()) {
                             setLocationText(value.trim());
                           }
+                          setHasSelectedLocation(false);
                         }}
                         data-testid="input-address"
                       />
+                      {!hasSelectedLocation && (
+                        <div className="rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground">
+                          {labelsText.locationRequired}
+                        </div>
+                      )}
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <MapPin className="w-4 h-4" />
@@ -432,6 +583,7 @@ export default function Checkout() {
                             const text = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`;
                             setLocationText(text);
                             setDeliveryAddress(text);
+                            setHasSelectedLocation(true);
                           })
                         }
                       >
@@ -534,11 +686,129 @@ export default function Checkout() {
                   <Button
                     className="w-full"
                     size="lg"
-                    onClick={() => setStep("payment")}
-                    disabled={!canProceed}
+                    onClick={() =>
+                      setStep(deliveryOption === "pickup" ? "payment" : "technician")
+                    }
+                    disabled={!canProceedDelivery}
                     data-testid="button-continue-payment"
                   >
-                    {labelsText.continuePayment}
+                    {deliveryOption === "pickup"
+                      ? labelsText.continuePayment
+                      : labelsText.chooseTechnician}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {step === "technician" && (
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="space-y-6">
+              <Card className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
+                <CardHeader>
+                  <CardTitle>{labelsText.technicianTitle}</CardTitle>
+                  <p className="text-sm text-muted-foreground">{labelsText.technicianHint}</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {techniciansLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      {lang === "ar" ? "جاري تحميل الفنيين..." : "Loading technicians..."}
+                    </p>
+                  ) : techniciansList.length === 0 ? (
+                    <div className="rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground">
+                      {lang === "ar" ? "لا يوجد فنيون متاحون حالياً" : "No technicians available right now"}
+                    </div>
+                  ) : (
+                    <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-3">
+                      {techniciansList.map((tech: any) => {
+                        const userName =
+                          tech?.name ||
+                          tech?.full_name ||
+                          tech?.user?.first_name ||
+                          (lang === "ar" ? "فني معتمد" : "Certified technician");
+                        const ratingValue = Number(tech.rating ?? 0);
+                        const reviewCount = Number(tech.reviewCount ?? tech.review_count ?? 0);
+                        const distanceKm = Number(tech.distanceKm ?? 0);
+                        const etaMinutes = Number(tech.etaMinutes ?? 0);
+                        const isSelected = tech.id === selectedTechnicianId;
+                        return (
+                          <Label
+                            key={tech.id}
+                            htmlFor={`tech-${tech.id}`}
+                            className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                              isSelected ? "border-primary bg-white/90" : "border-border/50 bg-white/70 dark:bg-white/5"
+                            }`}
+                          >
+                            <RadioGroupItem id={`tech-${tech.id}`} value={tech.id} />
+                            <div className="flex flex-1 items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <User className="h-5 w-5 text-primary" />
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold">{userName}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {reviewCount} {lang === "ar" ? "تقييم" : "reviews"} •{" "}
+                                    {Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : "--"} {lang === "ar" ? "كم" : "km"} •{" "}
+                                    {Number.isFinite(etaMinutes) ? Math.max(1, Math.round(etaMinutes)) : "--"} {lang === "ar" ? "دقيقة" : "min"}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </Label>
+                        );
+                      })}
+                    </RadioGroup>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-4">
+              <Card className="border-border/40 bg-white/80 dark:bg-white/5 backdrop-blur">
+                <CardHeader>
+                  <CardTitle>{labelsText.confirmTitle}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labelsText.address}</span>
+                    <span>{deliveryAddress || locationText}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labelsText.itemsSubtotal}</span>
+                    <span>{subtotal.toFixed(2)} {labelsText.currency}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labelsText.deliveryFee}</span>
+                    <span>{deliveryFee.toFixed(2)} {labelsText.currency}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{labelsText.installFee}</span>
+                    <span>{installFee.toFixed(2)} {labelsText.currency}</span>
+                  </div>
+                  <div className="flex items-center justify-between font-semibold text-primary">
+                    <span>{labelsText.total}</span>
+                    <span>{checkoutTotal.toFixed(2)} {labelsText.currency}</span>
+                  </div>
+                  <Button
+                    className="w-full"
+                    size="lg"
+                    onClick={() => assignToTechnicianMutation.mutate()}
+                    disabled={
+                      assignToTechnicianMutation.isPending ||
+                      !selectedTechnicianId ||
+                      !hasSelectedLocation
+                    }
+                  >
+                    {assignToTechnicianMutation.isPending
+                      ? labelsText.loading
+                      : labelsText.assignTechnician}
                   </Button>
                 </CardContent>
               </Card>
@@ -568,7 +838,7 @@ export default function Checkout() {
                     <CheckCircle2 className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold">{labelsText.orderSuccess}</h2>
+                    <h2 className="text-xl font-bold">{successTitle}</h2>
                     <p className="text-sm text-muted-foreground">
                       {labelsText.orderNumber}: {orderNumber}
                     </p>
@@ -579,6 +849,11 @@ export default function Checkout() {
                     )}
                   </div>
                 </div>
+                {assignmentOnly && assignmentError && (
+                  <div className="rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground">
+                    {labelsText.assignmentWarning}
+                  </div>
+                )}
 
               <div className="space-y-2 text-sm">
                 {successItems.map((item: any, idx: number) => (
