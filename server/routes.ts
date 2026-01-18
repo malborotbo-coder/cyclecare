@@ -605,49 +605,73 @@ const handleProfileAvatarUpload = async (req: any, res: any) => {
     }
 
     const ext = (file.originalname.split(".").pop() || "jpg").toLowerCase();
-    const path = `profile-avatars/${auth.userId}/${Date.now()}.${ext}`;
+    const path = `profile-avatars/${userUuid}/${Date.now()}.${ext}`;
 
+    let targetBucket = PROFILE_IMAGE_BUCKET;
     try {
-      await ensureStorageBucket(PROFILE_IMAGE_BUCKET, { public: true });
+      await ensureStorageBucket(targetBucket, { public: true });
     } catch (error: any) {
+      if (error?.message === "STORAGE_CONFIG_MISSING") {
+        console.error("[PROFILE][AVATAR][CONFIG_MISSING]", {
+          bucket: targetBucket,
+          message: error?.message,
+        });
+        return res
+          .status(503)
+          .json({ code: "PROFILE_STORAGE_UNAVAILABLE", message: "Profile image storage is not available" });
+      }
+      const fallbackBucket = process.env.TECHNICIAN_DOCS_BUCKET || "technician-docs";
       console.error("[PROFILE][AVATAR][BUCKET]", {
-        bucket: PROFILE_IMAGE_BUCKET,
+        bucket: targetBucket,
         message: error?.message,
+        fallback: fallbackBucket,
       });
-      return res.status(500).json({
-        code: "STORAGE_BUCKET_MISSING",
-        message: "Profile image storage is not available",
-        bucket: PROFILE_IMAGE_BUCKET,
-      });
+      targetBucket = fallbackBucket;
     }
 
-    console.log("[PROFILE][AVATAR][UPLOAD]", { bucket: PROFILE_IMAGE_BUCKET, path });
+    console.log("[PROFILE][AVATAR][UPLOAD]", {
+      bucket: targetBucket,
+      path,
+      size: file.size,
+      contentType: file.mimetype,
+    });
 
     let publicUrl: string;
     try {
       publicUrl = await uploadToStorageRest({
         file,
         path,
-        bucket: PROFILE_IMAGE_BUCKET,
+        bucket: targetBucket,
       });
     } catch (error: any) {
       console.error("[PROFILE][AVATAR][UPLOAD_FAILED]", {
-        bucket: PROFILE_IMAGE_BUCKET,
+        bucket: targetBucket,
         path,
         message: error?.message,
       });
       return res.status(500).json({ code: "PROFILE_UPLOAD_FAILED", message: "Failed to upload profile image" });
     }
 
-    const user = await storage.upsertUser({
-      id: userUuid,
-      profileImageUrl: publicUrl,
-      avatarUrl: publicUrl,
-    });
+    let saved = false;
+    let savedUrl: string | null = null;
+    try {
+      const user = await storage.upsertUser({
+        id: userUuid,
+        profileImageUrl: publicUrl,
+        avatarUrl: publicUrl,
+      });
+      saved = true;
+      savedUrl = user?.avatarUrl || user?.profileImageUrl || null;
+    } catch (error: any) {
+      console.error("[PROFILE][AVATAR][SAVE_FAILED]", {
+        userId: userUuid,
+        message: error?.message,
+      });
+    }
 
-    return res.json({ imageUrl: user?.avatarUrl || publicUrl, uploaded: true });
-  } catch (error) {
-    console.error("[PROFILE][AVATAR] Error:", error);
+    return res.json({ imageUrl: savedUrl || publicUrl, uploaded: true, saved });
+  } catch (error: any) {
+    console.error("[PROFILE][AVATAR] Error:", { message: error?.message, stack: error?.stack });
     return res.status(500).json({ message: "Failed to upload profile photo" });
   }
 };
@@ -1421,9 +1445,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatarUrl: null,
         });
       }
-    } catch (error) {
-      console.error("Error fetching profile:", error);
-      res.status(500).json({ message: "Failed to fetch profile" });
+    } catch (error: any) {
+      console.error("[PROFILE][FETCH][ERROR]", {
+        message: error?.message,
+        stack: error?.stack,
+      });
+      const auth = getAuthContext(req);
+      return res.status(200).json({
+        firstName: null,
+        lastName: null,
+        email: auth?.email || null,
+        phone: auth?.phoneNumber || null,
+        profileImageUrl: null,
+        avatarUrl: null,
+      });
     }
   });
 
