@@ -329,6 +329,7 @@ const normalizeUserRow = (row: any) => ({
   profileImageUrl: row.profile_image_url ?? row.profileImageUrl ?? null,
   avatarUrl: row.avatar_url ?? row.avatarUrl ?? null,
   isTechnician: row.is_technician ?? row.isTechnician ?? false,
+  technicianRemovedAt: row.technician_removed_at ?? row.technicianRemovedAt ?? null,
   isAdmin: row.is_admin ?? row.isAdmin ?? false,
   createdAt: row.created_at ?? row.createdAt ?? null,
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
@@ -5156,20 +5157,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
       try {
         const techId = req.params.id;
-        console.log("[ADMIN][TECH][REJECT]", { techId });
-        const { resp, data } = await pgFetch(`/technicians?id=eq.${encodeURIComponent(techId)}`, {
-          method: "PATCH",
-          body: { status: "rejected", is_active: false },
-          headers: { Prefer: "return=representation" },
-        });
-        if (!resp.ok) {
-          console.log("[ADMIN][TECH][REJECT][FAILED]", { status: resp.status, body: data });
+        console.log("[ADMIN][TECH][DELETE]", { techId });
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(techId)}&select=id,user_id&limit=1`,
+        );
+        if (!techResp.ok) {
+          console.log("[ADMIN][TECH][DELETE][FETCH_FAILED]", { status: techResp.status, body: techData });
           return res.status(404).json({ message: "Technician not found" });
         }
-        res.json({ message: "Technician rejected successfully" });
+        const technician = Array.isArray(techData) ? techData[0] : techData?.[0];
+        if (!technician?.id) {
+          return res.status(404).json({ message: "Technician not found" });
+        }
+
+        await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(techId)}`, {
+          method: "DELETE",
+        }).catch((error) => {
+          console.error("[ADMIN][TECH][DELETE][DOCS_FAILED]", { techId, message: error?.message });
+        });
+
+        await pgFetch(`/technician_locations?technician_id=eq.${encodeURIComponent(techId)}`, {
+          method: "DELETE",
+        }).catch((error) => {
+          console.error("[ADMIN][TECH][DELETE][LOC_FAILED]", { techId, message: error?.message });
+        });
+
+        const { resp: delResp, data: delData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(techId)}`,
+          { method: "DELETE" },
+        );
+        if (!delResp.ok) {
+          console.log("[ADMIN][TECH][DELETE][FAILED]", { status: delResp.status, body: delData });
+          return res.status(500).json({ message: "Failed to delete technician" });
+        }
+
+        const deletedAt = new Date().toISOString();
+        if (technician.user_id) {
+          await pgFetch(`/users?id=eq.${encodeURIComponent(technician.user_id)}`, {
+            method: "PATCH",
+            body: { is_technician: false, technician_removed_at: deletedAt },
+            headers: { Prefer: "return=representation" },
+          }).catch((error) => {
+            console.error("[ADMIN][TECH][DELETE][USER_UPDATE_FAILED]", {
+              userId: technician.user_id,
+              message: error?.message,
+            });
+          });
+
+          try {
+            const role = await getRoleByName("technician");
+            if (role?.id) {
+              await pgFetch(
+                `/user_roles?user_id=eq.${encodeURIComponent(technician.user_id)}&role_id=eq.${encodeURIComponent(role.id)}`,
+                { method: "DELETE" },
+              );
+            }
+          } catch (error: any) {
+            console.error("[ADMIN][TECH][DELETE][ROLE_REMOVE_FAILED]", {
+              userId: technician.user_id,
+              message: error?.message,
+            });
+          }
+        }
+
+        res.json({ message: "Technician deleted successfully", deletedAt });
       } catch (error) {
-        console.error("Error rejecting technician:", error);
-        res.status(500).json({ message: "Failed to reject technician" });
+        console.error("Error deleting technician:", error);
+        res.status(500).json({ message: "Failed to delete technician" });
       }
     },
   );

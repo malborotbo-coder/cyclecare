@@ -57,6 +57,7 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   avatarUrl: varchar("avatar_url"),
   isTechnician: boolean("is_technician").default(false),
+  technicianRemovedAt: timestamp("technician_removed_at"),
   isAdmin: boolean("is_admin").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

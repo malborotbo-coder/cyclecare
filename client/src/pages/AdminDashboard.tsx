@@ -2267,6 +2267,20 @@ export default function AdminDashboard() {
                               {user.firstName} {user.lastName}
                             </p>
                             <p className="text-sm text-muted-foreground">{user.email || (lang === 'ar' ? 'غير محدد' : 'Not provided')}</p>
+                            {(() => {
+                              const removedAt =
+                                (user as any).technicianRemovedAt ??
+                                (user as any).technician_removed_at ??
+                                null;
+                              if (!removedAt) return null;
+                              return (
+                                <p className="text-xs font-semibold text-destructive">
+                                  {lang === "ar"
+                                    ? `فني سابق - تم الحذف في ${formatSupportDate(removedAt)}`
+                                    : `Former technician - removed on ${formatSupportDate(removedAt)}`}
+                                </p>
+                              );
+                            })()}
                           </div>
                           <div className="flex gap-2">
                             {user.isAdmin === true && (
