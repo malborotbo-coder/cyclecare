@@ -26,7 +26,7 @@ import { z } from "zod";
 import multer from "multer";
 import { uploadBufferToStorage } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
-import { uploadToStorageRest } from "./storageRest";
+import { ensureStorageBucket, uploadToStorageRest } from "./storageRest";
 import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT } from "./jwt";
@@ -1999,7 +1999,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Technician apply (PostgREST + Storage REST)
   app.post(
     "/api/technicians/apply",
-    upload.array("documents"),
+    upload.fields([
+      { name: "profileImage", maxCount: 1 },
+      { name: "nationalIdFile", maxCount: 1 },
+      { name: "commercialFile", maxCount: 1 },
+      { name: "certifications", maxCount: 10 },
+      // Backward-compatible field for older clients.
+      { name: "documents", maxCount: 10 },
+    ]),
     async (req: any, res) => {
       try {
         const auth = getAuthContext(req);
@@ -2010,25 +2017,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
           externalId: auth?.userId || "guest",
         });
 
-        const files: Express.Multer.File[] = req.files || [];
-        const errors: Record<string, string> = {};
-        const allowedTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "application/pdf"];
-        const maxSize = 5 * 1024 * 1024;
+        const lang = getRequestLang(req);
+        const user = await storage.getUser(userUuid);
+        const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
 
-        if (!req.body.phone_number && !req.body.phoneNumber) {
-          errors.phone_number = "Required";
+        const fileGroups = (req.files || {}) as Record<string, Express.Multer.File[]>;
+        const profileImageFile = fileGroups.profileImage?.[0];
+        const nationalIdFile = fileGroups.nationalIdFile?.[0];
+        const commercialFile = fileGroups.commercialFile?.[0];
+        const certificationFiles = fileGroups.certifications || [];
+        const legacyDocuments = fileGroups.documents || [];
+
+        const errors: Record<string, string> = {};
+        const allowedImageTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"];
+        const allowedDocTypes = [...allowedImageTypes, "application/pdf"];
+        const maxSize = 5 * 1024 * 1024;
+        const legacyProfileImage = legacyDocuments.find((file) =>
+          allowedImageTypes.includes(file.mimetype),
+        );
+
+        if (!fullName) {
+          errors.name = lang === "ar" ? "الاسم الكامل مطلوب" : "Full name is required";
         }
-        if (!req.body.years_of_experience && !req.body.yearsOfExperience) {
-          errors.years_of_experience = "Required";
+
+        const phoneNumber = (req.body.phone_number || req.body.phoneNumber || "").trim();
+        if (!phoneNumber) {
+          errors.phone_number = lang === "ar" ? "رقم الجوال مطلوب" : "Phone number is required";
         }
-        if (files.length > 0) {
-          for (const file of files) {
-            if (!allowedTypes.includes(file.mimetype)) {
-              errors.documents = "Invalid file type";
+
+        const nationalAddressRaw = (req.body.national_address || req.body.nationalAddress || "")
+          .toString()
+          .trim()
+          .toUpperCase();
+        const nationalAddressPattern = /^[A-Z]{4}\d{4}$/;
+        if (!nationalAddressRaw) {
+          errors.national_address =
+            lang === "ar" ? "العنوان الوطني مطلوب" : "National address is required";
+        } else if (!nationalAddressPattern.test(nationalAddressRaw)) {
+          errors.national_address =
+            lang === "ar"
+              ? "العنوان الوطني يجب أن يكون 4 أحرف متبوعة بـ 4 أرقام (مثال: ABCD1234)"
+              : "National address must be 4 letters followed by 4 numbers (e.g. ABCD1234)";
+        }
+
+        const hasProfileImage = Boolean(
+          user?.profileImageUrl || profileImageFile || legacyProfileImage,
+        );
+        if (!hasProfileImage) {
+          errors.profile_image =
+            lang === "ar" ? "صورة الملف الشخصي مطلوبة" : "Personal profile image is required";
+        }
+
+        const yearsRaw = req.body.years_of_experience || req.body.yearsOfExperience;
+        if (yearsRaw !== undefined && `${yearsRaw}`.trim() !== "") {
+          const parsedYears = Number(yearsRaw);
+          if (!Number.isFinite(parsedYears) || parsedYears < 0) {
+            errors.years_of_experience =
+              lang === "ar" ? "سنوات الخبرة يجب أن تكون رقمًا صالحًا" : "Years of experience must be valid";
+          }
+        }
+
+        if (profileImageFile) {
+          if (!allowedImageTypes.includes(profileImageFile.mimetype)) {
+            errors.profile_image =
+              lang === "ar" ? "صورة الملف الشخصي يجب أن تكون صورة فقط" : "Profile image must be an image file";
+          }
+          if (profileImageFile.size > maxSize) {
+            errors.profile_image =
+              lang === "ar" ? "صورة الملف الشخصي كبيرة جدًا (حد أقصى 5 ميجابايت)" : "Profile image is too large (max 5MB)";
+          }
+        }
+
+        const optionalFiles = [nationalIdFile, commercialFile, ...certificationFiles, ...legacyDocuments].filter(
+          Boolean,
+        ) as Express.Multer.File[];
+        if (optionalFiles.length > 0) {
+          for (const file of optionalFiles) {
+            if (!allowedDocTypes.includes(file.mimetype)) {
+              errors.documents =
+                lang === "ar" ? "صيغة الملف غير مدعومة" : "Unsupported file type";
               break;
             }
             if (file.size > maxSize) {
-              errors.documents = "File too large (max 5MB)";
+              errors.documents =
+                lang === "ar" ? "حجم الملف كبير جدًا (حد أقصى 5 ميجابايت)" : "File is too large (max 5MB)";
               break;
             }
           }
@@ -2038,16 +2110,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ fieldErrors: errors });
         }
 
-        const nationalAddress = (req.body.national_address || req.body.nationalAddress || "").trim();
-        const techPayload = {
+        const techPayload: Record<string, any> = {
           user_id: userUuid,
-          phone_number: req.body.phone_number || req.body.phoneNumber,
-          years_of_experience: Number(req.body.years_of_experience || req.body.yearsOfExperience),
-          national_address: nationalAddress ? nationalAddress : null,
+          phone_number: phoneNumber,
+          national_address: nationalAddressRaw,
           status: "pending",
           is_active: false,
           is_available: false,
         };
+
+        const nationalId = (req.body.national_id || req.body.nationalId || "").trim();
+        if (nationalId) {
+          techPayload.national_id = nationalId;
+        }
+
+        const iban = (req.body.iban || "").trim();
+        if (iban) {
+          techPayload.iban = iban;
+        }
+
+        const commercialRegister = (req.body.commercial_register || req.body.commercialRegister || "").trim();
+        if (commercialRegister) {
+          techPayload.commercial_register = commercialRegister;
+        }
+
+        if (yearsRaw !== undefined && `${yearsRaw}`.trim() !== "") {
+          const parsedYears = Number(yearsRaw);
+          if (Number.isFinite(parsedYears)) {
+            techPayload.years_of_experience = parsedYears;
+          }
+        }
 
         const { resp: createResp, data: createData } = await pgFetch("/technicians", {
           method: "POST",
@@ -2055,7 +2147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           headers: { Prefer: "return=representation" },
         });
         if (!createResp.ok) {
-          console.log("[TECH][APPLY][FAILED]", { status: createResp.status, body: createData });
+          console.error("[TECH][APPLY][FAILED]", { status: createResp.status, body: createData });
           throw new AppError({
             code: "TECH_APPLY_FAILED",
             status: createResp.status || 500,
@@ -2064,15 +2156,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const technician = Array.isArray(createData) ? createData[0] : createData;
 
+        const uploadEntries: Array<{ file: Express.Multer.File; documentType: string }> = [];
+        if (profileImageFile) {
+          uploadEntries.push({ file: profileImageFile, documentType: "profile_image" });
+        }
+        if (nationalIdFile) {
+          uploadEntries.push({ file: nationalIdFile, documentType: "national_id" });
+        }
+        if (commercialFile) {
+          uploadEntries.push({ file: commercialFile, documentType: "commercial_register" });
+        }
+        if (certificationFiles.length > 0) {
+          for (const file of certificationFiles) {
+            uploadEntries.push({ file, documentType: "certification" });
+          }
+        }
+        if (legacyDocuments.length > 0) {
+          const legacyProfileFallback = !profileImageFile ? legacyProfileImage : undefined;
+          if (legacyProfileFallback) {
+            uploadEntries.push({ file: legacyProfileFallback, documentType: "profile_image" });
+          }
+          for (const file of legacyDocuments) {
+            if (legacyProfileFallback && file === legacyProfileFallback) continue;
+            uploadEntries.push({ file, documentType: "other" });
+          }
+        }
+
         const docInserts: any[] = [];
-        for (const file of files) {
+        for (const entry of uploadEntries) {
+          const { file, documentType } = entry;
           const timestamp = Date.now();
           const safeName = file.originalname.replace(/\s+/g, "_");
           const fileName = `technicians/${technician.id}/${timestamp}-${safeName}`;
           let fileUrl: string;
           try {
             fileUrl = await uploadToStorageRest({ file, path: fileName });
-          } catch (uploadError) {
+          } catch (uploadError: any) {
+            console.error("[TECH][APPLY][UPLOAD_FAILED]", {
+              technicianId: technician.id,
+              file: safeName,
+              error: uploadError?.message || "Upload failed",
+            });
             await pgFetch(`/technicians?id=eq.${encodeURIComponent(technician.id)}`, {
               method: "DELETE",
             }).catch(() => {});
@@ -2082,10 +2206,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               message: "Failed to upload technician documents",
             });
           }
-          console.log("[TECH][APPLY][UPLOAD]", { technicianId: technician.id, file: safeName });
+          console.log("[TECH][APPLY][UPLOAD]", {
+            technicianId: technician.id,
+            file: safeName,
+            documentType,
+          });
           docInserts.push({
             technician_id: technician.id,
-            document_type: (req.body.documentType as string) || "other",
+            document_type: documentType,
             file_name: file.originalname,
             file_url: fileUrl,
             file_size: file.size,
@@ -3804,17 +3932,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!file) {
           return res.status(400).json({ message: "Completion photo required" });
         }
-        const path = `orders/${orderId}/after.jpg`;
-        const imageUrl = await uploadToStorageRest({
-          file,
-          path,
-          bucket: "service-completions",
-        });
-        const payload = {
+        const bucket = process.env.SUPABASE_COMPLETIONS_BUCKET || "service-completions";
+        const timestamp = Date.now();
+        const extension = file.originalname.split(".").pop() || "jpg";
+        const safeExtension = extension.replace(/[^a-zA-Z0-9]/g, "") || "jpg";
+        const path = `order-completions/${orderId}/${timestamp}.${safeExtension}`;
+
+        let imageUrl: string | null = null;
+        let imageUploaded = false;
+        let imageUploadError: string | null = null;
+
+        try {
+          await ensureStorageBucket(bucket, { public: true });
+          imageUrl = await uploadToStorageRest({
+            file,
+            path,
+            bucket,
+          });
+          imageUploaded = true;
+        } catch (uploadError: any) {
+          imageUploadError = uploadError?.message || "Image upload failed";
+          console.error("[TECH][ORDER][COMPLETE][UPLOAD_FAILED]", {
+            orderId,
+            bucket,
+            path,
+            error: imageUploadError,
+          });
+        }
+
+        const payload: Record<string, any> = {
           status: "completed",
           completed_at: new Date().toISOString(),
-          completed_image_url: imageUrl,
         };
+        if (imageUrl) {
+          payload.completed_image_url = imageUrl;
+        }
         const { resp: updResp, data: updData } = await pgFetch(
           `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
           { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
@@ -3827,7 +3979,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           technicianId: technician.id,
           orderId,
         });
-        res.json(updated);
+        res.json({
+          ...(updated || {}),
+          completed: true,
+          imageUploaded,
+          imageUrl,
+          imageUploadError,
+        });
       } catch (error) {
         console.error("[TECH][ORDER][COMPLETE] Error:", error);
         res.status(500).json({ message: "Failed to complete order" });

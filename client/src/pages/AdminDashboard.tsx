@@ -2301,7 +2301,7 @@ export default function AdminDashboard() {
                   ) : !bikes || bikes.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
                       <Table className="min-w-[640px]">
                         <TableHeader>
                           <TableRow>
@@ -2626,7 +2626,7 @@ export default function AdminDashboard() {
                   ) : safeServiceRequests.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
                       <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>
@@ -2737,7 +2737,7 @@ export default function AdminDashboard() {
                   ) : safeShopOrders.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
                   ) : (
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
                       <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>
@@ -2825,7 +2825,7 @@ export default function AdminDashboard() {
                   ) : safeSupportTickets.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">{txt.supportNoData}</div>
                   ) : (
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
                       <Table className="min-w-[1100px]">
                         <TableHeader>
                           <TableRow>

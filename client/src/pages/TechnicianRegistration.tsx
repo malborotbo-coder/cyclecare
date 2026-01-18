@@ -101,19 +101,11 @@ export default function TechnicianRegistration() {
   const hasExistingApplication = Boolean(effectiveStatus);
   const showApplicationStatus = hasExistingApplication && !technicianLoading;
 
-  const profileComplete = Boolean(
-    profile?.firstName &&
-      profile?.lastName &&
-      profile?.email &&
-      profile?.phone &&
-      profile?.profileImageUrl
-  );
+  const profileComplete = Boolean(profile?.firstName && profile?.lastName && profile?.phone);
 
   const missingProfileFields = [
     !profile?.firstName || !profile?.lastName ? (lang === "ar" ? "الاسم الكامل" : "Full name") : null,
-    !profile?.email ? (lang === "ar" ? "البريد الإلكتروني" : "Email") : null,
     !profile?.phone ? (lang === "ar" ? "رقم الجوال" : "Phone") : null,
-    !profile?.profileImageUrl ? (lang === "ar" ? "صورة الملف الشخصي" : "Profile photo") : null,
   ].filter(Boolean) as string[];
 
   useEffect(() => {
@@ -149,29 +141,23 @@ export default function TechnicianRegistration() {
     localStorage.removeItem(DRAFT_KEY);
   };
 
-  const gatherDocuments = () => {
-    const docs: File[] = [];
-    [profileImageRef, nationalIdRef, commercialRef, certificationsRef].forEach((ref) => {
-      if (ref.current?.files) {
-        docs.push(...Array.from(ref.current.files));
-      }
-    });
-    return docs;
+  const getSelectedFiles = () => {
+    const profileImage = profileImageRef.current?.files?.[0] || null;
+    const nationalIdFile = nationalIdRef.current?.files?.[0] || null;
+    const commercialFile = commercialRef.current?.files?.[0] || null;
+    const certifications = certificationsRef.current?.files
+      ? Array.from(certificationsRef.current.files)
+      : [];
+    return { profileImage, nationalIdFile, commercialFile, certifications };
   };
 
   // Submit mutation - uses FormData for multipart upload
   const submitMutation = useMutation({
-    mutationFn: async (documents: File[]) => {
-      const formDataToSend = new FormData();
-      formDataToSend.append("phone_number", formData.phoneNumber);
-      formDataToSend.append("years_of_experience", formData.experienceYears || "0");
-      formDataToSend.append("national_address", formData.nationalAddress);
-      documents.forEach((file) => formDataToSend.append("documents", file));
-
+    mutationFn: async (payload: FormData) => {
       const response = await fetchWithFirebaseAuth(buildApiUrl("/api/technicians/apply"), {
         method: "POST",
         credentials: "include",
-        body: formDataToSend,
+        body: payload,
       });
 
       const data = await response.json().catch(() => ({}));
@@ -227,6 +213,7 @@ export default function TechnicianRegistration() {
           years_of_experience: "سنوات الخبرة",
           national_id: "رقم الهوية",
           national_address: "العنوان الوطني",
+          profile_image: "صورة الملف الشخصي",
           documents: "المستندات",
         },
         en: {
@@ -236,6 +223,7 @@ export default function TechnicianRegistration() {
           years_of_experience: "Years of experience",
           national_id: "National ID",
           national_address: "National address",
+          profile_image: "Profile image",
           documents: "Documents",
         },
       };
@@ -283,8 +271,8 @@ export default function TechnicianRegistration() {
         title: lang === "ar" ? "أكمل بياناتك أولاً" : "Complete your profile first",
         description:
           lang === "ar"
-            ? "يرجى تعبئة بياناتك الشخصية وصورة الملف من صفحة بياناتي."
-            : "Please fill your personal profile and photo before applying.",
+            ? "يرجى تعبئة الاسم الكامل ورقم الجوال من صفحة بياناتي."
+            : "Please complete your full name and phone number in your profile.",
         variant: "destructive",
       });
       return;
@@ -300,37 +288,61 @@ export default function TechnicianRegistration() {
       return;
     }
     const newErrors: FieldErrors = {};
-    const docs = gatherDocuments();
+    const { profileImage, nationalIdFile, commercialFile, certifications } = getSelectedFiles();
 
-    if (!formData.fullName.trim()) newErrors.name = t("requiredField");
-    if (!formData.email.trim()) {
-      newErrors.email = t("requiredField");
-    } else if (!/^\S+@\S+\.\S+$/.test(formData.email.trim())) {
-      newErrors.email = t("invalidEmail");
+    if (!formData.fullName.trim()) {
+      newErrors.name = lang === "ar" ? "الاسم الكامل مطلوب" : "Full name is required";
     }
-    if (!formData.phoneNumber.trim()) newErrors.phone_number = t("requiredField");
-    if (!formData.experienceYears.trim()) newErrors.years_of_experience = t("requiredField");
-    if (!formData.nationalId.trim()) newErrors.national_id = t("requiredField");
-    if (formData.nationalAddress.trim()) {
-      if (formData.nationalAddress.trim().length > 8) {
-        newErrors.national_address = lang === "ar" ? "الحد الأقصى 8 أحرف" : "Max 8 characters";
-      }
-      const addressPattern = /^[\u0600-\u06FF0-9]{0,8}$/;
-      if (!addressPattern.test(formData.nationalAddress)) {
-        newErrors.national_address = lang === "ar" ? "أدخل أحرف عربية أو أرقام فقط" : "Use Arabic letters or numbers only";
-      }
+    if (!formData.phoneNumber.trim()) {
+      newErrors.phone_number = lang === "ar" ? "رقم الجوال مطلوب" : "Phone number is required";
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "application/pdf"];
+    const normalizedAddress = formData.nationalAddress.trim().toUpperCase();
+    if (!normalizedAddress) {
+      newErrors.national_address =
+        lang === "ar" ? "العنوان الوطني مطلوب" : "National address is required";
+    } else if (!nationalAddressPattern.test(normalizedAddress)) {
+      newErrors.national_address =
+        lang === "ar"
+          ? "العنوان الوطني يجب أن يكون 4 أحرف متبوعة بـ 4 أرقام (مثال: ABCD1234)"
+          : "National address must be 4 letters followed by 4 numbers (e.g. ABCD1234)";
+    }
+
+    const hasProfileImage = Boolean(profileImage || profile?.profileImageUrl);
+    if (!hasProfileImage) {
+      newErrors.profile_image =
+        lang === "ar" ? "صورة الملف الشخصي مطلوبة" : "Personal profile image is required";
+    } else if (profileImage && !profileImage.type.startsWith("image/")) {
+      newErrors.profile_image =
+        lang === "ar" ? "صورة الملف الشخصي يجب أن تكون صورة فقط" : "Profile image must be an image file";
+    } else if (profileImage && profileImage.size > 5 * 1024 * 1024) {
+      newErrors.profile_image =
+        lang === "ar" ? "صورة الملف الشخصي كبيرة جدًا (حد أقصى 5 ميجابايت)" : "Profile image is too large (max 5MB)";
+    }
+
+    if (formData.experienceYears.trim()) {
+      const parsedYears = Number(formData.experienceYears);
+      if (!Number.isFinite(parsedYears) || parsedYears < 0) {
+        newErrors.years_of_experience =
+          lang === "ar" ? "سنوات الخبرة يجب أن تكون رقمًا صالحًا" : "Years of experience must be valid";
+      }
+    }
+
+    const optionalFiles = [nationalIdFile, commercialFile, ...certifications].filter(
+      Boolean,
+    ) as File[];
+    const allowedTypes = ["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", "application/pdf"];
     const maxSize = 5 * 1024 * 1024;
-    if (docs.length > 0) {
-      for (const file of docs) {
+    if (optionalFiles.length > 0) {
+      for (const file of optionalFiles) {
         if (!allowedTypes.includes(file.type)) {
-          newErrors.documents = lang === "ar" ? "صيغة ملف غير مسموحة" : "Invalid file type";
+          newErrors.documents =
+            lang === "ar" ? "صيغة الملف غير مدعومة" : "Unsupported file type";
           break;
         }
         if (file.size > maxSize) {
-          newErrors.documents = lang === "ar" ? "الحد الأقصى للملف 5 ميجابايت" : "File too large (max 5MB)";
+          newErrors.documents =
+            lang === "ar" ? "حجم الملف كبير جدًا (حد أقصى 5 ميجابايت)" : "File is too large (max 5MB)";
           break;
         }
       }
@@ -339,7 +351,33 @@ export default function TechnicianRegistration() {
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
-    submitMutation.mutate(docs);
+    const payload = new FormData();
+    payload.append("phone_number", formData.phoneNumber.trim());
+    if (formData.experienceYears.trim()) {
+      payload.append("years_of_experience", formData.experienceYears.trim());
+    }
+    payload.append("national_address", normalizedAddress);
+    if (formData.nationalId.trim()) {
+      payload.append("national_id", formData.nationalId.trim());
+    }
+    if (formData.iban.trim()) {
+      payload.append("iban", formData.iban.trim());
+    }
+    if (formData.commercialRegister.trim()) {
+      payload.append("commercial_register", formData.commercialRegister.trim());
+    }
+    if (profileImage) {
+      payload.append("profileImage", profileImage);
+    }
+    if (nationalIdFile) {
+      payload.append("nationalIdFile", nationalIdFile);
+    }
+    if (commercialFile) {
+      payload.append("commercialFile", commercialFile);
+    }
+    certifications.forEach((file) => payload.append("certifications", file));
+
+    submitMutation.mutate(payload);
   };
 
   const BackIcon = isRTL ? ArrowRight : ArrowLeft;
@@ -347,6 +385,19 @@ export default function TechnicianRegistration() {
   const inputErrorClass = (field: string) =>
     errors[field] ? "border-destructive focus-visible:ring-destructive" : "";
   const identityReadOnlyClass = "bg-muted/50 text-muted-foreground cursor-not-allowed";
+  const errorMessageClass =
+    "rounded-md border border-destructive bg-destructive px-3 py-2 text-sm text-destructive-foreground";
+  const nationalAddressPattern = /^[A-Z]{4}\d{4}$/;
+  const profileImageSelected = Boolean(fileNames.profileImage || profile?.profileImageUrl);
+  const nationalAddressValid = nationalAddressPattern.test(
+    formData.nationalAddress.trim().toUpperCase(),
+  );
+  const canSubmit =
+    !submitMutation.isPending &&
+    profileComplete &&
+    !hasExistingApplication &&
+    profileImageSelected &&
+    nationalAddressValid;
 
   return (
     <div className="min-h-screen relative bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -428,12 +479,12 @@ export default function TechnicianRegistration() {
           ) : null}
 
           {!profileComplete && !profileLoading && (
-            <Card className="mb-4 bg-amber-500/10 border border-amber-500/30">
+            <Card className="mb-4 bg-destructive/10 border border-destructive/30">
               <CardHeader>
-                <CardTitle className="text-base text-amber-700">
+                <CardTitle className="text-base text-destructive">
                   {lang === "ar" ? "أكمل بياناتك أولاً" : "Complete your profile first"}
                 </CardTitle>
-                <CardDescription className="text-amber-700/80">
+                <CardDescription className="text-destructive/90">
                   {lang === "ar"
                     ? "لا يمكن التقديم كفني قبل تعبئة البيانات الأساسية في صفحة بياناتي."
                     : "You must complete your profile before submitting a technician application."}
@@ -441,7 +492,7 @@ export default function TechnicianRegistration() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {missingProfileFields.length > 0 && (
-                  <div className="text-sm text-amber-800">
+                  <div className="text-sm text-destructive">
                     {lang === "ar" ? "الحقول الناقصة:" : "Missing fields:"} {missingProfileFields.join("، ")}
                   </div>
                 )}
@@ -517,12 +568,12 @@ export default function TechnicianRegistration() {
                   <p className="text-xs text-muted-foreground">
                     {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
                   </p>
-                  {errors.name && <p className="text-destructive text-sm">{errors.name}</p>}
+                  {errors.name && <p className={errorMessageClass}>{errors.name}</p>}
                 </div>
 
                 {/* Email */}
                 <div className="space-y-2">
-                  <Label htmlFor="email">{t("email")} *</Label>
+                  <Label htmlFor="email">{t("email")}</Label>
                   <Input
                     id="email"
                     type="email"
@@ -535,7 +586,7 @@ export default function TechnicianRegistration() {
                   <p className="text-xs text-muted-foreground">
                     {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
                   </p>
-                  {errors.email && <p className="text-destructive text-sm">{errors.email}</p>}
+                  {errors.email && <p className={errorMessageClass}>{errors.email}</p>}
                 </div>
 
                 {/* Phone */}
@@ -553,12 +604,12 @@ export default function TechnicianRegistration() {
                   <p className="text-xs text-muted-foreground">
                     {lang === "ar" ? "يتم تعبئته من صفحة بياناتي" : "Loaded from your profile"}
                   </p>
-                  {errors.phone_number && <p className="text-destructive text-sm">{errors.phone_number}</p>}
+                  {errors.phone_number && <p className={errorMessageClass}>{errors.phone_number}</p>}
                 </div>
 
                 {/* Experience Years */}
                 <div className="space-y-2">
-                  <Label htmlFor="experience">{t("experienceYears")} *</Label>
+                  <Label htmlFor="experience">{t("experienceYears")}</Label>
                   <Input
                     id="experience"
                     type="number"
@@ -571,13 +622,13 @@ export default function TechnicianRegistration() {
                     data-testid="input-experience"
                   />
                   {errors.years_of_experience && (
-                    <p className="text-destructive text-sm">{errors.years_of_experience}</p>
+                    <p className={errorMessageClass}>{errors.years_of_experience}</p>
                   )}
                 </div>
 
                 {/* National ID */}
                 <div className="space-y-2">
-                  <Label htmlFor="nationalId">{t("nationalIdNumber")} *</Label>
+                  <Label htmlFor="nationalId">{t("nationalIdNumber")}</Label>
                   <Input
                     id="nationalId"
                     value={formData.nationalId}
@@ -586,7 +637,7 @@ export default function TechnicianRegistration() {
                     className={inputErrorClass("national_id")}
                     data-testid="input-national-id"
                   />
-                  {errors.national_id && <p className="text-destructive text-sm">{errors.national_id}</p>}
+                  {errors.national_id && <p className={errorMessageClass}>{errors.national_id}</p>}
                 </div>
 
                 {/* IBAN */}
@@ -615,20 +666,25 @@ export default function TechnicianRegistration() {
 
                 {/* National Address */}
                 <div className="space-y-2">
-                  <Label htmlFor="nationalAddress">{lang === "ar" ? "العنوان الوطني" : "National Address"}</Label>
+                  <Label htmlFor="nationalAddress">
+                    {lang === "ar" ? "العنوان الوطني" : "National Address"} *
+                  </Label>
                   <Input
                     id="nationalAddress"
                     value={formData.nationalAddress}
                     maxLength={8}
                     onChange={(e) => {
-                      const sanitized = e.target.value.replace(/[^\u0600-\u06FF0-9]/g, "").slice(0, 8);
+                      const sanitized = e.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, "")
+                        .slice(0, 8);
                       handleInputChange("nationalAddress", sanitized);
                     }}
-                    placeholder={lang === "ar" ? "اكتب العنوان الوطني" : "Enter national address"}
+                    placeholder={lang === "ar" ? "مثال: ABCD1234" : "Example: ABCD1234"}
                     className={inputErrorClass("national_address")}
                     data-testid="input-national-address"
                   />
-                  {errors.national_address && <p className="text-destructive text-sm">{errors.national_address}</p>}
+                  {errors.national_address && <p className={errorMessageClass}>{errors.national_address}</p>}
                 </div>
               </CardContent>
             </Card>
@@ -638,18 +694,18 @@ export default function TechnicianRegistration() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2 text-foreground">
                   <Upload className="w-5 h-5 text-secondary" />
-                  {lang === "ar" ? "المستندات (اختياري)" : "Documents (optional)"}
+                  {lang === "ar" ? "المستندات" : "Documents"}
                 </CardTitle>
                 <CardDescription className="text-muted-foreground">
                   {lang === "ar"
-                    ? "يمكنك رفع مستندات الهوية أو الشهادات (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
-                    : "You can upload ID or certificates (PDF or image), max 5MB each"}
+                    ? "صورة الملف الشخصي مطلوبة، وباقي المستندات اختيارية (PDF أو صورة) بحد أقصى 5 ميجابايت لكل ملف"
+                    : "Profile photo is required; other documents are optional (PDF or image), max 5MB each"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Profile Photo */}
                 <div className="space-y-2">
-                  <Label>{t("profilePhoto")}</Label>
+                  <Label>{t("profilePhoto")} *</Label>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
@@ -663,7 +719,7 @@ export default function TechnicianRegistration() {
                       <input
                         ref={profileImageRef}
                         type="file"
-                        accept="image/*,.pdf"
+                        accept="image/*"
                         className="absolute inset-0 opacity-0 cursor-pointer"
                         onChange={(e) => handleFileChange("profileImage", e.target.files)}
                       />
@@ -675,6 +731,7 @@ export default function TechnicianRegistration() {
                       </span>
                     )}
                   </div>
+                  {errors.profile_image && <p className={errorMessageClass}>{errors.profile_image}</p>}
                 </div>
 
                 {/* National ID Photo */}
@@ -766,7 +823,7 @@ export default function TechnicianRegistration() {
                       </span>
                     )}
                   </div>
-                  {errors.documents && <p className="text-destructive text-sm">{errors.documents}</p>}
+                  {errors.documents && <p className={errorMessageClass}>{errors.documents}</p>}
                 </div>
               </CardContent>
             </Card>
@@ -776,7 +833,7 @@ export default function TechnicianRegistration() {
               type="submit"
               size="lg"
               className="w-full bg-primary hover:bg-primary/90 text-lg py-6"
-              disabled={submitMutation.isPending || !profileComplete || hasExistingApplication}
+              disabled={!canSubmit}
               data-testid="button-submit-application"
             >
               {submitMutation.isPending ? (
