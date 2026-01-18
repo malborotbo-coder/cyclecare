@@ -145,15 +145,20 @@ export default function ProfilePage() {
         ? "غير مسجل الدخول. يرجى تسجيل الدخول أولاً."
         : "You are not signed in. Please log in first.";
     }
-    if (normalized === "token_verification_failed") {
-      return lang === "ar"
-        ? "مشكلة في التحقق من التوكن. يرجى إعادة تسجيل الدخول."
-        : "Token verification failed. Please sign in again.";
-    }
-    if (normalized === "invalid_session") {
+    if (normalized === "token_expired") {
       return lang === "ar"
         ? "انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى."
         : "Your session expired. Please sign in again.";
+    }
+    if (normalized === "session_not_found") {
+      return lang === "ar"
+        ? "انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى."
+        : "Your session expired. Please sign in again.";
+    }
+    if (normalized === "invalid_token") {
+      return lang === "ar"
+        ? "مشكلة في التحقق من التوكن. يرجى إعادة تسجيل الدخول."
+        : "Token verification failed. Please sign in again.";
     }
     return lang === "ar"
       ? "غير مصرح لك بهذا الإجراء. يرجى تسجيل الدخول."

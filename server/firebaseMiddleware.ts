@@ -124,8 +124,10 @@ export async function setupFirebaseAuth(app: Express) {
         try {
           const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
           if (payload.iss === APP_JWT_ISSUER && payload.aud === APP_JWT_AUDIENCE) {
+            const now = Math.floor(Date.now() / 1000);
+            const reason = payload.exp && payload.exp < now ? "token_expired" : "invalid_token";
             console.warn("[Auth] Skipping Firebase check for app JWT with invalid signature/expiry");
-            req.authError = { code: "invalid_token", message: "app_jwt_invalid" };
+            req.authError = { code: reason, message: "app_jwt_invalid" };
             return next();
           }
         } catch (e) {
@@ -151,7 +153,7 @@ export async function setupFirebaseAuth(app: Express) {
           console.log(`[Phone Auth DB] User: ${dbSession.phoneNumber}, isAdmin: ${isAdmin}`);
           return next();
         }
-        req.authError = { code: "invalid_session", message: "phone_session_not_found" };
+        req.authError = { code: "session_not_found", message: "phone_session_not_found" };
         return next();
       }
       
@@ -195,7 +197,9 @@ export async function setupFirebaseAuth(app: Express) {
         req.userId = decoded.uid;
       }
     } catch (error: any) {
-      req.authError = { code: "token_verification_failed", message: error?.message };
+      const errorCode = String(error?.code || "");
+      const reason = errorCode.includes("id-token-expired") ? "token_expired" : "invalid_token";
+      req.authError = { code: reason, message: error?.message };
       console.error("[Firebase Auth] Token verification error:", {
         message: error?.message,
         name: error?.name,

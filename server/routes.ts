@@ -598,6 +598,7 @@ const handleProfileAvatarUpload = async (req: any, res: any) => {
     if (!auth) {
       return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED", reason: "missing_token" });
     }
+    const userUuid = await ensureUserUuid(auth);
     const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) {
       return res.status(400).json({ message: "No photo uploaded" });
@@ -639,7 +640,7 @@ const handleProfileAvatarUpload = async (req: any, res: any) => {
     }
 
     const user = await storage.upsertUser({
-      id: auth.userId,
+      id: userUuid,
       profileImageUrl: publicUrl,
       avatarUrl: publicUrl,
     });
@@ -1371,14 +1372,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!auth) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      const { userId, phoneNumber } = auth;
+      const { phoneNumber } = auth;
+      const userUuid = await ensureUserUuid(auth);
+      const jwtUser = (req as any).jwtUser;
+      const firebaseUser = req.firebaseUser;
+      let user = await storage.getUser(userUuid);
 
-      let user = await storage.getUser(userId);
+      if (!user) {
+        const providerHint = jwtUser ? "google" : phoneNumber ? "phone" : auth.email ? "firebase" : "app";
+        const avatarFallback = jwtUser?.profileImageUrl || firebaseUser?.picture || null;
+        user = await storage.upsertUser({
+          id: userUuid,
+          email: auth.email || null,
+          phone: phoneNumber || null,
+          firstName: jwtUser?.firstName || null,
+          lastName: jwtUser?.lastName || null,
+          authProvider: providerHint,
+          authProviderId: auth.userId,
+          profileImageUrl: avatarFallback,
+          avatarUrl: avatarFallback,
+          isAdmin: auth.isAdmin === true,
+        });
+      }
       
       if (user) {
         if (phoneNumber && !user.phone) {
           try {
-            user = await storage.upsertUser({ id: userId, phone: phoneNumber });
+            user = await storage.upsertUser({ id: userUuid, phone: phoneNumber });
           } catch (error) {
             console.warn("[PROFILE] Failed to persist phone number", error);
           }
@@ -1413,19 +1433,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!auth) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      const { userId, phoneNumber, isAdmin } = auth;
+      const { phoneNumber, isAdmin } = auth;
+      const userUuid = await ensureUserUuid(auth);
 
       const { firstName, lastName, email, profileImageUrl, avatarUrl, phone } = req.body;
       const resolvedAvatar = avatarUrl ?? profileImageUrl;
       const resolvedPhone = phoneNumber || phone || null;
 
       // Check if user exists
-      let user = await storage.getUser(userId);
+      let user = await storage.getUser(userUuid);
       
       if (user) {
         // Update existing user using upsert
         user = await storage.upsertUser({
-          id: userId,
+          id: userUuid,
           firstName: firstName || user.firstName,
           lastName: lastName || user.lastName,
           email: email || user.email,
@@ -1434,13 +1455,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatarUrl: resolvedAvatar ?? user.avatarUrl,
         });
       } else {
+        const jwtUser = (req as any).jwtUser;
+        const providerHint = jwtUser ? "google" : phoneNumber ? "phone" : auth.email ? "firebase" : "app";
         // Create new user
         user = await storage.createUser({
-          id: userId,
-          firstName,
-          lastName,
-          email: email || `${userId}@phone.user`,
+          id: userUuid,
+          firstName: firstName || jwtUser?.firstName || null,
+          lastName: lastName || jwtUser?.lastName || null,
+          email: email || auth.email || `${auth.userId}@phone.user`,
           phone: resolvedPhone,
+          authProvider: providerHint,
+          authProviderId: auth.userId,
           isAdmin,
           profileImageUrl: resolvedAvatar || null,
           avatarUrl: resolvedAvatar || null,
