@@ -72,7 +72,7 @@ export default function BikeLogPage() {
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
-  const showConnect = !isLoading && (isNotConnected || error);
+  const showConnect = !isLoading && isNotConnected;
 
   if (showConnect) {
     return (

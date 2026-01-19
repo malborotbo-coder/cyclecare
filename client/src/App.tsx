@@ -43,6 +43,14 @@ import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
+function RedirectToMyProfile() {
+  const [, setLocation] = useLocation();
+  useEffect(() => {
+    setLocation("/my-profile");
+  }, [setLocation]);
+  return null;
+}
+
 function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authReady, isGuest } = useFirebaseAuth();
   const [, setLocation] = useLocation();
@@ -266,9 +274,7 @@ function Router() {
 
               {/* Bike Profile route */}
               <Route path="/profile">
-                <AppLayout>
-                  <ProfilePage />
-                </AppLayout>
+                <RedirectToMyProfile />
               </Route>
 
               <Route path="/bikes">

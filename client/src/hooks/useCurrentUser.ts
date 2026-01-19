@@ -23,8 +23,17 @@ export function useCurrentUser() {
         username: (webUser as any)?.firstName || (webUser as any)?.email || '',
         isAdmin: (webUser as any)?.isAdmin || false,
       };
-      nativeAuth.setUser(realUser);
-      console.log('[useCurrentUser] ✅ Synced Replit Auth user to native context:', realUser.email);
+      const isSameUser =
+        nativeUser?.id === realUser.id &&
+        nativeUser?.email === realUser.email &&
+        nativeUser?.firstName === realUser.firstName &&
+        nativeUser?.lastName === realUser.lastName &&
+        nativeUser?.profileImageUrl === realUser.profileImageUrl &&
+        nativeUser?.isAdmin === realUser.isAdmin;
+      if (!isSameUser) {
+        nativeAuth.setUser(realUser);
+        console.log('[useCurrentUser] ✅ Synced Replit Auth user to native context:', realUser.email);
+      }
     }
   }, [webUser, isNative, nativeUser, nativeAuth]);
   

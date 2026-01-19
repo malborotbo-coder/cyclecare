@@ -24,7 +24,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
-import { uploadBufferToStorage } from "./supabaseClient";
+import { uploadBufferToStorage, getUploadClient } from "./supabaseClient";
 import { pgFetch } from "./postgrest";
 import { ensureStorageBucket, uploadToStorageRest } from "./storageRest";
 import type { Role, InsertDiscountCode } from "@shared/schema";
@@ -197,6 +197,32 @@ const getCookieValue = (cookieHeader: string | undefined, name: string) => {
     }
   }
   return null;
+};
+
+const parseStorageUrl = (url: string) => {
+  const match = url.match(/\/storage\/v1\/object\/(?:public\/)?([^/]+)\/(.+)$/);
+  if (!match) return null;
+  return { bucket: match[1], path: match[2] };
+};
+
+const signStorageUrl = async (url: string) => {
+  if (!url) return url;
+  const parsed = parseStorageUrl(url);
+  if (!parsed) return url;
+  try {
+    const client = getUploadClient();
+    const { data, error } = await client.storage
+      .from(parsed.bucket)
+      .createSignedUrl(parsed.path, 60 * 60);
+    if (error || !data?.signedUrl) {
+      console.warn("[STORAGE][SIGNED_URL][FAILED]", { bucket: parsed.bucket, path: parsed.path });
+      return url;
+    }
+    return data.signedUrl;
+  } catch (error: any) {
+    console.warn("[STORAGE][SIGNED_URL][ERROR]", { message: error?.message });
+    return url;
+  }
 };
 
 const buildStravaState = (userId: string, timestamp: number, secret: string) => {
@@ -1982,6 +2008,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const retry = await fetchActivities(account.access_token);
         activitiesResp = retry.resp;
         activitiesData = retry.data;
+      }
+      if (activitiesResp.status === 401) {
+        await removeStravaAccount(userUuid);
+        return res.status(404).json({
+          code: "STRAVA_NOT_CONNECTED",
+          message: "Strava account is not connected",
+        });
       }
       if (!activitiesResp.ok) {
         console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
@@ -5753,7 +5786,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("[ADMIN][TECH][DOCS][FAILED]", { status: resp.status, body: data });
           return res.json([]);
         }
-        res.json(Array.isArray(data) ? data : []);
+        const docs = Array.isArray(data) ? data : [];
+        const signedDocs = await Promise.all(
+          docs.map(async (doc: any) => {
+            if (!doc?.file_url) return doc;
+            const signedUrl = await signStorageUrl(doc.file_url);
+            return { ...doc, file_url: signedUrl, signed_url: signedUrl };
+          }),
+        );
+        res.json(signedDocs);
       } catch (error) {
         console.error("Error fetching technician documents:", error);
         res.status(500).json({ message: "Failed to fetch documents" });
@@ -5780,7 +5821,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const safeDocs = await (async () => {
           const { resp: docsResp, data: docsData } = await pgFetch(`/technician_documents?technician_id=eq.${encodeURIComponent(techId)}`);
-          return docsResp.ok && Array.isArray(docsData) ? docsData : [];
+          if (!docsResp.ok || !Array.isArray(docsData)) return [];
+          const signed = await Promise.all(
+            docsData.map(async (doc: any) => {
+              if (!doc?.file_url) return doc;
+              const signedUrl = await signStorageUrl(doc.file_url);
+              return { ...doc, file_url: signedUrl, signed_url: signedUrl };
+            }),
+          );
+          return signed;
         })();
 
         const performance = await (async () => {
