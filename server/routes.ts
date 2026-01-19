@@ -776,6 +776,41 @@ async function getLastMaintenanceDate(userUuid: string): Promise<string | null> 
   }
 }
 
+async function removeStravaAccount(userUuid: string) {
+  const { resp, data } = await pgFetch(
+    `/user_strava_accounts?user_id=eq.${encodeURIComponent(userUuid)}`,
+    { method: "DELETE" },
+  );
+  if (!resp.ok) {
+    console.warn("[STRAVA][ACCOUNT][DELETE_FAILED]", { status: resp.status, body: data });
+  }
+}
+
+async function refreshStravaAccount(account: any, userUuid: string) {
+  const refreshResp = await fetch(STRAVA_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: STRAVA_CLIENT_ID,
+      client_secret: STRAVA_CLIENT_SECRET,
+      refresh_token: account.refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+  const refreshData = await refreshResp.json().catch(() => ({}));
+  if (!refreshResp.ok) {
+    console.error("[STRAVA][REFRESH] Failed", { status: refreshResp.status, body: refreshData });
+    return null;
+  }
+  return await upsertStravaAccount({
+    user_id: userUuid,
+    athlete_id: refreshData?.athlete?.id || account.athlete_id,
+    access_token: refreshData.access_token,
+    refresh_token: refreshData.refresh_token,
+    expires_at: refreshData.expires_at,
+  });
+}
+
 const handleProfileAvatarUpload = async (req: any, res: any) => {
   try {
     const auth = getAuthContext(req);
@@ -1914,46 +1949,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const nowSeconds = Math.floor(Date.now() / 1000);
       if (!Number.isFinite(Number(account.expires_at)) || Number(account.expires_at) <= nowSeconds) {
-        const refreshResp = await fetch(STRAVA_TOKEN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            client_id: STRAVA_CLIENT_ID,
-            client_secret: STRAVA_CLIENT_SECRET,
-            refresh_token: account.refresh_token,
-            grant_type: "refresh_token",
-          }),
-        });
-        const refreshData = await refreshResp.json().catch(() => ({}));
-        if (!refreshResp.ok) {
-          console.error("[STRAVA][REFRESH] Failed", { status: refreshResp.status, body: refreshData });
-          return res.status(401).json({
-            code: "STRAVA_TOKEN_EXPIRED",
-            message: "Strava token expired. Please reconnect.",
+        const refreshed = await refreshStravaAccount(account, userUuid);
+        if (!refreshed) {
+          await removeStravaAccount(userUuid);
+          return res.status(404).json({
+            code: "STRAVA_NOT_CONNECTED",
+            message: "Strava account is not connected",
           });
         }
-        account = await upsertStravaAccount({
-          user_id: userUuid,
-          athlete_id: refreshData?.athlete?.id || account.athlete_id,
-          access_token: refreshData.access_token,
-          refresh_token: refreshData.refresh_token,
-          expires_at: refreshData.expires_at,
-        });
+        account = refreshed;
       }
 
-      const activitiesResp = await fetch(`${STRAVA_ACTIVITIES_URL}?per_page=200`, {
-        headers: { Authorization: `Bearer ${account.access_token}` },
-      });
-      const activitiesData = await activitiesResp.json().catch(() => []);
+      const fetchActivities = async (token: string) => {
+        const resp = await fetch(`${STRAVA_ACTIVITIES_URL}?per_page=200`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await resp.json().catch(() => []);
+        return { resp, data };
+      };
+
+      let { resp: activitiesResp, data: activitiesData } = await fetchActivities(account.access_token);
+      if (activitiesResp.status === 401) {
+        const refreshed = await refreshStravaAccount(account, userUuid);
+        if (!refreshed) {
+          await removeStravaAccount(userUuid);
+          return res.status(404).json({
+            code: "STRAVA_NOT_CONNECTED",
+            message: "Strava account is not connected",
+          });
+        }
+        account = refreshed;
+        const retry = await fetchActivities(account.access_token);
+        activitiesResp = retry.resp;
+        activitiesData = retry.data;
+      }
       if (!activitiesResp.ok) {
         console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
-        const status = activitiesResp.status === 401 ? 401 : 500;
-        return res.status(status).json({
-          code: activitiesResp.status === 401 ? "STRAVA_TOKEN_EXPIRED" : "STRAVA_FETCH_FAILED",
-          message:
-            activitiesResp.status === 401
-              ? "Strava token expired. Please reconnect."
-              : "Failed to fetch Strava activities",
+        return res.status(500).json({
+          code: "STRAVA_FETCH_FAILED",
+          message: "Failed to fetch Strava activities",
         });
       }
 

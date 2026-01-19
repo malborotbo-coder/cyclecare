@@ -33,13 +33,10 @@ export default function BikeLogPage() {
 
   const errorCode = (error as any)?.code || (error as any)?.raw?.code;
   const isNotConnected = errorCode === "STRAVA_NOT_CONNECTED";
-  const isTokenExpired = errorCode === "STRAVA_TOKEN_EXPIRED";
 
-  const connectLabel = lang === "ar" ? "اربط حسابك مع Strava" : "Connect your Strava account";
-  const connectDescription =
-    lang === "ar"
-      ? "اربط حسابك للحصول على سجل الرحلات وحالة الصيانة."
-      : "Connect to see ride history and maintenance status.";
+  const connectLabel = "اربط حسابك مع Strava";
+  const connectTitle = "اربط دراجتك مع Strava";
+  const connectSubtitle = "لمتابعة المسافات وحالة الصيانة تلقائيًا";
 
   const statusMeta = useMemo(() => {
     return {
@@ -75,6 +72,32 @@ export default function BikeLogPage() {
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
+  const showConnect = !isLoading && (isNotConnected || error);
+
+  if (showConnect) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="w-full max-w-[420px] text-center space-y-6">
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold text-foreground">{connectTitle}</h2>
+            <p className="text-sm text-muted-foreground">{connectSubtitle}</p>
+          </div>
+          <Button
+            onClick={handleConnect}
+            className="w-full min-h-[60px] rounded-xl text-lg font-semibold bg-[#FC4C02] hover:bg-[#e64502] text-white flex items-center justify-center gap-3"
+          >
+            <span className="inline-flex items-center justify-center w-6 h-6">
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="w-6 h-6 fill-white">
+                <path d="M14.9 3.5L9.6 9h3.3L18 3.5h-3.1zm-5.1 0L4.5 9H7l5.3-5.5H9.8zm5.4 7.8H9.6l-5.1 5.5h3.1l5.4-5.5zm3.2 0l-5.2 5.5h2.5l5.3-5.5h-2.6z" />
+              </svg>
+            </span>
+            {connectLabel}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 pb-10 max-w-4xl">
       <Card className="bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
@@ -96,24 +119,6 @@ export default function BikeLogPage() {
             <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>{lang === "ar" ? "جاري التحميل..." : "Loading..."}</span>
-            </div>
-          )}
-
-          {!isLoading && (isNotConnected || isTokenExpired) && (
-            <div className="rounded-xl border border-border/60 bg-muted/50 p-6 space-y-4">
-              <div className="space-y-1">
-                <p className="font-semibold text-foreground">
-                  {isTokenExpired
-                    ? lang === "ar"
-                      ? "انتهت صلاحية ربط Strava"
-                      : "Strava connection expired"
-                    : lang === "ar"
-                    ? "اربط حسابك مع Strava"
-                    : "Connect your Strava account"}
-                </p>
-                <p className="text-sm text-muted-foreground">{connectDescription}</p>
-              </div>
-              <Button onClick={handleConnect}>{connectLabel}</Button>
             </div>
           )}
 
@@ -196,7 +201,7 @@ export default function BikeLogPage() {
             </>
           )}
 
-          {!isLoading && error && !isNotConnected && !isTokenExpired && (
+          {!isLoading && error && !isNotConnected && (
             <div className="rounded-xl border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground">
               {lang === "ar"
                 ? "تعذر تحميل بيانات Strava الآن. حاول مرة أخرى."
