@@ -55,11 +55,22 @@ export default function BikeLogPage() {
   const handleConnect = async () => {
     setPostLoginRedirect("/bike-log");
     const token = await getBestAuthToken();
-    if (token && typeof document !== "undefined") {
-      const secure = window.location.protocol === "https:" ? "; Secure" : "";
-      document.cookie = `cc_strava_token=${encodeURIComponent(token)}; Max-Age=120; Path=/; SameSite=Lax${secure}`;
+    const actionUrl = buildApiUrl("/api/strava/connect");
+    if (!token || typeof document === "undefined") {
+      window.location.href = actionUrl;
+      return;
     }
-    window.location.href = buildApiUrl("/api/strava/connect");
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = actionUrl;
+    form.style.display = "none";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "token";
+    input.value = token;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
   };
 
   const formatDateTime = (value?: string | null) => {

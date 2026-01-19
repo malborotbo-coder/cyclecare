@@ -1908,10 +1908,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
 
   // Strava OAuth
-  app.get("/api/strava/connect", async (req: any, res) => {
+  const handleStravaConnect = async (req: any, res: any) => {
     try {
       ensureStravaConfig();
       let auth = getAuthContext(req);
+      if (!auth) {
+        const bodyToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+        if (bodyToken) {
+          try {
+            auth = await resolveAuthFromToken(bodyToken);
+          } catch (error: any) {
+            console.error("[STRAVA][CONNECT] Body token verification failed", { message: error?.message });
+          }
+        }
+      }
       if (!auth) {
         const cookieToken = getCookieValue(req.headers.cookie, STRAVA_CONNECT_COOKIE);
         if (cookieToken) {
@@ -1924,7 +1934,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!auth) {
         clearStravaConnectCookie(res);
-        return res.redirect("/auth");
+        return res.redirect("/auth/login");
       }
       const secret = process.env.SESSION_SECRET;
       if (!secret) {
@@ -1948,7 +1958,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[STRAVA][CONNECT] Error:", { message: error?.message, stack: error?.stack });
       return res.status(500).json({ message: "Failed to start Strava connection" });
     }
-  });
+  };
+
+  app.get("/api/strava/connect", handleStravaConnect);
+  app.post("/api/strava/connect", handleStravaConnect);
 
   app.get("/api/strava/callback", async (req, res) => {
     try {
