@@ -63,6 +63,8 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       support: "Support",
     },
   };
+  const profileLabel =
+    user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : t[lang].profile;
 
   const menuItems = [
     { id: "home", path: "/", icon: Home, label: t[lang].home },
@@ -73,7 +75,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       : [
           { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
           { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
-          { id: "profile", path: "/my-profile", icon: User, label: t[lang].profile },
+          { id: "profile", path: "/my-profile", icon: User, label: profileLabel },
           { id: "bike", path: "/bikes", icon: Bike, label: t[lang].bikes },
         ]),
   ];
@@ -202,17 +204,6 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
             >
               <Headset className="h-5 w-5" />
               {t[lang].support}
-            </Button>
-            <Button
-              variant={isActive("/my-profile") ? "default" : "ghost"}
-              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
-                isActive("/my-profile") ? "bg-primary text-white" : ""
-              }`}
-              onClick={() => handleNavigate("/my-profile")}
-              data-testid="menu-user-profile"
-            >
-              <User className="h-5 w-5" />
-              {user.firstName || user.lastName ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : (user.email || user.phone || "بياناتي")}
             </Button>
           </div>
         )}

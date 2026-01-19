@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Bike, AlertTriangle } from "lucide-react";
+import { Bike, AlertTriangle } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiRequest } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
@@ -25,14 +25,11 @@ type StravaSummary = {
 export default function BikeLogPage() {
   const { lang } = useLanguage();
 
-  const { data, isLoading, error } = useQuery<StravaSummary>({
+  const { data } = useQuery<StravaSummary>({
     queryKey: ["/api/strava/activities"],
     queryFn: () => apiRequest("/api/strava/activities", "GET"),
     retry: false,
   });
-
-  const errorCode = (error as any)?.code || (error as any)?.raw?.code;
-  const isNotConnected = errorCode === "STRAVA_NOT_CONNECTED";
 
   const connectLabel = "اربط حسابك مع Strava";
   const connectTitle = "اربط دراجتك مع Strava";
@@ -72,7 +69,8 @@ export default function BikeLogPage() {
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
-  const showConnect = !isLoading && isNotConnected;
+  const isConnected = data?.connected === true;
+  const showConnect = !isConnected;
 
   if (showConnect) {
     return (
@@ -115,14 +113,7 @@ export default function BikeLogPage() {
           <Bike className="w-8 h-8 text-primary" />
         </CardHeader>
         <CardContent className="space-y-6">
-          {isLoading && (
-            <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>{lang === "ar" ? "جاري التحميل..." : "Loading..."}</span>
-            </div>
-          )}
-
-          {!isLoading && !error && data && (
+          {data && (
             <>
               <div className="grid gap-4 md:grid-cols-4">
                 <Card className="border border-border/60">
@@ -201,13 +192,6 @@ export default function BikeLogPage() {
             </>
           )}
 
-          {!isLoading && error && !isNotConnected && (
-            <div className="rounded-xl border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground">
-              {lang === "ar"
-                ? "تعذر تحميل بيانات Strava الآن. حاول مرة أخرى."
-                : "Unable to load Strava data right now. Please try again."}
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
