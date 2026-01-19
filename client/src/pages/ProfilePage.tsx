@@ -399,7 +399,7 @@ export default function ProfilePage() {
                         variant="secondary"
                         size="sm"
                         onClick={() => {
-                          setPostLoginRedirect("/profile");
+                          setPostLoginRedirect("/my-profile");
                           window.location.href = "/auth";
                         }}
                       >

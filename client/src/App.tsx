@@ -267,13 +267,19 @@ function Router() {
               {/* Bike Profile route */}
               <Route path="/profile">
                 <AppLayout>
-                  <BikeProfile />
+                  <ProfilePage />
                 </AppLayout>
               </Route>
 
               <Route path="/bikes">
                 <AppLayout>
                   <BikeProfile />
+                </AppLayout>
+              </Route>
+
+              <Route path="/history">
+                <AppLayout>
+                  <BikeLogPage />
                 </AppLayout>
               </Route>
 
