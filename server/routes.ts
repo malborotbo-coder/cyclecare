@@ -887,6 +887,36 @@ async function refreshStravaAccount(account: any, userUuid: string) {
   }
 }
 
+const buildTemporaryStravaResponse = () => {
+  const serviceIntervalKm = 150;
+  const summary = {
+    rideCount: 0,
+    totalDistanceKm: 0,
+    lastRide: null,
+    distanceSinceLastServiceKm: 0,
+    remainingKm: serviceIntervalKm,
+    maintenanceStatus: "OK",
+    serviceIntervalKm,
+  };
+  return {
+    connected: true,
+    activities: [],
+    summary,
+    rideCount: summary.rideCount,
+    totalDistanceKm: summary.totalDistanceKm,
+    lastRide: summary.lastRide,
+    lastServiceAt: null,
+    distanceSinceLastServiceKm: summary.distanceSinceLastServiceKm,
+    remainingKm: summary.remainingKm,
+    maintenanceStatus: summary.maintenanceStatus,
+    serviceIntervalKm: summary.serviceIntervalKm,
+    sync: {
+      status: "temporary_unavailable",
+      message: "Strava is temporarily unavailable. Try again later.",
+    },
+  };
+};
+
 const handleProfileAvatarUpload = async (req: any, res: any) => {
   try {
     const auth = getAuthContext(req);
@@ -2057,10 +2087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               message: "Strava account is not connected",
             });
           }
-          return res.status(502).json({
-            code: "STRAVA_TEMPORARY_ERROR",
-            message: "Strava is temporarily unavailable",
-          });
+          return res.status(200).json(buildTemporaryStravaResponse());
         }
         account = refreshed.account;
       }
@@ -2077,16 +2104,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       };
 
+      const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const fetchWithRetry = async (token: string) => {
+        let result = await fetchActivities(token);
+        if (result.error || !result.resp || result.resp.status >= 500) {
+          await wait(250);
+          result = await fetchActivities(token);
+        }
+        return result;
+      };
+
       let { resp: activitiesResp, data: activitiesData, error: activitiesError } =
-        await fetchActivities(account.access_token);
+        await fetchWithRetry(account.access_token);
       if (activitiesError || !activitiesResp) {
         console.error("[STRAVA][ACTIVITIES] Network error", { message: activitiesError?.message });
-        return res.status(502).json({
-          code: "STRAVA_TEMPORARY_ERROR",
-          message: "Strava is temporarily unavailable",
-        });
+        return res.status(200).json(buildTemporaryStravaResponse());
       }
-      if (activitiesResp.status === 401) {
+      if (activitiesResp.status === 401 || activitiesResp.status === 403) {
         const refreshed = await refreshStravaAccount(account, userUuid);
         if (!refreshed?.account) {
           const errorCode = refreshed?.error?.code;
@@ -2104,36 +2138,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               message: "Strava account is not connected",
             });
           }
-          return res.status(502).json({
-            code: "STRAVA_TEMPORARY_ERROR",
-            message: "Strava is temporarily unavailable",
-          });
+          return res.status(200).json(buildTemporaryStravaResponse());
         }
         account = refreshed.account;
-        const retry = await fetchActivities(account.access_token);
+        const retry = await fetchWithRetry(account.access_token);
         activitiesResp = retry.resp;
         activitiesData = retry.data;
         activitiesError = retry.error;
       }
       if (activitiesError || !activitiesResp) {
         console.error("[STRAVA][ACTIVITIES] Network error", { message: activitiesError?.message });
-        return res.status(502).json({
-          code: "STRAVA_TEMPORARY_ERROR",
-          message: "Strava is temporarily unavailable",
-        });
+        return res.status(200).json(buildTemporaryStravaResponse());
       }
-      if (activitiesResp.status === 401) {
-        return res.status(502).json({
-          code: "STRAVA_TEMPORARY_ERROR",
-          message: "Strava is temporarily unavailable",
-        });
+      if (activitiesResp.status === 401 || activitiesResp.status === 403) {
+        return res.status(200).json(buildTemporaryStravaResponse());
       }
       if (!activitiesResp.ok) {
         console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
-        return res.status(502).json({
-          code: "STRAVA_TEMPORARY_ERROR",
-          message: "Strava is temporarily unavailable",
-        });
+        return res.status(200).json(buildTemporaryStravaResponse());
       }
 
       const rides = (Array.isArray(activitiesData) ? activitiesData : []).filter(
