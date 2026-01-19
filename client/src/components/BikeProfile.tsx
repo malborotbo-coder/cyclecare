@@ -21,6 +21,7 @@ import { z } from "zod";
 import { Capacitor } from "@capacitor/core";
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from "@capacitor/camera";
 import type { UseFormReturn } from "react-hook-form";
+import { useLocation } from "wouter";
 
 interface MaintenanceRecordProps {
   date: string;
@@ -284,6 +285,7 @@ const BikePageBackground = ({ children }: { children: ReactNode }) => (
 export default function BikeProfile() {
   const { lang: language } = useLanguage();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingBike, setEditingBike] = useState<BikeType | null>(null);
@@ -324,6 +326,7 @@ export default function BikeProfile() {
       maintenancePrompt: "دراجتك تحتاج إلى صيانة دورية بعد 50 كم أو في غضون أسبوعين",
       scheduleMaintenance: "جدولة صيانة",
       maintenanceLog: "سجل الصيانة",
+      viewBikeLog: "عرض سجل الدراجة",
       certifiedTechnician: "فني معتمد",
       sar: "ر.س",
       noMaintenanceRecords: "لا يوجد سجل صيانة حتى الآن",
@@ -369,6 +372,7 @@ export default function BikeProfile() {
       maintenancePrompt: "Your bike needs periodic maintenance after 50 km or within two weeks",
       scheduleMaintenance: "Schedule Maintenance",
       maintenanceLog: "Maintenance Log",
+      viewBikeLog: "View bike log",
       certifiedTechnician: "Certified Technician",
       sar: "SAR",
       noMaintenanceRecords: "No maintenance records yet",
@@ -959,8 +963,16 @@ export default function BikeProfile() {
         </Card>
 
         <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
             <CardTitle>{t[language].maintenanceLog}</CardTitle>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setLocation("/history")}
+              data-testid="button-bike-log"
+            >
+              {t[language].viewBikeLog}
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {loadingRecords ? (

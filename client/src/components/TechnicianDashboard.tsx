@@ -544,6 +544,7 @@ export default function TechnicianDashboard() {
       toast({
         title: lang === 'ar' ? 'تم القبول' : 'Accepted',
         description: lang === 'ar' ? 'تم قبول الطلب بنجاح' : 'Order accepted',
+        variant: "success",
       });
     },
     onError: (error) => {

@@ -205,6 +205,23 @@ const parseStorageUrl = (url: string) => {
   return { bucket: match[1], path: match[2] };
 };
 
+const maskToken = (token?: string | null) => {
+  if (!token || typeof token !== "string") return null;
+  return `${token.slice(0, 6)}...`;
+};
+
+const computeExpiresAt = (payload: any) => {
+  const expiresIn = Number(payload?.expires_in);
+  if (Number.isFinite(expiresIn) && expiresIn > 0) {
+    return Math.floor(Date.now() / 1000) + expiresIn;
+  }
+  const expiresAt = Number(payload?.expires_at);
+  if (Number.isFinite(expiresAt) && expiresAt > 0) {
+    return expiresAt;
+  }
+  return null;
+};
+
 const signStorageUrl = async (url: string) => {
   if (!url) return url;
   const parsed = parseStorageUrl(url);
@@ -813,28 +830,61 @@ async function removeStravaAccount(userUuid: string) {
 }
 
 async function refreshStravaAccount(account: any, userUuid: string) {
-  const refreshResp = await fetch(STRAVA_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: STRAVA_CLIENT_ID,
-      client_secret: STRAVA_CLIENT_SECRET,
-      refresh_token: account.refresh_token,
-      grant_type: "refresh_token",
-    }),
-  });
-  const refreshData = await refreshResp.json().catch(() => ({}));
+  let refreshResp: Response;
+  let refreshData: any = {};
+  try {
+    refreshResp = await fetch(STRAVA_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: STRAVA_CLIENT_ID,
+        client_secret: STRAVA_CLIENT_SECRET,
+        refresh_token: account.refresh_token,
+        grant_type: "refresh_token",
+      }),
+    });
+    refreshData = await refreshResp.json().catch(() => ({}));
+  } catch (error: any) {
+    console.error("[STRAVA][REFRESH] Network error", { message: error?.message });
+    return {
+      account: null,
+      error: {
+        status: "NETWORK_ERROR",
+        code: "NETWORK_ERROR",
+      },
+    };
+  }
   if (!refreshResp.ok) {
     console.error("[STRAVA][REFRESH] Failed", { status: refreshResp.status, body: refreshData });
-    return null;
+    return {
+      account: null,
+      error: {
+        status: refreshResp.status,
+        code: refreshData?.error || null,
+        body: refreshData,
+      },
+    };
   }
-  return await upsertStravaAccount({
-    user_id: userUuid,
-    athlete_id: refreshData?.athlete?.id || account.athlete_id,
-    access_token: refreshData.access_token,
-    refresh_token: refreshData.refresh_token,
-    expires_at: refreshData.expires_at,
-  });
+  const expiresAt = computeExpiresAt(refreshData);
+  try {
+    const updated = await upsertStravaAccount({
+      user_id: userUuid,
+      athlete_id: refreshData?.athlete?.id || account.athlete_id,
+      access_token: refreshData.access_token,
+      refresh_token: refreshData.refresh_token || account.refresh_token,
+      expires_at: expiresAt,
+    });
+    return { account: updated, error: null };
+  } catch (error: any) {
+    console.error("[STRAVA][REFRESH] Upsert failed", { message: error?.message });
+    return {
+      account: null,
+      error: {
+        status: "UPSERT_FAILED",
+        code: "UPSERT_FAILED",
+      },
+    };
+  }
 }
 
 const handleProfileAvatarUpload = async (req: any, res: any) => {
@@ -1943,12 +1993,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ message: "Failed to connect Strava" });
       }
 
+      const expiresAt = computeExpiresAt(tokenData);
       await upsertStravaAccount({
         user_id: parsed.userId,
         athlete_id: tokenData?.athlete?.id || null,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token,
-        expires_at: tokenData.expires_at,
+        expires_at: expiresAt,
       });
 
       return res.redirect("/bike-log");
@@ -1974,53 +2025,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const nowSeconds = Math.floor(Date.now() / 1000);
-      if (!Number.isFinite(Number(account.expires_at)) || Number(account.expires_at) <= nowSeconds) {
+      const expiresAt = Number(account.expires_at);
+      if (!Number.isFinite(expiresAt) || expiresAt <= nowSeconds + 60) {
         const refreshed = await refreshStravaAccount(account, userUuid);
-        if (!refreshed) {
-          await removeStravaAccount(userUuid);
-          return res.status(404).json({
-            code: "STRAVA_NOT_CONNECTED",
-            message: "Strava account is not connected",
+        if (!refreshed?.account) {
+          const errorCode = refreshed?.error?.code;
+          if (errorCode === "invalid_grant") {
+            console.warn("[STRAVA][ACCOUNT][DELETE]", {
+              reason: "invalid_grant",
+              status: refreshed?.error?.status,
+              errorCode,
+              accessToken: maskToken(account.access_token),
+              refreshToken: maskToken(account.refresh_token),
+            });
+            await removeStravaAccount(userUuid);
+            return res.status(404).json({
+              code: "STRAVA_NOT_CONNECTED",
+              message: "Strava account is not connected",
+            });
+          }
+          return res.status(502).json({
+            code: "STRAVA_TEMPORARY_ERROR",
+            message: "Strava is temporarily unavailable",
           });
         }
-        account = refreshed;
+        account = refreshed.account;
       }
 
       const fetchActivities = async (token: string) => {
-        const resp = await fetch(`${STRAVA_ACTIVITIES_URL}?per_page=200`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json().catch(() => []);
-        return { resp, data };
+        try {
+          const resp = await fetch(`${STRAVA_ACTIVITIES_URL}?per_page=200`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await resp.json().catch(() => []);
+          return { resp, data, error: null };
+        } catch (error: any) {
+          return { resp: null, data: null, error };
+        }
       };
 
-      let { resp: activitiesResp, data: activitiesData } = await fetchActivities(account.access_token);
+      let { resp: activitiesResp, data: activitiesData, error: activitiesError } =
+        await fetchActivities(account.access_token);
+      if (activitiesError || !activitiesResp) {
+        console.error("[STRAVA][ACTIVITIES] Network error", { message: activitiesError?.message });
+        return res.status(502).json({
+          code: "STRAVA_TEMPORARY_ERROR",
+          message: "Strava is temporarily unavailable",
+        });
+      }
       if (activitiesResp.status === 401) {
         const refreshed = await refreshStravaAccount(account, userUuid);
-        if (!refreshed) {
-          await removeStravaAccount(userUuid);
-          return res.status(404).json({
-            code: "STRAVA_NOT_CONNECTED",
-            message: "Strava account is not connected",
+        if (!refreshed?.account) {
+          const errorCode = refreshed?.error?.code;
+          if (errorCode === "invalid_grant") {
+            console.warn("[STRAVA][ACCOUNT][DELETE]", {
+              reason: "invalid_grant",
+              status: refreshed?.error?.status,
+              errorCode,
+              accessToken: maskToken(account.access_token),
+              refreshToken: maskToken(account.refresh_token),
+            });
+            await removeStravaAccount(userUuid);
+            return res.status(404).json({
+              code: "STRAVA_NOT_CONNECTED",
+              message: "Strava account is not connected",
+            });
+          }
+          return res.status(502).json({
+            code: "STRAVA_TEMPORARY_ERROR",
+            message: "Strava is temporarily unavailable",
           });
         }
-        account = refreshed;
+        account = refreshed.account;
         const retry = await fetchActivities(account.access_token);
         activitiesResp = retry.resp;
         activitiesData = retry.data;
+        activitiesError = retry.error;
+      }
+      if (activitiesError || !activitiesResp) {
+        console.error("[STRAVA][ACTIVITIES] Network error", { message: activitiesError?.message });
+        return res.status(502).json({
+          code: "STRAVA_TEMPORARY_ERROR",
+          message: "Strava is temporarily unavailable",
+        });
       }
       if (activitiesResp.status === 401) {
-        await removeStravaAccount(userUuid);
-        return res.status(404).json({
-          code: "STRAVA_NOT_CONNECTED",
-          message: "Strava account is not connected",
+        return res.status(502).json({
+          code: "STRAVA_TEMPORARY_ERROR",
+          message: "Strava is temporarily unavailable",
         });
       }
       if (!activitiesResp.ok) {
         console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
-        return res.status(500).json({
-          code: "STRAVA_FETCH_FAILED",
-          message: "Failed to fetch Strava activities",
+        return res.status(502).json({
+          code: "STRAVA_TEMPORARY_ERROR",
+          message: "Strava is temporarily unavailable",
         });
       }
 
