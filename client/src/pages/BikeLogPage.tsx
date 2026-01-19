@@ -3,12 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bike, AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiRequest } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { getBestAuthToken } from "@/lib/authStorage";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
+import stravaLogo from "@/assets/strava-logo.png";
 
 type StravaSummary = {
   connected: boolean;
@@ -25,7 +26,7 @@ type StravaSummary = {
 export default function BikeLogPage() {
   const { lang } = useLanguage();
 
-  const { data } = useQuery<StravaSummary>({
+  const { data, isFetching, refetch } = useQuery<StravaSummary>({
     queryKey: ["/api/strava/activities"],
     queryFn: () => apiRequest("/api/strava/activities", "GET"),
     retry: false,
@@ -110,8 +111,8 @@ export default function BikeLogPage() {
   return (
     <div className="container mx-auto px-4 pb-10 max-w-4xl">
       <Card className="bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
+        <CardHeader className="space-y-3 text-center">
+          <div className="space-y-1">
             <CardTitle className="text-2xl">
               {lang === "ar" ? "سجل الدراجة" : "Bike Log"}
             </CardTitle>
@@ -121,9 +122,25 @@ export default function BikeLogPage() {
                 : "Track rides and maintenance status from Strava."}
             </p>
           </div>
-          <Bike className="w-8 h-8 text-primary" />
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full bg-[#FC4C02]/25 blur-2xl" />
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-white/90 dark:bg-slate-900/80 border border-[#FC4C02]/40 shadow-xl">
+                <img src={stravaLogo} alt="Strava" className="h-14 w-14 object-contain" />
+              </div>
+            </div>
+            <Button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="min-w-[180px] rounded-xl bg-[#FC4C02] text-white hover:bg-[#e64502] disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+              {lang === "ar" ? "تحديث البيانات" : "Refresh data"}
+            </Button>
+          </div>
           {data && (
             <>
               <div className="grid gap-4 md:grid-cols-4">
