@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
-import { setupFirebaseAuth, isAuthenticated, isAdmin } from "./firebaseMiddleware";
+import { setupFirebaseAuth, isAuthenticated, isAdmin, initializeFirebaseAdmin } from "./firebaseMiddleware";
 import {
   validateSchema,
   handleRouteError,
@@ -29,7 +29,7 @@ import { pgFetch } from "./postgrest";
 import { ensureStorageBucket, uploadToStorageRest } from "./storageRest";
 import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
-import { signJWT } from "./jwt";
+import { signJWT, verifyJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomUUID, createHmac } from "crypto";
 
@@ -45,6 +45,7 @@ const STRAVA_REDIRECT_URI = process.env.STRAVA_REDIRECT_URI;
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
 const STRAVA_AUTHORIZE_URL = "https://www.strava.com/oauth/authorize";
 const STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities";
+const STRAVA_CONNECT_COOKIE = "cc_strava_token";
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
 const upload = multer({
@@ -187,6 +188,17 @@ const parseJsonValue = (value: any) => {
   return value;
 };
 
+const getCookieValue = (cookieHeader: string | undefined, name: string) => {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";").map((part) => part.trim());
+  for (const part of parts) {
+    if (part.startsWith(`${name}=`)) {
+      return decodeURIComponent(part.slice(name.length + 1));
+    }
+  }
+  return null;
+};
+
 const buildStravaState = (userId: string, timestamp: number, secret: string) => {
   const payload = JSON.stringify({ userId, ts: timestamp });
   const sig = createHmac("sha256", secret).update(payload).digest("hex");
@@ -212,6 +224,58 @@ const ensureStravaConfig = () => {
     throw new Error("STRAVA_CONFIG_MISSING");
   }
 };
+
+const clearStravaConnectCookie = (res: any) => {
+  res.setHeader(
+    "Set-Cookie",
+    `${STRAVA_CONNECT_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`,
+  );
+};
+
+async function resolveAuthFromToken(token: string): Promise<AuthContext | null> {
+  if (!token) return null;
+
+  const jwtPayload = verifyJWT(token);
+  if (jwtPayload) {
+    return {
+      userId: jwtPayload.sub,
+      isAdmin: jwtPayload.isAdmin === true,
+      email: jwtPayload.email || undefined,
+      phoneNumber: undefined,
+    };
+  }
+
+  if (token.startsWith("session_")) {
+    const dbSession = await storage.getPhoneSession(token);
+    if (dbSession) {
+      return {
+        userId: dbSession.userId,
+        isAdmin: false,
+        email: undefined,
+        phoneNumber: dbSession.phoneNumber,
+      };
+    }
+  }
+
+  if (token.startsWith("phone_")) {
+    return {
+      userId: token,
+      isAdmin: false,
+      email: undefined,
+      phoneNumber: `+${token.replace("phone_", "")}`,
+    };
+  }
+
+  const firebaseAuth = await initializeFirebaseAdmin();
+  if (!firebaseAuth) return null;
+  const decoded = await firebaseAuth.verifyIdToken(token);
+  return {
+    userId: decoded.uid,
+    isAdmin: decoded.admin === true,
+    email: decoded.email || undefined,
+    phoneNumber: decoded.phone_number,
+  };
+}
 
 const buildDefaultRoute = (location?: string): RouteSummary => ({
   fromLabel: "نقطة انطلاق الفني",
@@ -1733,11 +1797,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/user/profile/photo", isAuthenticated, profilePhotoUpload, handleProfileAvatarUpload);
 
   // Strava OAuth
-  app.get("/api/strava/connect", isAuthenticated, async (req: any, res) => {
+  app.get("/api/strava/connect", async (req: any, res) => {
     try {
       ensureStravaConfig();
-      const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      let auth = getAuthContext(req);
+      if (!auth) {
+        const cookieToken = getCookieValue(req.headers.cookie, STRAVA_CONNECT_COOKIE);
+        if (cookieToken) {
+          try {
+            auth = await resolveAuthFromToken(cookieToken);
+          } catch (error: any) {
+            console.error("[STRAVA][CONNECT] Token verification failed", { message: error?.message });
+          }
+        }
+      }
+      if (!auth) {
+        clearStravaConnectCookie(res);
+        return res.redirect("/auth");
+      }
       const secret = process.env.SESSION_SECRET;
       if (!secret) {
         console.error("[STRAVA][CONNECT] Missing SESSION_SECRET");
@@ -1754,6 +1831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         state,
       });
       const url = `${STRAVA_AUTHORIZE_URL}?${params.toString()}`;
+      clearStravaConnectCookie(res);
       return res.redirect(url);
     } catch (error: any) {
       console.error("[STRAVA][CONNECT] Error:", { message: error?.message, stack: error?.stack });

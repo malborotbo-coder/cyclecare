@@ -7,6 +7,8 @@ import { Loader2, Bike, AlertTriangle } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiRequest } from "@/lib/queryClient";
 import { buildApiUrl } from "@/lib/apiConfig";
+import { getBestAuthToken } from "@/lib/authStorage";
+import { setPostLoginRedirect } from "@/lib/authRedirect";
 
 type StravaSummary = {
   connected: boolean;
@@ -56,7 +58,13 @@ export default function BikeLogPage() {
     } as const;
   }, [lang]);
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
+    setPostLoginRedirect("/bike-log");
+    const token = await getBestAuthToken();
+    if (token && typeof document !== "undefined") {
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `cc_strava_token=${encodeURIComponent(token)}; Max-Age=120; Path=/; SameSite=Lax${secure}`;
+    }
     window.location.href = buildApiUrl("/api/strava/connect");
   };
 
