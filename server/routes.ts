@@ -2133,8 +2133,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         client_id: String(STRAVA_CLIENT_ID),
         response_type: "code",
         redirect_uri: String(STRAVA_REDIRECT_URI),
-        scope: "read",
-        approval_prompt: "auto",
+        scope: "read,activity:read_all",
+        approval_prompt: "force",
         state,
       });
       const url = `${STRAVA_AUTHORIZE_URL}?${params.toString()}`;
@@ -2286,6 +2286,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json(buildTemporaryStravaResponse());
       }
       if (activitiesResp.status === 401 || activitiesResp.status === 403) {
+        const tokenExpired = Number.isFinite(expiresAt) ? nowSeconds > expiresAt : false;
+        if (!tokenExpired) {
+          console.warn("[STRAVA][UNAUTHORIZED]", {
+            userId: userUuid,
+            athleteId: account.athlete_id,
+            status: activitiesResp.status,
+            accessToken: maskToken(account.access_token),
+          });
+          return res.status(200).json(
+            buildTemporaryStravaResponse(
+              "unauthorized",
+              "Strava authorization scope is missing or revoked. Reconnect required.",
+            ),
+          );
+        }
         console.warn("[STRAVA][TOKEN][EXPIRED]", {
           userId: userUuid,
           athleteId: account.athlete_id,
