@@ -2314,7 +2314,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         account = refreshed.account;
         refreshedDuringFetch = true;
-        const retry = await fetchWithRetry(account.access_token);
+        const retryToken = refreshed.account?.access_token;
+        if (!retryToken) {
+          console.warn("[STRAVA][ACTIVITIES][RETRY_TOKEN_MISSING]", {
+            userId: userUuid,
+            athleteId: refreshed.account?.athlete_id,
+          });
+          return res.status(200).json(
+            buildTemporaryStravaResponse(
+              "refresh_failed",
+              "Strava token refresh failed. Retrying will be attempted automatically.",
+            ),
+          );
+        }
+        console.info("[STRAVA][ACTIVITIES][RETRY_TOKEN]", {
+          userId: userUuid,
+          athleteId: refreshed.account?.athlete_id,
+          accessToken: maskToken(retryToken),
+        });
+        const retry = await fetchWithRetry(retryToken);
         activitiesResp = retry.resp;
         activitiesData = retry.data;
         activitiesError = retry.error;
