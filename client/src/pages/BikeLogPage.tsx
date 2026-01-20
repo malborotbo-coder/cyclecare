@@ -25,6 +25,8 @@ type StravaSummary = {
 
 export default function BikeLogPage() {
   const { lang } = useLanguage();
+  const tr = (ar: string, en: string) => (lang === "ar" ? ar : en);
+  const kmLabel = lang === "ar" ? "كم" : "km";
 
   const { data, isFetching, refetch } = useQuery<StravaSummary>({
     queryKey: ["/api/strava/activities"],
@@ -32,26 +34,26 @@ export default function BikeLogPage() {
     retry: false,
   });
 
-  const connectLabel = "اربط حسابك مع Strava";
-  const connectTitle = "اربط دراجتك مع Strava";
-  const connectSubtitle = "لمتابعة المسافات وحالة الصيانة تلقائيًا";
+  const connectLabel = tr("اربط حسابك مع Strava", "Connect your Strava account");
+  const connectTitle = tr("اربط دراجتك مع Strava", "Connect your bike with Strava");
+  const connectSubtitle = tr("لمتابعة المسافات وحالة الصيانة تلقائيًا", "Track distances and maintenance automatically");
 
   const statusMeta = useMemo(() => {
     return {
       OK: {
-        label: lang === "ar" ? "جيد" : "OK",
+        label: tr("جيد", "OK"),
         className: "bg-emerald-500 text-white",
       },
       NEAR: {
-        label: lang === "ar" ? "قريب من الصيانة" : "Near service",
+        label: tr("قريب من الصيانة", "Near service"),
         className: "bg-amber-500 text-white",
       },
       OVERDUE: {
-        label: lang === "ar" ? "تجاوز الصيانة" : "Overdue",
+        label: tr("تجاوز الصيانة", "Overdue"),
         className: "bg-red-600 text-white",
       },
     } as const;
-  }, [lang]);
+  }, [lang, tr]);
 
   const handleConnect = async () => {
     setPostLoginRedirect("/bike-log");
@@ -113,13 +115,12 @@ export default function BikeLogPage() {
       <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
         <CardHeader className="space-y-3 text-center">
           <div className="space-y-1">
-            <CardTitle className="text-2xl">
-              {lang === "ar" ? "سجل الدراجة" : "Bike Log"}
-            </CardTitle>
+            <CardTitle className="text-2xl">{tr("سجل الدراجة", "Bike Log")}</CardTitle>
             <p className="text-sm text-muted-foreground">
-              {lang === "ar"
-                ? "متابعة الرحلات وحالة الصيانة من Strava."
-                : "Track rides and maintenance status from Strava."}
+              {tr(
+                "متابعة الرحلات وحالة الصيانة من Strava.",
+                "Track rides and maintenance status from Strava.",
+              )}
             </p>
           </div>
         </CardHeader>
@@ -138,7 +139,7 @@ export default function BikeLogPage() {
               className="min-w-[180px] rounded-xl bg-[#FC4C02] text-white hover:bg-[#e64502] disabled:opacity-60"
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
-              {lang === "ar" ? "تحديث البيانات" : "Refresh data"}
+              {tr("تحديث البيانات", "Refresh data")}
             </Button>
           </div>
               {data && (
@@ -147,15 +148,15 @@ export default function BikeLogPage() {
                 <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
-                      {lang === "ar" ? "إجمالي المسافة" : "Total distance"}
+                      {tr("إجمالي المسافة", "Total distance")}
                     </p>
-                    <p className="text-2xl font-semibold">{data.totalDistanceKm} كم</p>
+                    <p className="text-2xl font-semibold">{data.totalDistanceKm} {kmLabel}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
-                      {lang === "ar" ? "عدد الرحلات" : "Ride count"}
+                      {tr("عدد الرحلات", "Ride count")}
                     </p>
                     <p className="text-2xl font-semibold">{data.rideCount}</p>
                   </CardContent>
@@ -163,15 +164,15 @@ export default function BikeLogPage() {
                 <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
-                      {lang === "ar" ? "المسافة منذ آخر صيانة" : "Since last service"}
+                      {tr("المسافة منذ آخر صيانة", "Since last service")}
                     </p>
-                    <p className="text-2xl font-semibold">{data.distanceSinceLastServiceKm} كم</p>
+                    <p className="text-2xl font-semibold">{data.distanceSinceLastServiceKm} {kmLabel}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4 space-y-2">
                     <p className="text-xs text-muted-foreground">
-                      {lang === "ar" ? "حالة الصيانة" : "Maintenance status"}
+                      {tr("حالة الصيانة", "Maintenance status")}
                     </p>
                     <Badge className={statusMeta[data.maintenanceStatus].className}>
                       {statusMeta[data.maintenanceStatus].label}
@@ -184,9 +185,10 @@ export default function BikeLogPage() {
                 <div className="rounded-lg border border-destructive bg-destructive px-4 py-3 text-sm font-semibold text-destructive-foreground flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   <span>
-                    {lang === "ar"
-                      ? "تجاوزت حد الصيانة. يرجى حجز صيانة الآن."
-                      : "You are overdue for maintenance. Please schedule a service."}
+                    {tr(
+                      "تجاوزت حد الصيانة. يرجى حجز صيانة الآن.",
+                      "You are overdue for maintenance. Please schedule a service.",
+                    )}
                   </span>
                 </div>
               )}
@@ -194,26 +196,28 @@ export default function BikeLogPage() {
               <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{lang === "ar" ? "آخر رحلة" : "Last ride"}</span>
+                    <span>{tr("آخر رحلة", "Last ride")}</span>
                     <span>{formatDateTime(data.lastRide?.startDate)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="font-medium">
-                      {data.lastRide?.name || (lang === "ar" ? "غير متوفر" : "Unavailable")}
+                      {data.lastRide?.name || tr("غير متوفر", "Unavailable")}
                     </span>
                     <span className="font-semibold">
-                      {data.lastRide?.distanceKm ?? "-"} كم
+                      {data.lastRide?.distanceKm ?? "-"} {kmLabel}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {lang === "ar"
-                      ? `الحد الدوري للصيانة: ${data.serviceIntervalKm} كم`
-                      : `Service interval: ${data.serviceIntervalKm} km`}
+                    {tr(
+                      `الحد الدوري للصيانة: ${data.serviceIntervalKm} ${kmLabel}`,
+                      `Service interval: ${data.serviceIntervalKm} ${kmLabel}`,
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {lang === "ar"
-                      ? `المتبقي حتى الصيانة: ${data.remainingKm} كم`
-                      : `Remaining until service: ${data.remainingKm} km`}
+                    {tr(
+                      `المتبقي حتى الصيانة: ${data.remainingKm} ${kmLabel}`,
+                      `Remaining until service: ${data.remainingKm} ${kmLabel}`,
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -45,6 +45,10 @@ export default function ServiceBooking() {
   const [, setRouterLocation] = useRouterLocation();
   const { user, isGuest } = useFirebaseAuth();
   const { lang } = useLanguage();
+  const tr = (ar: string, en: string) => (lang === "ar" ? ar : en);
+  const currencyLabel = lang === "ar" ? "ر.س" : "SAR";
+  const kmLabel = lang === "ar" ? "كم" : "km";
+  const minutesLabel = lang === "ar" ? "دقيقة" : "min";
 
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedService, setSelectedService] = useState("");
@@ -53,7 +57,7 @@ export default function ServiceBooking() {
   const [notes, setNotes] = useState("");
 
   const [location, setLocation] = useState({ lat: 24.7136, lng: 46.6753 });
-  const [locationText, setLocationText] = useState("Riyadh");
+  const [locationText, setLocationText] = useState(tr("الرياض", "Riyadh"));
 
   const [costBreakdown, setCostBreakdown] = useState<PricingBreakdown | null>(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
@@ -80,9 +84,28 @@ export default function ServiceBooking() {
   /* ------------------ DATA ------------------ */
 
   const services = [
-    { id: "maintenance", name: "صيانة دورية", base: 150, icon: <Settings />, subtitle: "تبدأ من سعر 150 ريال" },
-    { id: "repair", name: "إصلاح عطل", base: 100, icon: <Wrench />, subtitle: "حدد العطل وخل التصليح علينا" },
-    { id: "parts", name: "استبدال قطع", base: 0, icon: <Package />, subtitle: "قريباً سنوفر كل م يحتاجه الدراج", disabled: true },
+    {
+      id: "maintenance",
+      name: tr("صيانة دورية", "Regular maintenance"),
+      base: 150,
+      icon: <Settings />,
+      subtitle: tr(`تبدأ من سعر 150 ${currencyLabel}`, `Starting from 150 ${currencyLabel}`),
+    },
+    {
+      id: "repair",
+      name: tr("إصلاح عطل", "Repair"),
+      base: 100,
+      icon: <Wrench />,
+      subtitle: tr("حدد العطل وخل التصليح علينا", "Tell us the issue and we'll handle the repair"),
+    },
+    {
+      id: "parts",
+      name: tr("استبدال قطع", "Replace parts"),
+      base: 0,
+      icon: <Package />,
+      subtitle: tr("قريباً سنوفر كل م يحتاجه الدراج", "Coming soon with all rider essentials"),
+      disabled: true,
+    },
   ];
 
   const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
@@ -123,9 +146,9 @@ export default function ServiceBooking() {
       {
         id: "mock-tech-1",
         userId: "mock-user",
-        name: "فني تجريبي",
+        name: tr("فني تجريبي", "Test technician"),
         phoneNumber: null,
-        location: "Riyadh",
+        location: tr("الرياض", "Riyadh"),
         latitude: 24.7136,
         longitude: 46.6753,
         rating: 0,
@@ -238,8 +261,11 @@ export default function ServiceBooking() {
         console.error("Pricing error", e);
         setCostBreakdown(fallbackBreakdown);
         toast({
-          title: "تم استخدام تسعير تقديري",
-          description: "لم يتم جلب التسعير اللحظي، تم اعتماد تسعير تقديري مؤقت.",
+          title: tr("تم استخدام تسعير تقديري", "Using estimated pricing"),
+          description: tr(
+            "لم يتم جلب التسعير اللحظي، تم اعتماد تسعير تقديري مؤقت.",
+            "Live pricing was unavailable, so an estimated price was used.",
+          ),
         });
       } finally {
         setLoadingBreakdown(false);
@@ -260,10 +286,10 @@ export default function ServiceBooking() {
   const handleApplyDiscount = async () => {
     if (!costBreakdown) return;
     const code = discountCode.trim();
-    const invalidMessage = lang === "ar" ? "كود الخصم غير صالح" : "Discount code is invalid";
+    const invalidMessage = tr("كود الخصم غير صالح", "Discount code is invalid");
     if (!code) {
       toast({
-        title: "أدخل كود الخصم",
+        title: tr("أدخل كود الخصم", "Enter a discount code"),
         variant: "destructive",
       });
       return;
@@ -276,13 +302,15 @@ export default function ServiceBooking() {
         taxRate: costBreakdown.vatRate ?? 15,
       });
       setAppliedDiscount(response);
-      toast({ title: "تم تطبيق الخصم" });
+      toast({ title: tr("تم تطبيق الخصم", "Discount applied") });
     } catch (error: any) {
       setAppliedDiscount(null);
       const isInvalid = error?.code === "DISCOUNT_INVALID";
       toast({
-        title: "تعذر تطبيق الخصم",
-        description: isInvalid ? invalidMessage : error?.message || "يرجى التحقق من الكود",
+        title: tr("تعذر تطبيق الخصم", "Could not apply discount"),
+        description: isInvalid
+          ? invalidMessage
+          : error?.message || tr("يرجى التحقق من الكود", "Please verify the code"),
         variant: "destructive",
       });
     } finally {
@@ -328,8 +356,8 @@ export default function ServiceBooking() {
   const submitBooking = async () => {
     if (!selectedService || !resolvedTechnicianId || !costBreakdown) {
       toast({
-        title: "خطأ",
-        description: "الرجاء إكمال جميع الخطوات",
+        title: tr("خطأ", "Error"),
+        description: tr("الرجاء إكمال جميع الخطوات", "Please complete all steps"),
         variant: "destructive",
       });
       return;
@@ -362,10 +390,10 @@ export default function ServiceBooking() {
       const msg =
         error instanceof ApiError && error.errors?.length
           ? error.errors.map((e) => e.message).join(" / ")
-          : "فشل إنشاء الطلب";
+          : tr("فشل إنشاء الطلب", "Failed to create the request");
 
       toast({
-        title: "خطأ",
+        title: tr("خطأ", "Error"),
         description: msg,
         variant: "destructive",
       });
@@ -390,10 +418,10 @@ export default function ServiceBooking() {
 
   const paymentMethodLabels: Record<string, string> = {
     stripe_apple_pay: "Apple Pay",
-    stripe_card: "بطاقة ائتمان",
+    stripe_card: tr("بطاقة ائتمان", "Credit card"),
     stc_pay: "STC Pay",
-    bank_transfer: "حوالة بنكية",
-    mock: "دفع تجريبي",
+    bank_transfer: tr("حوالة بنكية", "Bank transfer"),
+    mock: tr("دفع تجريبي", "Test payment"),
   };
 
   const downloadInvoice = (order: StoredOrder) => {
@@ -441,7 +469,7 @@ export default function ServiceBooking() {
       <div className="max-w-2xl mx-auto p-4 mt-6 md:mt-10">
         <Card className="bg-white/85 dark:bg-black/70 text-foreground dark:text-white border-border/20 backdrop-blur-md shadow-xl">
           <CardHeader>
-            <CardTitle>حجز خدمة</CardTitle>
+            <CardTitle>{tr("حجز خدمة", "Book a service")}</CardTitle>
           </CardHeader>
 
           <CardContent>
@@ -453,9 +481,9 @@ export default function ServiceBooking() {
                       <ClipboardCheck className="h-6 w-6 text-primary" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold">تم تأكيد الدفع</h3>
+                      <h3 className="text-xl font-bold">{tr("تم تأكيد الدفع", "Payment confirmed")}</h3>
                       <p className="text-sm text-muted-foreground">
-                        رقم الطلب {confirmedOrder.orderNumber}
+                        {tr("رقم الطلب", "Order number")} {confirmedOrder.orderNumber}
                       </p>
                     </div>
                   </div>
@@ -463,39 +491,39 @@ export default function ServiceBooking() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-3 text-sm">
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">الخدمة</span>
+                        <span className="text-muted-foreground">{tr("الخدمة", "Service")}</span>
                         <span>{confirmedOrder.serviceType}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">الفني</span>
+                        <span className="text-muted-foreground">{tr("الفني", "Technician")}</span>
                         <span>{confirmedOrder.technician}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">طريقة الدفع</span>
+                        <span className="text-muted-foreground">{tr("طريقة الدفع", "Payment method")}</span>
                         <span>{paymentMethodLabels[confirmedOrder.paymentMethod || "mock"]}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">الموقع</span>
-                        <span>{confirmedOrder.locationText || "الرياض"}</span>
+                        <span className="text-muted-foreground">{tr("الموقع", "Location")}</span>
+                        <span>{confirmedOrder.locationText || tr("الرياض", "Riyadh")}</span>
                       </div>
                     </div>
 
                     <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 space-y-2">
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <FileText className="h-4 w-4 text-primary" />
-                        <span>ملخص الفاتورة</span>
+                        <span>{tr("ملخص الفاتورة", "Invoice summary")}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">المجموع الفرعي</span>
-                        <span>{confirmedOrder.subtotal.toFixed(2)} ر.س</span>
+                        <span className="text-muted-foreground">{tr("المجموع الفرعي", "Subtotal")}</span>
+                        <span>{confirmedOrder.subtotal.toFixed(2)} {currencyLabel}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">الضريبة</span>
-                        <span>{confirmedOrder.taxAmount.toFixed(2)} ر.س</span>
+                        <span className="text-muted-foreground">{tr("الضريبة", "Tax")}</span>
+                        <span>{confirmedOrder.taxAmount.toFixed(2)} {currencyLabel}</span>
                       </div>
                       <div className="flex items-center justify-between text-base font-bold text-primary">
-                        <span>الإجمالي</span>
-                        <span>{confirmedOrder.total.toFixed(2)} ر.س</span>
+                        <span>{tr("الإجمالي", "Total")}</span>
+                        <span>{confirmedOrder.total.toFixed(2)} {currencyLabel}</span>
                       </div>
                     </div>
                   </div>
@@ -503,47 +531,47 @@ export default function ServiceBooking() {
                   <div className="rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 space-y-2 text-sm">
                     <div className="flex items-center gap-2 font-semibold">
                       <Route className="h-4 w-4 text-primary" />
-                      <span>ملخص المسار</span>
+                      <span>{tr("ملخص المسار", "Route summary")}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">من</span>
-                      <span>{confirmedOrder.route?.fromLabel || "نقطة انطلاق الفني"}</span>
+                      <span className="text-muted-foreground">{tr("من", "From")}</span>
+                      <span>{confirmedOrder.route?.fromLabel || tr("نقطة انطلاق الفني", "Technician start point")}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">إلى</span>
-                      <span>{confirmedOrder.route?.toLabel || "موقع العميل"}</span>
+                      <span className="text-muted-foreground">{tr("إلى", "To")}</span>
+                      <span>{confirmedOrder.route?.toLabel || tr("موقع العميل", "Customer location")}</span>
                     </div>
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <MapPin className="h-4 w-4" />
-                        {confirmedOrder.route?.distanceKm ?? 0} كم
+                        {confirmedOrder.route?.distanceKm ?? 0} {kmLabel}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="h-4 w-4" />
-                        {confirmedOrder.route?.etaMinutes ?? 0} دقيقة
+                        {confirmedOrder.route?.etaMinutes ?? 0} {minutesLabel}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-border/60 bg-white/90 dark:bg-white/5 p-4 space-y-3">
-                  <h4 className="font-semibold">تتبع الطلب</h4>
+                  <h4 className="font-semibold">{tr("تتبع الطلب", "Order tracking")}</h4>
                   <OrderTrackingTimeline steps={confirmedOrder.trackingSteps} />
                 </div>
 
                 <div className="flex flex-col gap-3 md:flex-row">
                   <Button className="flex-1" onClick={() => downloadInvoice(confirmedOrder)}>
-                    تحميل الفاتورة PDF
+                    {tr("تحميل الفاتورة PDF", "Download invoice PDF")}
                   </Button>
                   <Button
                     variant="outline"
                     className="flex-1"
                     onClick={() => setRouterLocation("/orders")}
                   >
-                    عرض طلباتي
+                    {tr("عرض طلباتي", "View my orders")}
                   </Button>
                   <Button variant="ghost" className="flex-1" onClick={resetBooking}>
-                    حجز جديد
+                    {tr("حجز جديد", "New booking")}
                   </Button>
                 </div>
               </div>
@@ -563,7 +591,7 @@ export default function ServiceBooking() {
                       <div className="flex items-center gap-2">
                         {s.icon}
                         <span className="font-semibold">{s.name}</span>
-                        {s.disabled && <Badge variant="secondary">قريباً</Badge>}
+                        {s.disabled && <Badge variant="secondary">{tr("قريباً", "Coming soon")}</Badge>}
                       </div>
                       {s.subtitle && <span className="text-sm text-muted-foreground dark:text-white/70">{s.subtitle}</span>}
                     </div>
@@ -577,9 +605,12 @@ export default function ServiceBooking() {
                 <div className="space-y-3">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <h4 className="text-lg font-semibold">خريطة الموقع</h4>
+                      <h4 className="text-lg font-semibold">{tr("خريطة الموقع", "Location map")}</h4>
                       <p className="text-sm text-muted-foreground">
-                        يمكنك التكبير والتحريك لتحديد موقعك بدقة.
+                        {tr(
+                          "يمكنك التكبير والتحريك لتحديد موقعك بدقة.",
+                          "Zoom and pan to set your exact location.",
+                        )}
                       </p>
                     </div>
                     <Button variant="outline" size="sm" asChild>
@@ -588,7 +619,7 @@ export default function ServiceBooking() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        فتح في خرائط Google
+                        {tr("فتح في خرائط Google", "Open in Google Maps")}
                         <ExternalLink className="h-4 w-4" />
                       </a>
                     </Button>
@@ -620,16 +651,16 @@ export default function ServiceBooking() {
                   }
                 >
                   <Navigation className="ml-2" />
-                  استخدم موقعي
+                  {tr("استخدم موقعي", "Use my location")}
                 </Button>
 
                 {!isGuest && (
                   <div className="space-y-3 rounded-2xl border border-border/60 bg-white/90 dark:bg-white/5 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <h4 className="text-lg font-semibold">اختر الدراجة</h4>
+                        <h4 className="text-lg font-semibold">{tr("اختر الدراجة", "Select bike")}</h4>
                         <p className="text-xs text-muted-foreground">
-                          اختر دراجتك ليظهر تفاصيلها للفني.
+                          {tr("اختر دراجتك ليظهر تفاصيلها للفني.", "Pick your bike so the technician sees its details.")}
                         </p>
                       </div>
                       <Button
@@ -637,14 +668,14 @@ export default function ServiceBooking() {
                         size="sm"
                         onClick={() => setRouterLocation("/bikes")}
                       >
-                        إدارة الدراجات
+                        {tr("إدارة الدراجات", "Manage bikes")}
                       </Button>
                     </div>
                     {bikesLoading ? (
-                      <div className="text-sm text-muted-foreground">جاري تحميل الدراجات...</div>
+                      <div className="text-sm text-muted-foreground">{tr("جاري تحميل الدراجات...", "Loading bikes...")}</div>
                     ) : bikesList.length === 0 ? (
                       <div className="text-sm text-muted-foreground">
-                        لا توجد دراجات مضافة حتى الآن.
+                        {tr("لا توجد دراجات مضافة حتى الآن.", "No bikes added yet.")}
                       </div>
                     ) : (
                       <RadioGroup value={selectedBikeId} onValueChange={setSelectedBikeId} className="space-y-3">
@@ -677,7 +708,7 @@ export default function ServiceBooking() {
                                 )}
                               </div>
                               <div className="flex-1 text-sm">
-                                <div className="font-semibold">{bikeLabel || "دراجة بدون اسم"}</div>
+                                <div className="font-semibold">{bikeLabel || tr("دراجة بدون اسم", "Unnamed bike")}</div>
                                 <div className="text-xs text-muted-foreground">
                                   {[bikeType, bike.year ? `${bike.year}` : null].filter(Boolean).join(" • ")}
                                 </div>
@@ -694,7 +725,7 @@ export default function ServiceBooking() {
                                   setSelectedBikeId(bike.id);
                                 }}
                               >
-                                اختيار
+                                {tr("اختيار", "Select")}
                               </Button>
                             </div>
                           );
@@ -705,7 +736,7 @@ export default function ServiceBooking() {
                 )}
 
                 <Textarea
-                  placeholder="ملاحظات"
+                  placeholder={tr("ملاحظات", "Notes")}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="bg-white/75 text-foreground placeholder:text-muted-foreground dark:bg-white/5 dark:text-white dark:placeholder:text-white/50 border border-white/20"
@@ -716,7 +747,7 @@ export default function ServiceBooking() {
             {currentStep === 2 && (
               <>
                 {loadingTechnicians ? (
-                  <p>جاري التحميل...</p>
+                  <p>{tr("جاري التحميل...", "Loading...")}</p>
                 ) : (
                   <RadioGroup value={selectedTechnicianId} onValueChange={setSelectedTechnicianId} className="space-y-4">
                     {techniciansList && techniciansList.length > 0 ? (
@@ -729,7 +760,7 @@ export default function ServiceBooking() {
                             : "";
                           const ratingValue = Number(tech.rating ?? 0);
                           const reviewCount = Number((tech as any)?.reviewCount ?? (tech as any)?.review_count ?? 0);
-                          const displayName = nameFromUser || "فني معتمد";
+                          const displayName = nameFromUser || tr("فني معتمد", "Certified technician");
                           const isAvailable = Boolean(tech.isAvailable ?? (tech as any).is_available);
                           const phoneNumber = (tech as any).phoneNumber ?? (tech as any).phone_number ?? null;
                           const yearsOfExperience =
@@ -773,11 +804,11 @@ export default function ServiceBooking() {
                                       <span className="text-base font-semibold">{displayName}</span>
                                       {isMockTech ? (
                                         <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-                                          اختبار
+                                          {tr("اختبار", "Test")}
                                         </Badge>
                                       ) : (
                                         <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                                          ● متصل
+                                          ● {tr("متصل", "Online")}
                                         </Badge>
                                       )}
                                     </div>
@@ -789,13 +820,13 @@ export default function ServiceBooking() {
                                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground dark:text-white/70">
                                       <span>⭐ {Number.isFinite(ratingValue) ? ratingValue.toFixed(1) : "0.0"}</span>
                                       <span>•</span>
-                                      <span>{reviewCount} تقييم</span>
+                                      <span>{reviewCount} {tr("تقييم", "reviews")}</span>
                                     </div>
                                     {!isMockTech && (phoneNumber || yearsOfExperience || locationLabel) ? (
                                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground dark:text-white/70">
                                         {phoneNumber ? <span>📞 {phoneNumber}</span> : null}
                                         {yearsOfExperience
-                                          ? <span>خبرة {Number(yearsOfExperience)} سنة</span>
+                                          ? <span>{tr("خبرة", "Experience")} {Number(yearsOfExperience)} {tr("سنة", "years")}</span>
                                           : null}
                                         {locationLabel ? <span>📍 {locationLabel}</span> : null}
                                       </div>
@@ -803,21 +834,21 @@ export default function ServiceBooking() {
                                     <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-white/70">
                                       <div className="flex items-center gap-1">
                                         <Route className="h-3 w-3" />
-                                        <span>{Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : "--"} كم</span>
+                                        <span>{Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : "--"} {kmLabel}</span>
                                       </div>
                                       <div className="flex items-center gap-1">
                                         <Clock className="h-3 w-3" />
-                                        <span>{Number.isFinite(etaMinutes) ? Math.max(1, Math.round(etaMinutes)) : "--"} دقيقة</span>
+                                        <span>{Number.isFinite(etaMinutes) ? Math.max(1, Math.round(etaMinutes)) : "--"} {minutesLabel}</span>
                                       </div>
                                       <div className="flex items-center gap-1">
                                         <MapPin className="h-3 w-3" />
-                                        <span>{isAvailable ? "متاح" : "غير متصل"}</span>
+                                        <span>{isAvailable ? tr("متاح", "Available") : tr("غير متصل", "Offline")}</span>
                                       </div>
                                       <div className="flex items-center gap-1">
                                         <FileText className="h-3 w-3" />
                                         <span>
                                           {Number.isFinite(priceTotal)
-                                            ? `${priceTotal.toFixed(2)} ر.س`
+                                            ? `${priceTotal.toFixed(2)} ${currencyLabel}`
                                             : "--"}
                                         </span>
                                       </div>
@@ -834,7 +865,7 @@ export default function ServiceBooking() {
                                     setSelectedTechnicianId(tech.id);
                                   }}
                                 >
-                                  اختيار الفني
+                                  {tr("اختيار الفني", "Select technician")}
                                 </Button>
                               </div>
                             </div>
@@ -843,7 +874,7 @@ export default function ServiceBooking() {
                       ))
                     ) : (
                       <div className="text-center py-8 text-muted-foreground">
-                        لا يوجد فنيون متاحون حالياً
+                        {tr("لا يوجد فنيون متاحون حالياً", "No technicians available right now")}
                       </div>
                     )}
                   </RadioGroup>
@@ -854,31 +885,31 @@ export default function ServiceBooking() {
             {currentStep === 3 && (
               <div className="space-y-4">
                 {loadingBreakdown && (
-                  <div className="text-muted-foreground">جاري حساب التكلفة...</div>
+                  <div className="text-muted-foreground">{tr("جاري حساب التكلفة...", "Calculating cost...")}</div>
                 )}
                 {costBreakdown && selectedTechnician && (
                   <Card className="border border-white/30 bg-white/90 text-foreground dark:border-white/10 dark:bg-white/5 dark:text-white backdrop-blur-md shadow-lg">
                     <CardHeader>
-                      <CardTitle className="text-lg">تأكيد الحجز</CardTitle>
+                      <CardTitle className="text-lg">{tr("تأكيد الحجز", "Confirm booking")}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الخدمة</h4>
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("الخدمة", "Service")}</h4>
                         <div className="flex justify-between text-sm text-foreground dark:text-white">
                           <span>{services.find((s) => s.id === selectedService)?.name}</span>
-                          <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} ر.س</span>
+                          <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} {currencyLabel}</span>
                         </div>
                       </div>
 
                       {selectedBike && (
                         <div className="space-y-2">
-                          <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الدراجة</h4>
+                          <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("الدراجة", "Bike")}</h4>
                           <div className="flex items-center gap-3 text-sm text-foreground dark:text-white">
                             <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
                               {(selectedBike as any)?.imageUrl || (selectedBike as any)?.image_url ? (
                                 <img
                                   src={(selectedBike as any).imageUrl ?? (selectedBike as any).image_url}
-                                  alt={selectedBike.brand || "Bike"}
+                                  alt={selectedBike.brand || tr("دراجة", "Bike")}
                                   className="h-full w-full object-cover rounded-lg"
                                 />
                               ) : (
@@ -887,7 +918,7 @@ export default function ServiceBooking() {
                             </div>
                             <div>
                               <div className="font-semibold">
-                                {[selectedBike.brand, selectedBike.model].filter(Boolean).join(" ") || "دراجة العميل"}
+                                {[selectedBike.brand, selectedBike.model].filter(Boolean).join(" ") || tr("دراجة العميل", "Customer bike")}
                               </div>
                               <div className="text-xs text-muted-foreground dark:text-white/70">
                                 {[selectedBike.bikeType ?? (selectedBike as any)?.bike_type, selectedBike.year ? `${selectedBike.year}` : null]
@@ -900,17 +931,17 @@ export default function ServiceBooking() {
                       )}
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفني</h4>
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("الفني", "Technician")}</h4>
                         <div className="flex flex-col gap-1 text-sm text-foreground dark:text-white">
                           <span className="font-semibold">
                             {selectedTechnician.name?.trim()
                               ? selectedTechnician.name
-                              : "فني معتمد"}
+                              : tr("فني معتمد", "Certified technician")}
                           </span>
                           <div className="flex items-center gap-2 text-muted-foreground dark:text-white/70">
                             <span>⭐ {Number(selectedTechnician.rating ?? 0).toFixed(1)}</span>
                             <span>•</span>
-                            <span>{Number((selectedTechnician as any).reviewCount ?? (selectedTechnician as any).review_count ?? 0)} تقييم</span>
+                            <span>{Number((selectedTechnician as any).reviewCount ?? (selectedTechnician as any).review_count ?? 0)} {tr("تقييم", "reviews")}</span>
                             <span>•</span>
                             {Number(
                               selectedTechnician.yearsOfExperience ??
@@ -922,38 +953,38 @@ export default function ServiceBooking() {
                                   {Number(
                                     selectedTechnician.yearsOfExperience ??
                                       (selectedTechnician as any).years_of_experience,
-                                  )} سنة خبرة
+                                  )} {tr("سنة خبرة", "years experience")}
                                 </span>
                                 <span>•</span>
                               </>
                             )}
-                            <span>{selectedTechnician.distanceKm ?? 0} كم</span>
+                            <span>{selectedTechnician.distanceKm ?? 0} {kmLabel}</span>
                             <span>•</span>
-                            <span>{selectedTechnician.etaMinutes ?? 0} دقيقة</span>
+                            <span>{selectedTechnician.etaMinutes ?? 0} {minutesLabel}</span>
                             <span>•</span>
                             <Badge variant="outline">
-                              {selectedTechnician.isAvailable || (selectedTechnician as any).is_available ? "متاح" : "مشغول"}
+                              {selectedTechnician.isAvailable || (selectedTechnician as any).is_available ? tr("متاح", "Available") : tr("مشغول", "Busy")}
                             </Badge>
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">التوصيل</h4>
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("التوصيل", "Delivery")}</h4>
                         <div className="space-y-1 text-sm text-muted-foreground dark:text-white/70">
-                          <div className="flex justify-between"><span>Base</span><span>{costBreakdown.delivery?.base ?? 0}</span></div>
-                          <div className="flex justify-between"><span>per Km</span><span>{costBreakdown.delivery?.perKm ?? 0}</span></div>
-                          <div className="flex justify-between"><span>Distance (km)</span><span>{costBreakdown.delivery?.distanceKm ?? selectedTechnician.distanceKm ?? 0}</span></div>
-                          <div className="flex justify-between"><span>Min / Max</span><span>{costBreakdown.delivery?.min ?? 0} / {costBreakdown.delivery?.max ?? 0}</span></div>
+                          <div className="flex justify-between"><span>{tr("الأساس", "Base")}</span><span>{costBreakdown.delivery?.base ?? 0}</span></div>
+                          <div className="flex justify-between"><span>{tr("لكل كم", "Per km")}</span><span>{costBreakdown.delivery?.perKm ?? 0}</span></div>
+                          <div className="flex justify-between"><span>{tr("المسافة", "Distance")} ({kmLabel})</span><span>{costBreakdown.delivery?.distanceKm ?? selectedTechnician.distanceKm ?? 0}</span></div>
+                          <div className="flex justify-between"><span>{tr("الحد الأدنى / الحد الأعلى", "Min / Max")}</span><span>{costBreakdown.delivery?.min ?? 0} / {costBreakdown.delivery?.max ?? 0}</span></div>
                           <div className="flex justify-between font-semibold text-foreground dark:text-white">
-                            <span>إجمالي التوصيل</span>
-                            <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
+                            <span>{tr("إجمالي التوصيل", "Delivery total")}</span>
+                            <span>{costBreakdown.delivery?.total ?? 0} {currencyLabel}</span>
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">كود الخصم</h4>
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("كود الخصم", "Discount code")}</h4>
                         <div className="flex flex-wrap gap-2">
                           <Input
                             value={discountCode}
@@ -964,49 +995,49 @@ export default function ServiceBooking() {
                           />
                           {appliedDiscount ? (
                             <Button variant="outline" onClick={handleClearDiscount}>
-                              إزالة
+                              {tr("إزالة", "Remove")}
                             </Button>
                           ) : (
                             <Button onClick={handleApplyDiscount} disabled={discountApplying}>
-                              {discountApplying ? "جارٍ التحقق..." : "تطبيق"}
+                              {discountApplying ? tr("جارٍ التحقق...", "Checking...") : tr("تطبيق", "Apply")}
                             </Button>
                           )}
                         </div>
                         {appliedDiscount && (
                           <div className="text-xs text-emerald-600">
-                            تم تطبيق الخصم ({appliedDiscount.code})
+                            {tr("تم تطبيق الخصم", "Discount applied")} ({appliedDiscount.code})
                           </div>
                         )}
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفاتورة</h4>
+                        <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">{tr("الفاتورة", "Invoice")}</h4>
                         <div className="space-y-1 text-sm text-foreground dark:text-white/80">
                           <div className="flex justify-between">
-                            <span>Service</span>
-                            <span>{costBreakdown.service?.base ?? 0} ر.س</span>
+                            <span>{tr("الخدمة", "Service")}</span>
+                            <span>{costBreakdown.service?.base ?? 0} {currencyLabel}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Delivery</span>
-                            <span>{costBreakdown.delivery?.total ?? 0} ر.س</span>
+                            <span>{tr("التوصيل", "Delivery")}</span>
+                            <span>{costBreakdown.delivery?.total ?? 0} {currencyLabel}</span>
                           </div>
                           {appliedDiscount?.discountAmount ? (
                             <div className="flex justify-between text-emerald-600">
-                              <span>خصم ({appliedDiscount.code})</span>
-                              <span>-{appliedDiscount.discountAmount.toFixed(2)} ر.س</span>
+                              <span>{tr("خصم", "Discount")} ({appliedDiscount.code})</span>
+                              <span>-{appliedDiscount.discountAmount.toFixed(2)} {currencyLabel}</span>
                             </div>
                           ) : null}
                           <div className="flex justify-between">
-                            <span>Subtotal</span>
-                            <span>{Number(invoiceSubtotal).toFixed(2)} ر.س</span>
+                            <span>{tr("المجموع الفرعي", "Subtotal")}</span>
+                            <span>{Number(invoiceSubtotal).toFixed(2)} {currencyLabel}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>VAT ({appliedDiscount?.taxRate ?? costBreakdown.vatRate ?? 15}%)</span>
-                            <span>{Number(invoiceTaxAmount).toFixed(2)} ر.س</span>
+                            <span>{tr("ضريبة القيمة المضافة", "VAT")} ({appliedDiscount?.taxRate ?? costBreakdown.vatRate ?? 15}%)</span>
+                            <span>{Number(invoiceTaxAmount).toFixed(2)} {currencyLabel}</span>
                           </div>
                           <div className="flex justify-between text-base font-bold text-primary pt-2">
-                            <span>الإجمالي</span>
-                            <span>{Number(invoiceTotal).toFixed(2)} ر.س</span>
+                            <span>{tr("الإجمالي", "Total")}</span>
+                            <span>{Number(invoiceTotal).toFixed(2)} {currencyLabel}</span>
                           </div>
                         </div>
                       </div>
@@ -1038,10 +1069,10 @@ export default function ServiceBooking() {
                     const order = response?.order || response;
                     const invoice = response?.invoice || {};
                     const baseOrder = createMockOrder({
-                      serviceName: services.find((s) => s.id === selectedService)?.name || "خدمة",
+                      serviceName: services.find((s) => s.id === selectedService)?.name || tr("خدمة", "Service"),
                       technicianName:
                         selectedTechnician?.name ||
-                        "فني معتمد",
+                        tr("فني معتمد", "Certified technician"),
                       technicianRating: Number(selectedTechnician.rating ?? 0),
                       technicianDistanceKm: selectedTechnician.distanceKm ?? 0,
                       technicianEtaMinutes: selectedTechnician.etaMinutes ?? 25,
@@ -1069,8 +1100,8 @@ export default function ServiceBooking() {
                     setCurrentStep(5);
                   } catch (error: any) {
                     toast({
-                      title: "خطأ في الدفع",
-                      description: error?.message || "فشل إتمام الدفع التجريبي",
+                      title: tr("خطأ في الدفع", "Payment error"),
+                      description: error?.message || tr("فشل إتمام الدفع التجريبي", "Test payment failed"),
                       variant: "destructive",
                     });
                   } finally {
@@ -1085,20 +1116,20 @@ export default function ServiceBooking() {
               <div className="flex gap-3 mt-4">
                 {currentStep > 0 && (
                   <Button onClick={() => setCurrentStep((s) => s - 1)}>
-                    <ArrowRight /> السابق
+                    <ArrowRight /> {tr("السابق", "Previous")}
                   </Button>
                 )}
 
                 {currentStep < 3 ? (
                   <Button onClick={() => setCurrentStep((s) => s + 1)}>
-                    التالي <ArrowLeft />
+                    {tr("التالي", "Next")} <ArrowLeft />
                   </Button>
                 ) : (
                   <Button
                     onClick={submitBooking}
                     disabled={submittingBooking || loadingBreakdown || !costBreakdown || !selectedTechnician}
                   >
-                    {submittingBooking ? "جارٍ الحجز..." : "تأكيد الحجز"}
+                    {submittingBooking ? tr("جارٍ الحجز...", "Booking...") : tr("تأكيد الحجز", "Confirm booking")}
                   </Button>
                 )}
               </div>

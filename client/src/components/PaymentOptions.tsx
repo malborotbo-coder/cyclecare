@@ -5,6 +5,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { CreditCard, Smartphone, Building2, Apple } from "lucide-react";
 import type { PaymentMethod } from "@shared/schema";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PaymentOption {
   id: PaymentMethod | "mock";
@@ -12,6 +13,7 @@ interface PaymentOption {
   nameEn: string;
   icon: React.ReactNode;
   description: string;
+  descriptionEn: string;
 }
 
 const paymentMethods: PaymentOption[] = [
@@ -21,6 +23,7 @@ const paymentMethods: PaymentOption[] = [
     nameEn: "Apple Pay",
     icon: <Apple className="w-6 h-6" />,
     description: "الدفع السريع والآمن عبر Apple Pay",
+    descriptionEn: "Fast and secure checkout with Apple Pay",
   },
   {
     id: "stripe_card",
@@ -28,6 +31,7 @@ const paymentMethods: PaymentOption[] = [
     nameEn: "Credit Card",
     icon: <CreditCard className="w-6 h-6" />,
     description: "ادفع ببطاقة الائتمان أو الخصم",
+    descriptionEn: "Pay with credit or debit card",
   },
   {
     id: "stc_pay",
@@ -35,6 +39,7 @@ const paymentMethods: PaymentOption[] = [
     nameEn: "STC Pay",
     icon: <Smartphone className="w-6 h-6" />,
     description: "الدفع عبر تطبيق STC Pay",
+    descriptionEn: "Pay using the STC Pay app",
   },
   {
     id: "bank_transfer",
@@ -42,6 +47,7 @@ const paymentMethods: PaymentOption[] = [
     nameEn: "Bank Transfer",
     icon: <Building2 className="w-6 h-6" />,
     description: "التحويل المباشر إلى الحساب البنكي",
+    descriptionEn: "Direct transfer to the bank account",
   },
   {
     id: "mock",
@@ -49,6 +55,7 @@ const paymentMethods: PaymentOption[] = [
     nameEn: "Mock Payment",
     icon: <CreditCard className="w-6 h-6" />,
     description: "تأكيد فوري دون بوابة دفع",
+    descriptionEn: "Instant confirmation without a gateway",
   },
 ];
 
@@ -68,6 +75,9 @@ export default function PaymentOptions({
   isProcessing = false,
 }: PaymentOptionsProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | "mock" | "">("");
+  const { lang } = useLanguage();
+  const tr = (ar: string, en: string) => (lang === "ar" ? ar : en);
+  const currencyLabel = lang === "ar" ? "ر.س" : "SAR";
 
   const handleConfirm = () => {
     if (selectedMethod) {
@@ -78,9 +88,10 @@ export default function PaymentOptions({
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold mb-2">اختر طريقة الدفع</h2>
+        <h2 className="text-2xl font-bold mb-2">{tr("اختر طريقة الدفع", "Choose a payment method")}</h2>
         <p className="text-muted-foreground">
-          المبلغ الإجمالي: <span className="text-2xl font-bold text-primary">{amount} ر.س</span>
+          {tr("المبلغ الإجمالي", "Total amount")}:{" "}
+          <span className="text-2xl font-bold text-primary">{amount} {currencyLabel}</span>
         </p>
       </div>
 
@@ -102,8 +113,10 @@ export default function PaymentOptions({
                 {method.icon}
               </div>
               <div className="flex-1">
-                <div className="font-semibold text-lg">{method.name}</div>
-                <div className="text-sm text-muted-foreground">{method.description}</div>
+                <div className="font-semibold text-lg">{lang === "ar" ? method.name : method.nameEn}</div>
+                <div className="text-sm text-muted-foreground">
+                  {lang === "ar" ? method.description : method.descriptionEn}
+                </div>
               </div>
             </Label>
           ))}
@@ -118,7 +131,7 @@ export default function PaymentOptions({
           className="flex-1"
           data-testid="button-cancel-payment"
         >
-          إلغاء
+          {tr("إلغاء", "Cancel")}
         </Button>
         <Button
           onClick={handleConfirm}
@@ -126,7 +139,7 @@ export default function PaymentOptions({
           className="flex-1"
           data-testid="button-confirm-payment"
         >
-          {isProcessing ? "جارٍ المعالجة..." : "تأكيد الدفع"}
+          {isProcessing ? tr("جارٍ المعالجة...", "Processing...") : tr("تأكيد الدفع", "Confirm payment")}
         </Button>
       </div>
     </div>
