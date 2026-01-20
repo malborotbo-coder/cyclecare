@@ -2,26 +2,52 @@ import UIKit
 import Capacitor
 import FirebaseCore
 import FirebaseMessaging
+import UserNotifications
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate, MessagingDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
 
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        // Ensure Firebase is configured exactly once if GoogleService-Info.plist exists
         if FirebaseApp.app() == nil {
-            #if DEBUG
-            if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") == nil {
-                print("[Firebase] GoogleService-Info.plist not found in bundle; skipping FirebaseApp.configure() in DEBUG.")
-            } else {
+            if let plistPath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+               FileManager.default.fileExists(atPath: plistPath) {
+                print("[Firebase] GoogleService-Info.plist found at:", plistPath)
                 FirebaseApp.configure()
+            } else {
+                print("[Firebase] GoogleService-Info.plist not found in main bundle — skipping configure.")
             }
-            #else
-            FirebaseApp.configure()
-            #endif
+        } else {
+            print("[Firebase] FirebaseApp already configured; skipping reconfigure.")
         }
         Messaging.messaging().delegate = self
+
+        Messaging.messaging().token { token, error in
+            if let error = error {
+                print("[Push] FCM token fetch error:", error)
+            } else if let token = token {
+                print("[Push] FCM token:", token)
+            } else {
+                print("[Push] FCM token: nil (will refresh later)")
+            }
+        }
+
+        // Set notification center delegate and request authorization for foreground banners
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+            if let error = error {
+                print("[Push] Authorization error:", error)
+            } else {
+                print("[Push] Authorization granted:", granted)
+            }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
         return true
     }
 
@@ -69,6 +95,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate, MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard let fcmToken = fcmToken, !fcmToken.isEmpty else { return }
         print("[Push] FCM token:", fcmToken)
+        UserDefaults.standard.set(fcmToken, forKey: "fcm_token")
+    }
+
+    // Show native banner/sound/badge while app is in foreground
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        let userInfo = notification.request.content.userInfo
+        print("[Push] Foreground notification:", userInfo)
+        completionHandler([.banner, .list, .sound, .badge])
+    }
+
+    // Forward taps without breaking Capacitor plugins
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        print("[Push] Notification tapped:", userInfo)
+        // No direct navigation here to avoid breaking plugins; forward if needed via NotificationCenter
+        completionHandler()
     }
 
 }

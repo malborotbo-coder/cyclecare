@@ -577,6 +577,19 @@ const normalizeNotificationRow = (row: any) => ({
   createdAt: row.created_at ?? row.createdAt ?? null,
 });
 
+const normalizePushTokenRow = (row: any) => ({
+  id: row.id,
+  userId: row.user_id ?? row.userId ?? null,
+  token: row.token ?? null,
+  tokenType: row.token_type ?? row.tokenType ?? null,
+  platform: row.platform ?? null,
+  deviceId: row.device_id ?? row.deviceId ?? null,
+  lastSeenAt: row.last_seen_at ?? row.lastSeenAt ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
+  updatedAt: row.updated_at ?? row.updatedAt ?? null,
+  isActive: row.is_active ?? row.isActive ?? null,
+});
+
 const normalizeNotificationLogRow = (row: any) => ({
   id: row.id,
   title: row.title ?? "",
@@ -1027,7 +1040,10 @@ async function refreshStravaAccount(account: any, userUuid: string) {
   }
 }
 
-const buildTemporaryStravaResponse = () => {
+const buildTemporaryStravaResponse = (
+  status: string = "temporary_unavailable",
+  message: string = "Strava is temporarily unavailable. Try again later.",
+) => {
   const serviceIntervalKm = 150;
   const summary = {
     rideCount: 0,
@@ -1051,8 +1067,8 @@ const buildTemporaryStravaResponse = () => {
     maintenanceStatus: summary.maintenanceStatus,
     serviceIntervalKm: summary.serviceIntervalKm,
     sync: {
-      status: "temporary_unavailable",
-      message: "Strava is temporarily unavailable. Try again later.",
+      status,
+      message,
     },
   };
 };
@@ -2208,28 +2224,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const nowSeconds = Math.floor(Date.now() / 1000);
+      let refreshedDuringFetch = false;
       const expiresAt = Number(account.expires_at);
       if (!Number.isFinite(expiresAt) || expiresAt <= nowSeconds + 60) {
+        console.warn("[STRAVA][TOKEN][EXPIRED]", {
+          userId: userUuid,
+          athleteId: account.athlete_id,
+          expiresAt,
+          accessToken: maskToken(account.access_token),
+        });
         const refreshed = await refreshStravaAccount(account, userUuid);
         if (!refreshed?.account) {
-          const errorCode = refreshed?.error?.code;
-          if (errorCode === "invalid_grant") {
-            console.warn("[STRAVA][ACCOUNT][DELETE]", {
-              reason: "invalid_grant",
-              status: refreshed?.error?.status,
-              errorCode,
-              accessToken: maskToken(account.access_token),
-              refreshToken: maskToken(account.refresh_token),
-            });
-            await removeStravaAccount(userUuid);
-            return res.status(404).json({
-              code: "STRAVA_NOT_CONNECTED",
-              message: "Strava account is not connected",
-            });
-          }
-          return res.status(200).json(buildTemporaryStravaResponse());
+          console.warn("[STRAVA][TOKEN][REFRESH_FAILED]", {
+            userId: userUuid,
+            athleteId: account.athlete_id,
+            status: refreshed?.error?.status,
+            code: refreshed?.error?.code,
+          });
+          return res.status(200).json(
+            buildTemporaryStravaResponse(
+              "refresh_failed",
+              "Strava token refresh failed. Retrying will be attempted automatically.",
+            ),
+          );
         }
+        console.info("[STRAVA][TOKEN][REFRESHED]", {
+          userId: userUuid,
+          athleteId: refreshed.account?.athlete_id,
+          accessToken: maskToken(refreshed.account?.access_token),
+        });
         account = refreshed.account;
+        refreshedDuringFetch = true;
       }
 
       const fetchActivities = async (token: string) => {
@@ -2261,41 +2286,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json(buildTemporaryStravaResponse());
       }
       if (activitiesResp.status === 401 || activitiesResp.status === 403) {
+        console.warn("[STRAVA][TOKEN][EXPIRED]", {
+          userId: userUuid,
+          athleteId: account.athlete_id,
+          status: activitiesResp.status,
+          accessToken: maskToken(account.access_token),
+        });
         const refreshed = await refreshStravaAccount(account, userUuid);
         if (!refreshed?.account) {
-          const errorCode = refreshed?.error?.code;
-          if (errorCode === "invalid_grant") {
-            console.warn("[STRAVA][ACCOUNT][DELETE]", {
-              reason: "invalid_grant",
-              status: refreshed?.error?.status,
-              errorCode,
-              accessToken: maskToken(account.access_token),
-              refreshToken: maskToken(account.refresh_token),
-            });
-            await removeStravaAccount(userUuid);
-            return res.status(404).json({
-              code: "STRAVA_NOT_CONNECTED",
-              message: "Strava account is not connected",
-            });
-          }
-          return res.status(200).json(buildTemporaryStravaResponse());
+          console.warn("[STRAVA][TOKEN][REFRESH_FAILED]", {
+            userId: userUuid,
+            athleteId: account.athlete_id,
+            status: refreshed?.error?.status,
+            code: refreshed?.error?.code,
+          });
+          return res.status(200).json(
+            buildTemporaryStravaResponse(
+              "refresh_failed",
+              "Strava token refresh failed. Retrying will be attempted automatically.",
+            ),
+          );
         }
+        console.info("[STRAVA][TOKEN][REFRESHED]", {
+          userId: userUuid,
+          athleteId: refreshed.account?.athlete_id,
+          accessToken: maskToken(refreshed.account?.access_token),
+        });
         account = refreshed.account;
+        refreshedDuringFetch = true;
         const retry = await fetchWithRetry(account.access_token);
         activitiesResp = retry.resp;
         activitiesData = retry.data;
         activitiesError = retry.error;
+        if (!activitiesError && activitiesResp?.ok) {
+          console.info("[STRAVA][ACTIVITIES][RETRY_OK]", {
+            userId: userUuid,
+            athleteId: account.athlete_id,
+          });
+        } else {
+          console.warn("[STRAVA][ACTIVITIES][RETRY_FAILED]", {
+            userId: userUuid,
+            athleteId: account.athlete_id,
+            status: activitiesResp?.status,
+            error: activitiesError?.message,
+          });
+        }
       }
       if (activitiesError || !activitiesResp) {
         console.error("[STRAVA][ACTIVITIES] Network error", { message: activitiesError?.message });
-        return res.status(200).json(buildTemporaryStravaResponse());
+        return res.status(200).json(
+          refreshedDuringFetch
+            ? buildTemporaryStravaResponse(
+                "retry_failed",
+                "Strava fetch failed after refresh. Retrying will be attempted automatically.",
+              )
+            : buildTemporaryStravaResponse(),
+        );
       }
       if (activitiesResp.status === 401 || activitiesResp.status === 403) {
-        return res.status(200).json(buildTemporaryStravaResponse());
+        return res.status(200).json(
+          buildTemporaryStravaResponse(
+            "token_invalid",
+            "Strava token invalid after refresh. Retrying will be attempted automatically.",
+          ),
+        );
       }
       if (!activitiesResp.ok) {
         console.error("[STRAVA][ACTIVITIES] Failed", { status: activitiesResp.status, body: activitiesData });
-        return res.status(200).json(buildTemporaryStravaResponse());
+        return res.status(200).json(
+          refreshedDuringFetch
+            ? buildTemporaryStravaResponse(
+                "retry_failed",
+                "Strava fetch failed after refresh. Retrying will be attempted automatically.",
+              )
+            : buildTemporaryStravaResponse(),
+        );
       }
 
       const rides = (Array.isArray(activitiesData) ? activitiesData : []).filter(
@@ -5388,6 +5453,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[NOTIFICATIONS][MARK_READ] Error:", error);
       res.status(500).json({ message: "Failed to update notifications" });
+    }
+  });
+
+  app.post("/api/push/register", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+      const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
+      const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+      const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+
+      if (!rawToken || !rawType) {
+        return res.status(400).json({ message: "token and tokenType are required" });
+      }
+
+      const tokenType = rawType === "fcm" || rawType === "apns" ? rawType : null;
+      if (!tokenType) {
+        return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
+      }
+
+      const now = new Date().toISOString();
+      const { resp, data } = await pgFetch("/push_tokens?on_conflict=user_id,token,token_type", {
+        method: "POST",
+        body: [
+          {
+            user_id: userUuid,
+            token: rawToken,
+            token_type: tokenType,
+            platform: rawPlatform || null,
+            device_id: rawDeviceId || null,
+            last_seen_at: now,
+            updated_at: now,
+            is_active: true,
+          },
+        ],
+        headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+      });
+
+      if (!resp.ok) {
+        console.warn("[PUSH][REGISTER][FAILED]", { status: resp.status, body: data });
+        return res.status(500).json({ message: "Failed to register push token" });
+      }
+
+      const row = Array.isArray(data) ? data[0] : data?.[0];
+      res.json(row ? normalizePushTokenRow(row) : { success: true });
+    } catch (error) {
+      console.error("[PUSH][REGISTER] Error:", error);
+      res.status(500).json({ message: "Failed to register push token" });
     }
   });
 

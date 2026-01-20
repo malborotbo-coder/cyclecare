@@ -3,12 +3,14 @@ import { Preferences } from "@capacitor/preferences";
 import { Camera } from "@capacitor/camera";
 import { Geolocation } from "@capacitor/geolocation";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { apiRequest } from "./queryClient";
 
 const PERMISSION_FLAG_KEY = "permissions_requested";
 const PUSH_PERMISSION_FLAG_KEY = "push_permissions_requested";
 const PUSH_TOKEN_KEY = "push_token";
 const FCM_TOKEN_KEY = "fcm_token";
 const isNative = Capacitor.isNativePlatform();
+const platform = Capacitor.getPlatform();
 const devLog = (...args: any[]) => {
   if (import.meta.env.DEV) {
     console.log("[Permissions]", ...args);
@@ -22,14 +24,32 @@ type FcmPlugin = {
 
 const getFcmPlugin = () => registerPlugin<FcmPlugin>("FCM");
 
+async function sendPushTokenToServer(token: string, tokenType: "apns" | "fcm") {
+  try {
+    await apiRequest("/api/push/register", "POST", {
+      token,
+      tokenType,
+      platform,
+    });
+    console.log("[Push] Token registered on server:", tokenType);
+  } catch (error: any) {
+    console.warn("[Push] Failed to register token on server:", {
+      tokenType,
+      message: error?.message,
+    });
+  }
+}
+
 async function setupPushListeners() {
   if (pushListenersReady) return;
   pushListenersReady = true;
 
   await PushNotifications.addListener("registration", async (token) => {
-    console.log("[Push] APNs token:", token.value);
+    const tokenType = platform === "ios" ? "apns" : "fcm";
+    const label = tokenType === "apns" ? "APNs" : "FCM";
+    console.log(`[Push] ${label} token:`, token.value);
     await Preferences.set({ key: PUSH_TOKEN_KEY, value: token.value });
-    // TODO: Send token to the server using your existing device-token endpoint.
+    await sendPushTokenToServer(token.value, tokenType);
   });
 
   await PushNotifications.addListener("registrationError", (error) => {
@@ -60,7 +80,7 @@ async function fetchAndStoreFcmToken() {
     if (token) {
       console.log("[Push] FCM token:", token);
       await Preferences.set({ key: FCM_TOKEN_KEY, value: token });
-      // TODO: Send FCM token to the server using your existing device-token endpoint (if needed).
+      await sendPushTokenToServer(token, "fcm");
     }
     return token;
   } catch (err) {
@@ -70,14 +90,15 @@ async function fetchAndStoreFcmToken() {
 }
 
 export async function printPushDiagnostics() {
-  if (!isNative || Capacitor.getPlatform() !== "ios") {
-    console.log("[Push] Diagnostics: not running on iOS native.");
+  if (!isNative) {
+    console.log("[Push] Diagnostics: not running on native.");
     return;
   }
   const permissionStatus = await PushNotifications.checkPermissions();
   const apns = await Preferences.get({ key: PUSH_TOKEN_KEY });
   const fcm = await Preferences.get({ key: FCM_TOKEN_KEY });
   console.log("[Push] Diagnostics:", {
+    platform,
     permission: permissionStatus.receive,
     apnsToken: apns.value || null,
     fcmToken: fcm.value || null,
@@ -86,7 +107,6 @@ export async function printPushDiagnostics() {
 
 export async function initializePushNotificationsOnce() {
   if (!isNative) return;
-  if (Capacitor.getPlatform() !== "ios") return;
 
   try {
     await setupPushListeners();
@@ -96,10 +116,13 @@ export async function initializePushNotificationsOnce() {
     const cachedApns = await Preferences.get({ key: PUSH_TOKEN_KEY });
     if (cachedApns.value) {
       console.log("[Push] APNs token (cached):", cachedApns.value);
+      const cachedType = platform === "ios" ? "apns" : "fcm";
+      await sendPushTokenToServer(cachedApns.value, cachedType);
     }
     const cachedFcm = await Preferences.get({ key: FCM_TOKEN_KEY });
     if (cachedFcm.value) {
       console.log("[Push] FCM token (cached):", cachedFcm.value);
+      await sendPushTokenToServer(cachedFcm.value, "fcm");
     }
 
     let permissionStatus = await PushNotifications.checkPermissions();
