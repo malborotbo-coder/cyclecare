@@ -38,7 +38,10 @@ const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
 const MOCK_TECH_ID_PREFIX = "mock-";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
-const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
+const APPLE_BUNDLE_IDS = (process.env.APPLE_BUNDLE_ID || "com.mujtabanasr.cyclecare")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 const PROFILE_IMAGE_BUCKET = process.env.PROFILE_IMAGE_BUCKET || "profile-images";
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
@@ -124,7 +127,7 @@ const isMockTechnicianId = (value: unknown) =>
 async function verifyAppleIdentityToken(identityToken: string) {
   const { payload } = await jwtVerify(identityToken, appleJwks, {
     issuer: "https://appleid.apple.com",
-    audience: APPLE_BUNDLE_ID,
+    audience: APPLE_BUNDLE_IDS,
   });
   return payload;
 }
@@ -5577,6 +5580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rawMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
       const rawEmoji = typeof req.body?.emoji === "string" ? req.body.emoji.trim() : "";
       const rawType = typeof req.body?.type === "string" ? req.body.type.trim() : "";
+      const rawTarget = typeof req.body?.target === "string" ? req.body.target.trim() : "";
 
       if (!rawMessage) {
         return res.status(400).json({ message: "message is required" });
@@ -5585,17 +5589,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const title = rawTitle || (lang === "ar" ? "إشعار من الإدارة" : "Admin notification");
       const emoji = rawEmoji || "📣";
       const type = rawType || "admin_broadcast";
+      const target = rawTarget === "technicians" || rawTarget === "riders" ? rawTarget : "all";
       const auth = getAuthContext(req);
       const sentBy = auth ? await ensureUserUuid(auth) : null;
       const sentAt = new Date().toISOString();
 
-      const { resp: usersResp, data: usersData } = await pgFetch("/users?select=id");
-      if (!usersResp.ok) {
-        return res.status(usersResp.status || 500).json({ message: "Failed to load users" });
+      let userIds: string[] = [];
+      if (target === "technicians") {
+        const { resp: techResp, data: techData } = await pgFetch(
+          "/technicians?select=user_id&status=eq.approved&is_active=eq.true",
+        );
+        if (!techResp.ok) {
+          return res.status(techResp.status || 500).json({ message: "Failed to load technicians" });
+        }
+        userIds = (Array.isArray(techData) ? techData : [])
+          .map((row) => row?.user_id)
+          .filter(Boolean);
+      } else {
+        const { resp: usersResp, data: usersData } = await pgFetch("/users?select=id");
+        if (!usersResp.ok) {
+          return res.status(usersResp.status || 500).json({ message: "Failed to load users" });
+        }
+        const users = Array.isArray(usersData) ? usersData : [];
+        userIds = users.map((user) => user?.id).filter(Boolean);
+
+        if (target === "riders") {
+          const { resp: techResp, data: techData } = await pgFetch("/technicians?select=user_id");
+          if (!techResp.ok) {
+            return res.status(techResp.status || 500).json({ message: "Failed to load technicians" });
+          }
+          const technicianIds = new Set(
+            (Array.isArray(techData) ? techData : []).map((row) => row?.user_id).filter(Boolean),
+          );
+          userIds = userIds.filter((id) => !technicianIds.has(id));
+        }
       }
 
-      const users = Array.isArray(usersData) ? usersData : [];
-      if (users.length === 0) {
+      if (userIds.length === 0) {
         return res.json({ sent: 0 });
       }
 
@@ -5605,7 +5635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           {
             title,
             body: rawMessage,
-            target: "all",
+            target,
             sent_by: sentBy,
             sent_at: sentAt,
             status: "sent",
@@ -5616,17 +5646,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn("[NOTIFICATIONS][LOG][FAILED]", error);
       });
 
-      const notifications = users
-        .map((user) => user?.id)
-        .filter(Boolean)
-        .map((userId) => ({
-          user_id: userId,
-          title,
-          message: rawMessage,
-          emoji,
-          type,
-          entity_type: "broadcast",
-        }));
+      const notifications = userIds.map((userId) => ({
+        user_id: userId,
+        title,
+        message: rawMessage,
+        emoji,
+        type,
+        entity_type: "broadcast",
+      }));
 
       const chunkSize = 200;
       for (let i = 0; i < notifications.length; i += chunkSize) {

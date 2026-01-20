@@ -119,6 +119,16 @@ export default function AdminDashboard() {
   const [notificationTitle, setNotificationTitle] = useState<string>("");
   const [notificationMessage, setNotificationMessage] = useState<string>("");
   const [notificationEmoji, setNotificationEmoji] = useState<string>("📣");
+  const [notificationTarget, setNotificationTarget] = useState<"all" | "technicians" | "riders">("all");
+  const [discountForm, setDiscountForm] = useState({
+    code: "",
+    discountType: "percentage",
+    discountValue: "",
+    maxUses: "",
+    expiresAt: "",
+    isActive: true,
+  });
+  const [editingDiscountId, setEditingDiscountId] = useState<string | null>(null);
   const [reportStartDate, setReportStartDate] = useState<string>(() => {
     const start = new Date();
     start.setDate(start.getDate() - 30);
@@ -316,10 +326,14 @@ export default function AdminDashboard() {
       discounts: "أكواد الخصم",
       notifications: "الإشعارات",
       notificationsTitle: "إرسال إشعار عام",
-      notificationsSubtitle: "أرسل رسالة لجميع مستخدمي التطبيق.",
+      notificationsSubtitle: "أرسل رسالة لجميع المستخدمين أو الفنيين أو الدراجين.",
       notificationsTitleLabel: "عنوان الإشعار (اختياري)",
       notificationsMessageLabel: "نص الإشعار",
       notificationsEmojiLabel: "إيموجي الإشعار",
+      notificationsTargetLabel: "توجيه الإشعار",
+      notificationsTargetAll: "جميع المستخدمين",
+      notificationsTargetTechnicians: "الفنيين",
+      notificationsTargetRiders: "الدراجين",
       notificationsSend: "إرسال الإشعار",
       notificationsSent: "تم إرسال الإشعار",
       notificationsHistory: "سجل الإشعارات",
@@ -452,6 +466,8 @@ export default function AdminDashboard() {
       inStock: "In Stock",
       addPart: "Add Part",
       addCode: "Add Code",
+      saveChanges: "Save changes",
+      cancelEdit: "Cancel",
       supportTickets: "Support Tickets",
       supportType: "Type",
       supportCategory: "Category",
@@ -474,10 +490,14 @@ export default function AdminDashboard() {
       discounts: "Discount Codes",
       notifications: "Notifications",
       notificationsTitle: "Broadcast Notification",
-      notificationsSubtitle: "Send a message to all app users.",
+      notificationsSubtitle: "Send a message to all users, technicians, or riders.",
       notificationsTitleLabel: "Notification title (optional)",
       notificationsMessageLabel: "Notification message",
       notificationsEmojiLabel: "Notification emoji",
+      notificationsTargetLabel: "Notification target",
+      notificationsTargetAll: "All users",
+      notificationsTargetTechnicians: "Technicians",
+      notificationsTargetRiders: "Riders",
       notificationsSend: "Send notification",
       notificationsSent: "Notification sent",
       notificationsHistory: "Notification History",
@@ -612,6 +632,8 @@ export default function AdminDashboard() {
     inStock: "متوفر",
     addPart: "إضافة قطعة",
     addCode: "إضافة كود",
+    saveChanges: "حفظ التعديلات",
+    cancelEdit: "إلغاء التعديل",
     supportTickets: "طلبات الدعم الفني",
     supportType: "النوع",
     supportCategory: "التصنيف",
@@ -627,10 +649,14 @@ export default function AdminDashboard() {
     discounts: "أكواد الخصم",
     notifications: "الإشعارات",
     notificationsTitle: "إرسال إشعار عام",
-    notificationsSubtitle: "أرسل رسالة لجميع مستخدمي التطبيق.",
+    notificationsSubtitle: "أرسل رسالة لجميع المستخدمين أو الفنيين أو الدراجين.",
     notificationsTitleLabel: "عنوان الإشعار (اختياري)",
     notificationsMessageLabel: "نص الإشعار",
     notificationsEmojiLabel: "إيموجي الإشعار",
+    notificationsTargetLabel: "توجيه الإشعار",
+    notificationsTargetAll: "جميع المستخدمين",
+    notificationsTargetTechnicians: "الفنيين",
+    notificationsTargetRiders: "الدراجين",
     notificationsSend: "إرسال الإشعار",
     notificationsSent: "تم إرسال الإشعار",
     notificationsHistory: "سجل الإشعارات",
@@ -1711,11 +1737,89 @@ export default function AdminDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/discount-codes"] });
       toast({ title: lang === 'ar' ? "تم إنشاء الكود بنجاح" : "Discount code created successfully" });
+      resetDiscountForm();
     },
     onError: () => {
       toast({ title: txt.error, variant: "destructive" });
     },
   });
+
+  const updateDiscountCodeMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: any }) => {
+      return await apiRequest(`/api/admin/discount-codes/${id}`, "PATCH", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/discount-codes"] });
+      toast({ title: lang === 'ar' ? "تم تحديث الكود بنجاح" : "Discount code updated successfully" });
+      resetDiscountForm();
+    },
+    onError: () => {
+      toast({ title: txt.error, variant: "destructive" });
+    },
+  });
+
+  const deleteDiscountCodeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest(`/api/admin/discount-codes/${id}`, "DELETE");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/discount-codes"] });
+      toast({ title: lang === 'ar' ? "تم حذف الكود بنجاح" : "Discount code deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: txt.error, variant: "destructive" });
+    },
+  });
+
+  function resetDiscountForm() {
+    setDiscountForm({
+      code: "",
+      discountType: "percentage",
+      discountValue: "",
+      maxUses: "",
+      expiresAt: "",
+      isActive: true,
+    });
+    setEditingDiscountId(null);
+  }
+
+  const startEditingDiscount = (discount: any) => {
+    setEditingDiscountId(discount.id);
+    setDiscountForm({
+      code: discount.code ?? "",
+      discountType: discount.discountType ?? "percentage",
+      discountValue: discount.discountValue !== null && discount.discountValue !== undefined ? String(discount.discountValue) : "",
+      maxUses: discount.maxUses !== null && discount.maxUses !== undefined ? String(discount.maxUses) : "",
+      expiresAt: discount.expiresAt ? new Date(discount.expiresAt).toISOString().slice(0, 10) : "",
+      isActive: discount.isActive !== false,
+    });
+  };
+
+  const handleSaveDiscount = () => {
+    const code = discountForm.code.trim();
+    const discountValue = Number(discountForm.discountValue);
+    const maxUses = discountForm.maxUses ? Number(discountForm.maxUses) : null;
+
+    if (!code || Number.isNaN(discountValue)) {
+      toast({ title: txt.error, variant: "destructive" });
+      return;
+    }
+
+    const payload = {
+      code,
+      discountType: discountForm.discountType,
+      discountValue,
+      maxUses: Number.isFinite(maxUses as number) ? maxUses : null,
+      expiresAt: discountForm.expiresAt ? new Date(discountForm.expiresAt).toISOString() : null,
+      isActive: discountForm.isActive,
+    };
+
+    if (editingDiscountId) {
+      updateDiscountCodeMutation.mutate({ id: editingDiscountId, payload });
+    } else {
+      createDiscountCodeMutation.mutate(payload);
+    }
+  };
 
   const createPartMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -1731,7 +1835,7 @@ export default function AdminDashboard() {
   });
 
   const broadcastNotificationMutation = useMutation({
-    mutationFn: async (payload: { title?: string; message: string; emoji?: string }) => {
+    mutationFn: async (payload: { title?: string; message: string; emoji?: string; target?: string }) => {
       return await apiRequest("/api/admin/notifications/broadcast", "POST", payload);
     },
     onSuccess: (data: any) => {
@@ -3336,34 +3440,120 @@ export default function AdminDashboard() {
               <CardHeader>
                 <CardTitle>{txt.discounts}</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input type="text" placeholder="Code" className="border p-2 rounded" id="code-input" />
-                  <select id="type-select" className="border p-2 rounded">
-                    <option value="percentage">%</option>
-                    <option value="fixed">Fixed</option>
-                  </select>
-                  <input type="number" placeholder="Value" className="border p-2 rounded" id="value-input" />
-                  <input type="number" placeholder="Max Uses" className="border p-2 rounded" id="maxuses-input" />
-                  <Button onClick={() => {
-                    const code = (document.getElementById('code-input') as HTMLInputElement)?.value;
-                    const type = (document.getElementById('type-select') as HTMLSelectElement)?.value;
-                    const value = (document.getElementById('value-input') as HTMLInputElement)?.value;
-                    const maxUses = (document.getElementById('maxuses-input') as HTMLInputElement)?.value;
-                    if (code && type && value) {
-                      createDiscountCodeMutation.mutate({ code, discountType: type, discountValue: value, maxUses: maxUses ? parseInt(maxUses) : null, isActive: true });
+                  <Input
+                    value={discountForm.code}
+                    onChange={(e) => setDiscountForm((prev) => ({ ...prev, code: e.target.value }))}
+                    placeholder={txt.discountCode}
+                    data-testid="input-discount-code"
+                  />
+                  <Select
+                    value={discountForm.discountType}
+                    onValueChange={(value) =>
+                      setDiscountForm((prev) => ({ ...prev, discountType: value }))
                     }
-                  }} data-testid="button-add-discount">
-                    {txt.addCode}
-                  </Button>
+                  >
+                    <SelectTrigger className="h-10" data-testid="select-discount-type">
+                      <SelectValue placeholder={txt.discountType} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">{txt.percentage}</SelectItem>
+                      <SelectItem value="fixed">{txt.fixed}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    value={discountForm.discountValue}
+                    onChange={(e) => setDiscountForm((prev) => ({ ...prev, discountValue: e.target.value }))}
+                    placeholder={txt.discountValue}
+                    data-testid="input-discount-value"
+                  />
+                  <Input
+                    type="number"
+                    value={discountForm.maxUses}
+                    onChange={(e) => setDiscountForm((prev) => ({ ...prev, maxUses: e.target.value }))}
+                    placeholder={txt.maxUses}
+                    data-testid="input-discount-max-uses"
+                  />
+                  <Input
+                    type="date"
+                    value={discountForm.expiresAt}
+                    onChange={(e) => setDiscountForm((prev) => ({ ...prev, expiresAt: e.target.value }))}
+                    placeholder={txt.expiresAt}
+                    data-testid="input-discount-expires"
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={discountForm.isActive}
+                      onChange={(e) => setDiscountForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                    />
+                    <span>{txt.isActive}</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2 md:col-span-2">
+                    <Button
+                      onClick={handleSaveDiscount}
+                      disabled={createDiscountCodeMutation.isPending || updateDiscountCodeMutation.isPending}
+                      data-testid="button-save-discount"
+                    >
+                      {editingDiscountId ? txt.saveChanges : txt.addCode}
+                    </Button>
+                    {editingDiscountId && (
+                      <Button variant="outline" onClick={resetDiscountForm} data-testid="button-cancel-discount-edit">
+                        {txt.cancelEdit}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  {safeDiscountCodes.map((dc: any) => (
-                    <div key={dc.id || Math.random()} className="border p-3 rounded flex justify-between items-center">
-                      <span className="font-semibold">{dc.code}</span>
-                      <span>{dc.discountValue} {dc.discountType === 'percentage' ? '%' : 'SAR'}</span>
-                    </div>
-                  ))}
+                  {discountCodesLoading ? (
+                    <div className="text-center py-4 text-muted-foreground">{txt.loading}</div>
+                  ) : safeDiscountCodes.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground">{txt.noData}</div>
+                  ) : (
+                    safeDiscountCodes.map((dc: any) => (
+                      <div
+                        key={dc.id}
+                        className="border border-border/60 rounded-lg p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                      >
+                        <div className="space-y-1">
+                          <div className="font-semibold">{dc.code}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {dc.discountValue} {dc.discountType === "percentage" ? "%" : "SAR"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {txt.maxUses}: {dc.maxUses ?? "-"} · {txt.expiresAt}:{" "}
+                            {dc.expiresAt ? formatSupportDate(dc.expiresAt) : "-"} · {txt.isActive}:{" "}
+                            {dc.isActive ? (lang === "ar" ? "نعم" : "Yes") : (lang === "ar" ? "لا" : "No")}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => startEditingDiscount(dc)}
+                            data-testid={`button-edit-discount-${dc.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            onClick={() => {
+                              if (confirm(lang === "ar" ? "هل تريد حذف الكود؟" : "Delete this code?")) {
+                                deleteDiscountCodeMutation.mutate(dc.id);
+                              }
+                            }}
+                            disabled={deleteDiscountCodeMutation.isPending}
+                            data-testid={`button-delete-discount-${dc.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -3661,6 +3851,22 @@ export default function AdminDashboard() {
                     className="min-h-[120px] md:col-span-2"
                   />
                   <div className="space-y-2 md:col-span-2">
+                    <div className="text-sm font-medium">{txt.notificationsTargetLabel}</div>
+                    <Select
+                      value={notificationTarget}
+                      onValueChange={(value) => setNotificationTarget(value as "all" | "technicians" | "riders")}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={txt.notificationsTargetLabel} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{txt.notificationsTargetAll}</SelectItem>
+                        <SelectItem value="technicians">{txt.notificationsTargetTechnicians}</SelectItem>
+                        <SelectItem value="riders">{txt.notificationsTargetRiders}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
                     <div className="text-sm font-medium">{txt.notificationsEmojiLabel}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       {["📣", "✅", "🚴‍♂️", "🛠️", "🎉", "⚠️"].map((emoji) => (
@@ -3694,6 +3900,7 @@ export default function AdminDashboard() {
                         title: notificationTitle.trim() || undefined,
                         message: notificationMessage.trim(),
                         emoji: notificationEmoji.trim() || undefined,
+                        target: notificationTarget,
                       });
                     }}
                     disabled={broadcastNotificationMutation.isPending}
@@ -3724,9 +3931,11 @@ export default function AdminDashboard() {
                         const targetRaw = log.target || "";
                         const targetLabel =
                           targetRaw === "all"
-                            ? lang === "ar"
-                              ? "جميع المستخدمين"
-                              : "All users"
+                            ? txt.notificationsTargetAll
+                            : targetRaw === "technicians"
+                            ? txt.notificationsTargetTechnicians
+                            : targetRaw === "riders"
+                            ? txt.notificationsTargetRiders
                             : targetRaw || "-";
                         return (
                           <div
