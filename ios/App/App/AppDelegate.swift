@@ -11,7 +11,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, MessagingDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         if FirebaseApp.app() == nil {
+            #if DEBUG
+            if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") == nil {
+                print("[Firebase] GoogleService-Info.plist not found in bundle; skipping FirebaseApp.configure() in DEBUG.")
+            } else {
+                FirebaseApp.configure()
+            }
+            #else
             FirebaseApp.configure()
+            #endif
         }
         Messaging.messaging().delegate = self
         return true

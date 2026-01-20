@@ -66,6 +66,16 @@ interface SupportTicket {
   created_at?: string | null;
 }
 
+interface NotificationLogEntry {
+  id: string;
+  title?: string | null;
+  body?: string | null;
+  target?: string | null;
+  sentBy?: string | null;
+  sentAt?: string | null;
+  status?: string | null;
+}
+
 type InvoiceWithConvoy = Invoice & {
   convoyId?: string;
   convoyName?: string;
@@ -312,6 +322,10 @@ export default function AdminDashboard() {
       notificationsEmojiLabel: "إيموجي الإشعار",
       notificationsSend: "إرسال الإشعار",
       notificationsSent: "تم إرسال الإشعار",
+      notificationsHistory: "سجل الإشعارات",
+      notificationsHistoryEmpty: "لا يوجد إشعارات مرسلة مؤخراً",
+      notificationsTarget: "الهدف",
+      notificationsSentAt: "تاريخ الإرسال",
       ordersOverTime: "الطلبات عبر الزمن",
       mostSoldParts: "الأكثر مبيعاً",
       serviceVsShop: "الخدمات مقابل المتجر",
@@ -466,6 +480,10 @@ export default function AdminDashboard() {
       notificationsEmojiLabel: "Notification emoji",
       notificationsSend: "Send notification",
       notificationsSent: "Notification sent",
+      notificationsHistory: "Notification History",
+      notificationsHistoryEmpty: "No recent notifications sent",
+      notificationsTarget: "Target",
+      notificationsSentAt: "Sent at",
       ordersOverTime: "Orders Over Time",
       mostSoldParts: "Top Spare Parts",
       serviceVsShop: "Service vs Shop",
@@ -615,6 +633,10 @@ export default function AdminDashboard() {
     notificationsEmojiLabel: "إيموجي الإشعار",
     notificationsSend: "إرسال الإشعار",
     notificationsSent: "تم إرسال الإشعار",
+    notificationsHistory: "سجل الإشعارات",
+    notificationsHistoryEmpty: "لا يوجد إشعارات مرسلة مؤخراً",
+    notificationsTarget: "الهدف",
+    notificationsSentAt: "تاريخ الإرسال",
     ordersOverTime: "الطلبات عبر الزمن",
     mostSoldParts: "الأكثر مبيعاً",
     serviceVsShop: "الخدمات مقابل المتجر",
@@ -786,6 +808,11 @@ export default function AdminDashboard() {
     enabled: shouldFetchSupportTickets,
   });
 
+  const { data: notificationLogs, isLoading: notificationLogsLoading } = useQuery<NotificationLogEntry[]>({
+    queryKey: ["/api/admin/notifications/logs"],
+    enabled: canViewSection("notifications") && activeTab === "notifications",
+  });
+
   const { data: roles, isLoading: rolesLoading } = useQuery<Role[]>({
     queryKey: ["/api/admin/roles"],
     enabled: canViewSection("roles"),
@@ -823,6 +850,7 @@ export default function AdminDashboard() {
   const safeServiceRequests = Array.isArray(serviceRequests) ? serviceRequests : [];
   const safeSupportTickets = Array.isArray(supportTickets) ? supportTickets : [];
   const safeShopOrders = Array.isArray(shopOrders) ? shopOrders : [];
+  const safeNotificationLogs = Array.isArray(notificationLogs) ? notificationLogs : [];
   const safeUserRoles = Array.isArray(userRolesData) ? userRolesData : [];
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
 
@@ -3674,6 +3702,53 @@ export default function AdminDashboard() {
                     {broadcastNotificationMutation.isPending ? txt.loading : txt.notificationsSend}
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card data-testid="card-notification-history">
+              <CardHeader>
+                <CardTitle>{txt.notificationsHistory}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {notificationLogsLoading ? (
+                  <div className="text-center py-6 text-muted-foreground">{txt.loading}</div>
+                ) : safeNotificationLogs.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">{txt.notificationsHistoryEmpty}</div>
+                ) : (
+                  <ScrollArea className="h-[360px]">
+                    <div className="space-y-3">
+                      {safeNotificationLogs.map((log) => {
+                        const sentAt = log.sentAt ?? (log as any).sent_at;
+                        const body = (log.body || "").trim();
+                        const bodyPreview = getSupportMessagePreview(body);
+                        const targetRaw = log.target || "";
+                        const targetLabel =
+                          targetRaw === "all"
+                            ? lang === "ar"
+                              ? "جميع المستخدمين"
+                              : "All users"
+                            : targetRaw || "-";
+                        return (
+                          <div
+                            key={log.id}
+                            className="rounded-lg border border-border/60 bg-muted/20 p-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="font-semibold">{log.title || "-"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {txt.notificationsSentAt}: {formatSupportDate(sentAt)}
+                              </div>
+                            </div>
+                            <div className="text-sm text-muted-foreground mt-2">{bodyPreview}</div>
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              {txt.notificationsTarget}: {targetLabel}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -574,6 +574,16 @@ const normalizeNotificationRow = (row: any) => ({
   createdAt: row.created_at ?? row.createdAt ?? null,
 });
 
+const normalizeNotificationLogRow = (row: any) => ({
+  id: row.id,
+  title: row.title ?? "",
+  body: row.body ?? "",
+  target: row.target ?? null,
+  sentBy: row.sent_by ?? row.sentBy ?? null,
+  sentAt: row.sent_at ?? row.sentAt ?? null,
+  status: row.status ?? null,
+});
+
 const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: string | null; email?: string | null }) => {
   if (!user) return null;
   const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
@@ -5575,6 +5585,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const title = rawTitle || (lang === "ar" ? "إشعار من الإدارة" : "Admin notification");
       const emoji = rawEmoji || "📣";
       const type = rawType || "admin_broadcast";
+      const auth = getAuthContext(req);
+      const sentBy = auth ? await ensureUserUuid(auth) : null;
+      const sentAt = new Date().toISOString();
 
       const { resp: usersResp, data: usersData } = await pgFetch("/users?select=id");
       if (!usersResp.ok) {
@@ -5585,6 +5598,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (users.length === 0) {
         return res.json({ sent: 0 });
       }
+
+      await pgFetch("/notification_logs", {
+        method: "POST",
+        body: [
+          {
+            title,
+            body: rawMessage,
+            target: "all",
+            sent_by: sentBy,
+            sent_at: sentAt,
+            status: "sent",
+          },
+        ],
+        headers: { Prefer: "return=representation" },
+      }).catch((error) => {
+        console.warn("[NOTIFICATIONS][LOG][FAILED]", error);
+      });
 
       const notifications = users
         .map((user) => user?.id)
@@ -5618,6 +5648,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[NOTIFICATIONS][BROADCAST] Error:", error);
       res.status(500).json({ message: "Failed to broadcast notifications" });
+    }
+  });
+
+  app.get("/api/admin/notifications/logs", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const { resp, data } = await pgFetch("/notification_logs?order=sent_at.desc&limit=50");
+      if (!resp.ok) {
+        console.warn("[NOTIFICATIONS][LOG][LIST_FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      const logs = Array.isArray(data) ? data.map(normalizeNotificationLogRow) : [];
+      res.json(logs);
+    } catch (error) {
+      console.error("[NOTIFICATIONS][LOG][LIST] Error:", error);
+      res.json([]);
     }
   });
 
