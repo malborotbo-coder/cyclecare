@@ -198,6 +198,29 @@ export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecor
 export type InsertMaintenanceRecord = z.infer<typeof insertMaintenanceRecordSchema>;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
 
+// Notifications
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: varchar("title").notNull(),
+  message: text("message").notNull(),
+  emoji: varchar("emoji"),
+  type: varchar("type"),
+  entityType: varchar("entity_type"),
+  entityId: varchar("entity_id"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+});
+
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
+
 // Parts categories - simplified to 2 options only
 export const partCategoryEnum = pgEnum("part_category", [
   "spare_parts",  // قطع غيار

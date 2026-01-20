@@ -13,6 +13,7 @@ import {
   LogOut,
   User,
   Bike,
+  Bell,
   X
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -46,6 +47,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       logout: "تسجيل الخروج",
       login: "تسجيل الدخول",
       orders: "طلباتي",
+      notifications: "الإشعارات",
       support: "الدعم الفني",
     },
     en: {
@@ -60,6 +62,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       logout: "Logout",
       login: "Sign In",
       orders: "My Orders",
+      notifications: "Notifications",
       support: "Support",
     },
   };
@@ -75,6 +78,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       : [
           { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
           { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
+          { id: "notifications", path: "/notifications", icon: Bell, label: t[lang].notifications },
           { id: "bike", path: "/bikes", icon: Bike, label: t[lang].bikes },
         ]),
   ];

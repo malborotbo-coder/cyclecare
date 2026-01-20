@@ -35,6 +35,7 @@ import { randomUUID, createHmac } from "crypto";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
+const MOCK_TECH_ID_PREFIX = "mock-";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
 const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || "com.cyclecatrtec.app";
@@ -116,6 +117,9 @@ function buildMockTech(lat: number, lng: number) {
     longitude: lng,
   };
 }
+
+const isMockTechnicianId = (value: unknown) =>
+  typeof value === "string" && value.trim().startsWith(MOCK_TECH_ID_PREFIX);
 
 async function verifyAppleIdentityToken(identityToken: string) {
   const { payload } = await jwtVerify(identityToken, appleJwks, {
@@ -541,16 +545,33 @@ const normalizeSupportReplyRow = (row: any) => ({
 const normalizeServiceRequestRow = (row: any) => ({
   id: row.id,
   userId: row.user_id ?? row.userId ?? null,
+  bikeId: row.bike_id ?? row.bikeId ?? null,
   technicianId: row.technician_id ?? row.technicianId ?? null,
   serviceType: row.service_type ?? row.serviceType ?? null,
   status: row.status ?? null,
   location: row.location ?? null,
+  latitude: row.latitude ?? null,
+  longitude: row.longitude ?? null,
   notes: row.notes ?? null,
   estimatedCost: row.estimated_cost ?? row.estimatedCost ?? null,
   trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
+  route: row.route ?? row.route_data ?? row.routeData ?? null,
   createdAt: row.created_at ?? row.createdAt ?? null,
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
   orderNumber: row.order_number ?? row.orderNumber ?? null,
+});
+
+const normalizeNotificationRow = (row: any) => ({
+  id: row.id,
+  userId: row.user_id ?? row.userId ?? null,
+  title: row.title ?? "",
+  message: row.message ?? "",
+  emoji: row.emoji ?? null,
+  type: row.type ?? null,
+  entityType: row.entity_type ?? row.entityType ?? null,
+  entityId: row.entity_id ?? row.entityId ?? null,
+  readAt: row.read_at ?? row.readAt ?? null,
+  createdAt: row.created_at ?? row.createdAt ?? null,
 });
 
 const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: string | null; email?: string | null }) => {
@@ -558,6 +579,112 @@ const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: str
   const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
   return full || user.email || null;
 };
+
+const NOTIFICATION_COOLDOWN_MS = 1000 * 60 * 60 * 24 * 7;
+
+async function createNotification(payload: {
+  userId: string;
+  title: string;
+  message: string;
+  emoji?: string | null;
+  type?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+}) {
+  try {
+    const body = {
+      user_id: payload.userId,
+      title: payload.title,
+      message: payload.message,
+      emoji: payload.emoji || null,
+      type: payload.type || null,
+      entity_type: payload.entityType || null,
+      entity_id: payload.entityId || null,
+    };
+    await pgFetch("/notifications", {
+      method: "POST",
+      body: [body],
+      headers: { Prefer: "return=representation" },
+    });
+  } catch (error) {
+    console.warn("[NOTIFICATIONS][CREATE][FAILED]", error);
+  }
+}
+
+function buildOrderStatusNotification(status: string, lang: Language) {
+  const isArabic = lang === "ar";
+  const map: Record<string, { title: string; message: string; emoji: string }> = {
+    accepted: {
+      title: isArabic ? "تم قبول الطلب" : "Request accepted",
+      message: isArabic ? "تم استلام طلبك من الفني" : "Your technician has accepted the request.",
+      emoji: "✅",
+    },
+    on_the_way: {
+      title: isArabic ? "الفني في الطريق" : "Technician on the way",
+      message: isArabic ? "الفني في الطريق إليك الآن" : "Your technician is on the way.",
+      emoji: "🚴‍♂️",
+    },
+    working: {
+      title: isArabic ? "بدء العمل" : "Work started",
+      message: isArabic ? "الفني بدأ العمل على طلبك" : "The technician has started working.",
+      emoji: "🛠️",
+    },
+    in_progress: {
+      title: isArabic ? "قيد التنفيذ" : "In progress",
+      message: isArabic ? "طلبك قيد التنفيذ الآن" : "Your request is in progress.",
+      emoji: "🛠️",
+    },
+    completed: {
+      title: isArabic ? "اكتملت الخدمة" : "Service completed",
+      message: isArabic ? "تم الانتهاء من طلبك بنجاح" : "Your request has been completed.",
+      emoji: "🎉",
+    },
+  };
+  const entry = map[status];
+  if (!entry) return null;
+  return { ...entry, type: "order_status" };
+}
+
+async function maybeCreateMaintenanceNotification(userId: string, status: string, remainingKm: number, lang: Language) {
+  if (status !== "NEAR" && status !== "OVERDUE") return;
+  const type = status === "OVERDUE" ? "maintenance_overdue" : "maintenance_near";
+  try {
+    const { resp, data } = await pgFetch(
+      `/notifications?user_id=eq.${encodeURIComponent(userId)}&type=eq.${type}&order=created_at.desc&limit=1`,
+    );
+    if (resp.ok && Array.isArray(data) && data.length > 0) {
+      const latest = data[0];
+      const lastCreated = new Date(latest.created_at || latest.createdAt || 0).getTime();
+      if (Number.isFinite(lastCreated) && Date.now() - lastCreated < NOTIFICATION_COOLDOWN_MS) {
+        return;
+      }
+    }
+
+    const isArabic = lang === "ar";
+    const emoji = status === "OVERDUE" ? "⚠️" : "🔧";
+    const title = status === "OVERDUE"
+      ? (isArabic ? "صيانة مستحقة" : "Maintenance overdue")
+      : (isArabic ? "موعد صيانة قريب" : "Maintenance due soon");
+    const message = status === "OVERDUE"
+      ? (isArabic
+          ? "تجاوزت حد الصيانة. ننصحك بحجز صيانة الآن."
+          : "You are overdue for maintenance. Please book a service.")
+      : (isArabic
+          ? `متبقي تقريبًا ${Math.max(0, remainingKm).toFixed(0)} كم قبل الصيانة.`
+          : `About ${Math.max(0, remainingKm).toFixed(0)} km left before service.`);
+
+    await createNotification({
+      userId,
+      title,
+      message,
+      emoji,
+      type,
+      entityType: "maintenance",
+    });
+  } catch (error) {
+    console.warn("[NOTIFICATIONS][MAINTENANCE][FAILED]", error);
+  }
+}
 
 async function attachSupportReplies(tickets: any[]) {
   if (!Array.isArray(tickets) || tickets.length === 0) return [];
@@ -2190,6 +2317,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const remainingKm = Number((serviceIntervalKm - distanceSinceLastServiceKm).toFixed(1));
       const maintenanceStatus =
         remainingKm <= 0 ? "OVERDUE" : remainingKm < 30 ? "NEAR" : "OK";
+
+      await maybeCreateMaintenanceNotification(userUuid, maintenanceStatus, remainingKm, getRequestLang(req));
 
       return res.json({
         connected: true,
@@ -4533,6 +4662,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const safeRequests = Array.isArray(reqData) ? reqData : [];
       const requestIds = safeRequests.map((request) => request.id).filter(Boolean);
+      const bikeIds = safeRequests
+        .map((request) => request.bike_id ?? request.bikeId)
+        .filter(Boolean);
       let invoiceByRequestId = new Map<string, any>();
       if (requestIds.length > 0) {
         const ids = requestIds.map((id) => encodeURIComponent(id)).join(",");
@@ -4546,10 +4678,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
         }
       }
+      let bikeById = new Map<string, any>();
+      if (bikeIds.length > 0) {
+        const ids = bikeIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: bikeResp, data: bikeData } = await pgFetch(
+          `/bikes?id=in.(${ids})`,
+        );
+        if (bikeResp.ok) {
+          const bikes = Array.isArray(bikeData) ? bikeData.map(normalizeBikeRow) : [];
+          bikeById = new Map(bikes.map((bike) => [bike.id, bike]));
+        }
+      }
       const enriched = safeRequests.map((request: any) => {
         const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
+        const normalized = normalizeServiceRequestRow(request);
+        const bikeId = normalized.bikeId ?? request.bike_id ?? request.bikeId;
+        const bike = bikeId ? bikeById.get(bikeId) : null;
         return {
           ...request,
+          ...normalized,
+          bike,
           invoiceNumber: invoice?.invoiceNumber ?? null,
           invoiceStatus: invoice?.status ?? null,
           invoiceTotal: invoice?.total ?? null,
@@ -4612,6 +4760,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "Failed to accept order" });
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
+        const requestUserId = request.user_id ?? request.userId;
+        const acceptNotification = buildOrderStatusNotification("accepted", getRequestLang(req));
+        if (requestUserId && acceptNotification) {
+          await createNotification({
+            userId: requestUserId,
+            title: acceptNotification.title,
+            message: acceptNotification.message,
+            emoji: acceptNotification.emoji,
+            type: acceptNotification.type,
+            entityType: "service_request",
+            entityId: orderId,
+          });
+        }
         console.log("[TECH][ORDER][ACCEPT]", {
           technicianId: technician.id,
           orderId,
@@ -4738,6 +4899,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "Failed to update status" });
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
+        const requestUserId = request.user_id ?? request.userId;
+        const statusNotification = buildOrderStatusNotification(nextStatus, getRequestLang(req));
+        if (requestUserId && statusNotification) {
+          await createNotification({
+            userId: requestUserId,
+            title: statusNotification.title,
+            message: statusNotification.message,
+            emoji: statusNotification.emoji,
+            type: statusNotification.type,
+            entityType: "service_request",
+            entityId: orderId,
+          });
+        }
         console.log("[TECH][ORDER][STATUS_CHANGE]", {
           technicianId: technician.id,
           orderId,
@@ -4877,6 +5051,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
         }
+        const requestUserId = request.user_id ?? request.userId;
+        const completedNotification = buildOrderStatusNotification("completed", getRequestLang(req));
+        if (requestUserId && completedNotification) {
+          await createNotification({
+            userId: requestUserId,
+            title: completedNotification.title,
+            message: completedNotification.message,
+            emoji: completedNotification.emoji,
+            type: completedNotification.type,
+            entityType: "service_request",
+            entityId: orderId,
+          });
+        }
         console.log("[TECH][ORDER][COMPLETE]", {
           technicianId: technician.id,
           orderId,
@@ -4902,6 +5089,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
       const body = req.body || {};
       const technicianId = body.technicianId;
+      const requestedTechnicianId = typeof technicianId === "string" ? technicianId.trim() : "";
+      const resolvedTechnicianId = isMockTechnicianId(requestedTechnicianId) ? null : requestedTechnicianId || null;
+      const requestedBikeId = typeof body.bikeId === "string" ? body.bikeId.trim() : "";
 
       const latitudeRaw = body.latitude;
       const longitudeRaw = body.longitude;
@@ -4917,7 +5107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Basic field-level validation before Zod to return clear errors
       const lang = getRequestLang(req);
       const fieldErrors: { field: string; message: string }[] = [];
-      if (!technicianId || `${technicianId}`.trim() === "") {
+      if (!requestedTechnicianId) {
         fieldErrors.push({ field: "technicianId", message: "يجب اختيار فني" });
       }
       if (!body.serviceType || `${body.serviceType}`.trim() === "") {
@@ -4926,6 +5116,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (latitude === undefined || longitude === undefined) {
         fieldErrors.push({ field: "location", message: "يرجى تحديد الموقع" });
       }
+      let resolvedBikeId: string | null = null;
+      if (requestedBikeId) {
+        const { resp: bikeResp, data: bikeData } = await pgFetch(
+          `/bikes?id=eq.${encodeURIComponent(requestedBikeId)}&user_id=eq.${encodeURIComponent(userId)}&select=id`,
+        );
+        if (!bikeResp.ok) {
+          console.warn("[SERVICE_REQUEST][BIKE][LOOKUP_FAILED]", { status: bikeResp.status, body: bikeData });
+          fieldErrors.push({
+            field: "bikeId",
+            message: lang === "ar" ? "تعذر التحقق من الدراجة" : "Failed to validate bike",
+          });
+        } else {
+          const bikeRow = Array.isArray(bikeData) ? bikeData[0] : bikeData?.[0];
+          if (!bikeRow?.id) {
+            fieldErrors.push({
+              field: "bikeId",
+              message: lang === "ar" ? "يرجى اختيار دراجة صحيحة" : "Invalid bike selection",
+            });
+          } else {
+            resolvedBikeId = bikeRow.id;
+          }
+        }
+      }
+
       if (fieldErrors.length) {
         return res
           .status(400)
@@ -4935,14 +5149,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Only pass known fields to schema to avoid validation errors
       const safePayload: any = {
         serviceType: body.serviceType || "maintenance",
-        technicianId: technicianId,
+        technicianId: requestedTechnicianId,
         notes: body.notes,
         latitude,
         longitude,
         location: body.location || "Riyadh",
         status: body.status || "pending",
       };
-      if (body.bikeId) safePayload.bikeId = body.bikeId;
+      if (resolvedBikeId) safePayload.bikeId = resolvedBikeId;
 
       console.log("[SERVICE_REQUEST][CREATE][PAYLOAD]", {
         body,
@@ -4968,14 +5182,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Technicians location update skipped here to keep service request creation fully local/non-blocking
       const payload = {
         user_id: userId,
-        technician_id: requestData.technicianId,
+        technician_id: resolvedTechnicianId ?? requestData.technicianId ?? null,
         service_type: requestData.serviceType,
         status: requestData.status,
         location: requestData.location,
         latitude: requestData.latitude,
         longitude: requestData.longitude,
         notes: requestData.notes,
-        bike_id: (requestData as any).bikeId || null,
+        bike_id: resolvedBikeId ?? (requestData as any).bikeId || null,
       };
 
       const createdAtIso = new Date().toISOString();
@@ -5101,6 +5315,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     },
   );
+
+  // Notifications
+  app.get("/api/notifications", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const { resp, data } = await pgFetch(
+        `/notifications?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+      );
+      if (!resp.ok) {
+        console.warn("[NOTIFICATIONS][LIST][FAILED]", { status: resp.status, body: data });
+        return res.json([]);
+      }
+      const notifications = Array.isArray(data) ? data.map(normalizeNotificationRow) : [];
+      res.json(notifications);
+    } catch (error) {
+      console.error("[NOTIFICATIONS][LIST] Error:", error);
+      res.status(500).json({ message: "Failed to fetch notifications" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const now = new Date().toISOString();
+      const { resp, data } = await pgFetch(
+        `/notifications?id=eq.${encodeURIComponent(req.params.id)}&user_id=eq.${encodeURIComponent(userUuid)}`,
+        { method: "PATCH", body: { read_at: now }, headers: { Prefer: "return=representation" } },
+      );
+      if (!resp.ok) {
+        return res.status(resp.status || 500).json({ message: "Failed to update notification" });
+      }
+      const updated = Array.isArray(data) ? data[0] : data;
+      res.json(normalizeNotificationRow(updated || {}));
+    } catch (error) {
+      console.error("[NOTIFICATIONS][READ] Error:", error);
+      res.status(500).json({ message: "Failed to update notification" });
+    }
+  });
+
+  app.post("/api/notifications/mark-read", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const now = new Date().toISOString();
+      const { resp } = await pgFetch(
+        `/notifications?user_id=eq.${encodeURIComponent(userUuid)}&read_at=is.null`,
+        { method: "PATCH", body: { read_at: now } },
+      );
+      if (!resp.ok) {
+        return res.status(resp.status || 500).json({ message: "Failed to update notifications" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[NOTIFICATIONS][MARK_READ] Error:", error);
+      res.status(500).json({ message: "Failed to update notifications" });
+    }
+  });
 
   app.get("/api/technician-reviews", isAuthenticated, async (req: any, res) => {
     try {
@@ -5281,6 +5557,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[ADMIN][SUPPORT][REPLY] Error:", error);
       res.status(500).json({ message: "Failed to reply to ticket" });
+    }
+  });
+
+  app.post("/api/admin/notifications/broadcast", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const lang = getRequestLang(req);
+      const rawTitle = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      const rawMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+      const rawEmoji = typeof req.body?.emoji === "string" ? req.body.emoji.trim() : "";
+      const rawType = typeof req.body?.type === "string" ? req.body.type.trim() : "";
+
+      if (!rawMessage) {
+        return res.status(400).json({ message: "message is required" });
+      }
+
+      const title = rawTitle || (lang === "ar" ? "إشعار من الإدارة" : "Admin notification");
+      const emoji = rawEmoji || "📣";
+      const type = rawType || "admin_broadcast";
+
+      const { resp: usersResp, data: usersData } = await pgFetch("/users?select=id");
+      if (!usersResp.ok) {
+        return res.status(usersResp.status || 500).json({ message: "Failed to load users" });
+      }
+
+      const users = Array.isArray(usersData) ? usersData : [];
+      if (users.length === 0) {
+        return res.json({ sent: 0 });
+      }
+
+      const notifications = users
+        .map((user) => user?.id)
+        .filter(Boolean)
+        .map((userId) => ({
+          user_id: userId,
+          title,
+          message: rawMessage,
+          emoji,
+          type,
+          entity_type: "broadcast",
+        }));
+
+      const chunkSize = 200;
+      for (let i = 0; i < notifications.length; i += chunkSize) {
+        const chunk = notifications.slice(i, i + chunkSize);
+        const { resp: createResp, data: createData } = await pgFetch("/notifications", {
+          method: "POST",
+          body: chunk,
+          headers: { Prefer: "return=representation" },
+        });
+        if (!createResp.ok) {
+          console.warn("[NOTIFICATIONS][BROADCAST][FAILED]", {
+            status: createResp.status,
+            body: createData,
+          });
+        }
+      }
+
+      res.json({ sent: notifications.length });
+    } catch (error) {
+      console.error("[NOTIFICATIONS][BROADCAST] Error:", error);
+      res.status(500).json({ message: "Failed to broadcast notifications" });
     }
   });
 

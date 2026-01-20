@@ -26,7 +26,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ApiError } from "@/lib/apiError";
-import type { Technician } from "@shared/schema";
+import type { Bike, Technician } from "@shared/schema";
 import PaymentOptions from "./PaymentOptions";
 import type { PricingBreakdown } from "@shared/bookingTypes";
 import type { PaymentMethod } from "@shared/schema";
@@ -43,12 +43,13 @@ import {
 export default function ServiceBooking() {
   const { toast } = useToast();
   const [, setRouterLocation] = useRouterLocation();
-  const { user } = useFirebaseAuth();
+  const { user, isGuest } = useFirebaseAuth();
   const { lang } = useLanguage();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedService, setSelectedService] = useState("");
   const [selectedTechnicianId, setSelectedTechnicianId] = useState("");
+  const [selectedBikeId, setSelectedBikeId] = useState("");
   const [notes, setNotes] = useState("");
 
   const [location, setLocation] = useState({ lat: 24.7136, lng: 46.6753 });
@@ -101,6 +102,21 @@ export default function ServiceBooking() {
     }
   });
 
+  const { data: bikes, isLoading: bikesLoading } = useQuery<Bike[]>({
+    queryKey: ["/api/bikes"],
+    enabled: !!user && !isGuest,
+    queryFn: async () => {
+      try {
+        return await apiRequest("/api/bikes", "GET");
+      } catch (err) {
+        console.error("Bikes fetch failed", err);
+        return [];
+      }
+    },
+  });
+
+  const bikesList = useMemo(() => (Array.isArray(bikes) ? bikes : []), [bikes]);
+
   const fallbackTechnicians = useMemo<Technician[]>(() => {
     const now = new Date().toISOString();
     return [
@@ -150,6 +166,17 @@ export default function ServiceBooking() {
       setSelectedTechnicianId(techniciansList[0].id);
     }
   }, [techniciansList, selectedTechnicianId]);
+
+  useEffect(() => {
+    if (!selectedBikeId && bikesList.length > 0) {
+      setSelectedBikeId(bikesList[0].id);
+    }
+  }, [bikesList, selectedBikeId]);
+
+  const selectedBike = useMemo(
+    () => bikesList.find((bike) => bike.id === selectedBikeId),
+    [bikesList, selectedBikeId],
+  );
 
   const selectedTechnician = useMemo(
     () => techniciansList.find((t) => t.id === selectedTechnicianId),
@@ -320,6 +347,7 @@ export default function ServiceBooking() {
         location: locationText,
         status: "pending",
         scheduledAt: new Date().toISOString(),
+        bikeId: selectedBikeId || undefined,
       };
 
       console.log("[BOOKING PAYLOAD]", payload);
@@ -351,6 +379,7 @@ export default function ServiceBooking() {
     setCurrentStep(0);
     setSelectedService("");
     setSelectedTechnicianId("");
+    setSelectedBikeId("");
     setNotes("");
     setCostBreakdown(null);
     setCreatedServiceRequestId(null);
@@ -594,6 +623,87 @@ export default function ServiceBooking() {
                   استخدم موقعي
                 </Button>
 
+                {!isGuest && (
+                  <div className="space-y-3 rounded-2xl border border-border/60 bg-white/90 dark:bg-white/5 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-lg font-semibold">اختر الدراجة</h4>
+                        <p className="text-xs text-muted-foreground">
+                          اختر دراجتك ليظهر تفاصيلها للفني.
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRouterLocation("/bikes")}
+                      >
+                        إدارة الدراجات
+                      </Button>
+                    </div>
+                    {bikesLoading ? (
+                      <div className="text-sm text-muted-foreground">جاري تحميل الدراجات...</div>
+                    ) : bikesList.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        لا توجد دراجات مضافة حتى الآن.
+                      </div>
+                    ) : (
+                      <RadioGroup value={selectedBikeId} onValueChange={setSelectedBikeId} className="space-y-3">
+                        {bikesList.map((bike) => {
+                          const bikeImage = (bike as any)?.imageUrl ?? (bike as any)?.image_url ?? null;
+                          const bikeType = bike.bikeType ?? (bike as any)?.bike_type ?? null;
+                          const bikeLabel = [bike.brand, bike.model].filter(Boolean).join(" ");
+                          const bikeCode = (bike as any)?.bikeId ?? (bike as any)?.bike_id ?? null;
+                          const isSelected = bike.id === selectedBikeId;
+                          return (
+                            <div
+                              key={bike.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setSelectedBikeId(bike.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedBikeId(bike.id);
+                                }
+                              }}
+                              className={`flex items-center gap-3 rounded-xl border p-3 transition ${isSelected ? "border-primary bg-white shadow-sm" : "border-white/30 bg-white/80"} text-foreground dark:border-white/10 dark:bg-white/5 dark:text-white`}
+                            >
+                              <RadioGroupItem value={bike.id} id={`bike-${bike.id}`} className="sr-only" />
+                              <div className="h-14 w-14 overflow-hidden rounded-xl bg-muted/50 flex items-center justify-center">
+                                {bikeImage ? (
+                                  <img src={bikeImage} alt={bikeLabel || "Bike"} className="h-full w-full object-cover" />
+                                ) : (
+                                  <span className="text-2xl">🚲</span>
+                                )}
+                              </div>
+                              <div className="flex-1 text-sm">
+                                <div className="font-semibold">{bikeLabel || "دراجة بدون اسم"}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {[bikeType, bike.year ? `${bike.year}` : null].filter(Boolean).join(" • ")}
+                                </div>
+                                {bikeCode && (
+                                  <div className="text-[11px] text-muted-foreground">#{bikeCode}</div>
+                                )}
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={isSelected ? "default" : "outline"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedBikeId(bike.id);
+                                }}
+                              >
+                                اختيار
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </RadioGroup>
+                    )}
+                  </div>
+                )}
+
                 <Textarea
                   placeholder="ملاحظات"
                   value={notes}
@@ -759,6 +869,35 @@ export default function ServiceBooking() {
                           <span>{costBreakdown.service?.base ?? services.find((s) => s.id === selectedService)?.base ?? 0} ر.س</span>
                         </div>
                       </div>
+
+                      {selectedBike && (
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الدراجة</h4>
+                          <div className="flex items-center gap-3 text-sm text-foreground dark:text-white">
+                            <div className="h-10 w-10 rounded-lg bg-muted/50 flex items-center justify-center">
+                              {(selectedBike as any)?.imageUrl || (selectedBike as any)?.image_url ? (
+                                <img
+                                  src={(selectedBike as any).imageUrl ?? (selectedBike as any).image_url}
+                                  alt={selectedBike.brand || "Bike"}
+                                  className="h-full w-full object-cover rounded-lg"
+                                />
+                              ) : (
+                                <span>🚲</span>
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-semibold">
+                                {[selectedBike.brand, selectedBike.model].filter(Boolean).join(" ") || "دراجة العميل"}
+                              </div>
+                              <div className="text-xs text-muted-foreground dark:text-white/70">
+                                {[selectedBike.bikeType ?? (selectedBike as any)?.bike_type, selectedBike.year ? `${selectedBike.year}` : null]
+                                  .filter(Boolean)
+                                  .join(" • ")}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <h4 className="font-semibold text-sm text-muted-foreground dark:text-white/70">الفني</h4>

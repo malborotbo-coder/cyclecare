@@ -9,7 +9,7 @@ import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench } from "lucide
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
-import type { ServiceRequest, Technician } from "@shared/schema";
+import type { Bike, ServiceRequest, Technician } from "@shared/schema";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
@@ -18,6 +18,7 @@ type TechnicianOrder = ServiceRequest & {
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
   invoiceTotal?: number | string | null;
+  bike?: Bike | null;
 };
 
 interface ServiceRequestCardProps extends ServiceRequest {
@@ -31,6 +32,7 @@ interface ServiceRequestCardProps extends ServiceRequest {
   invoiceStatus?: string | null;
   invoiceTotal?: number | string | null;
   technicianCoords?: { lat: number; lng: number } | null;
+  bike?: Bike | null;
 }
 
 const toNumber = (value: unknown) => {
@@ -84,6 +86,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
     invoiceStatus,
     invoiceTotal,
     technicianCoords,
+    bike,
   } = props;
   const [completionFile, setCompletionFile] = useState<File | null>(null);
   const isNewStatus = ['pending', 'assigned', 'created'].includes(status || '');
@@ -113,6 +116,14 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
   const etaLabel = etaMinutes !== null
     ? `${Math.round(etaMinutes)} ${lang === 'ar' ? 'دقيقة' : 'min'}`
     : null;
+  const bikeImage =
+    (bike as any)?.imageUrl ?? (bike as any)?.image_url ?? null;
+  const bikeType =
+    bike?.bikeType ?? (bike as any)?.bike_type ?? null;
+  const bikeBrand = bike?.brand ?? null;
+  const bikeModel = bike?.model ?? null;
+  const bikeYear = bike?.year ?? null;
+  const bikeCode = bike?.bikeId ?? (bike as any)?.bike_id ?? null;
   const navigationUrl = locationCoords
     ? `https://www.google.com/maps/dir/?api=1&destination=${locationCoords.lat},${locationCoords.lng}`
     : location
@@ -195,6 +206,28 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
           <Clock className="w-4 h-4 text-muted-foreground" />
           <span>{formatTime(createdAt)}</span>
         </div>
+        {bike && (
+          <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3">
+            <div className="h-14 w-14 overflow-hidden rounded-xl bg-muted/50 flex items-center justify-center">
+              {bikeImage ? (
+                <img src={bikeImage} alt={bikeBrand || "Bike"} className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-2xl">🚲</span>
+              )}
+            </div>
+            <div className="flex-1 text-sm">
+              <div className="font-semibold">
+                {[bikeBrand, bikeModel].filter(Boolean).join(" ") || (lang === 'ar' ? "دراجة العميل" : "Customer bike")}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {[bikeType, bikeYear ? `${bikeYear}` : null].filter(Boolean).join(" • ")}
+              </div>
+              {bikeCode && (
+                <div className="text-[11px] text-muted-foreground">#{bikeCode}</div>
+              )}
+            </div>
+          </div>
+        )}
         {notes && (
           <div className="text-sm text-muted-foreground bg-muted p-2 rounded-md">
             {notes}

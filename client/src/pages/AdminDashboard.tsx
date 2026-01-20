@@ -106,6 +106,9 @@ export default function AdminDashboard() {
   const [selectedServiceRequest, setSelectedServiceRequest] = useState<ServiceRequest | null>(null);
   const [selectedShopOrder, setSelectedShopOrder] = useState<Order | null>(null);
   const [selectedLiveTechnicianId, setSelectedLiveTechnicianId] = useState<string | null>(null);
+  const [notificationTitle, setNotificationTitle] = useState<string>("");
+  const [notificationMessage, setNotificationMessage] = useState<string>("");
+  const [notificationEmoji, setNotificationEmoji] = useState<string>("📣");
   const [reportStartDate, setReportStartDate] = useState<string>(() => {
     const start = new Date();
     start.setDate(start.getDate() - 30);
@@ -301,7 +304,14 @@ export default function AdminDashboard() {
       shopOrders: "طلبات المتجر",
       deliveryOption: "خيار التوصيل",
       discounts: "أكواد الخصم",
-      registerTech: "تسجيل فني",
+      notifications: "الإشعارات",
+      notificationsTitle: "إرسال إشعار عام",
+      notificationsSubtitle: "أرسل رسالة لجميع مستخدمي التطبيق.",
+      notificationsTitleLabel: "عنوان الإشعار (اختياري)",
+      notificationsMessageLabel: "نص الإشعار",
+      notificationsEmojiLabel: "إيموجي الإشعار",
+      notificationsSend: "إرسال الإشعار",
+      notificationsSent: "تم إرسال الإشعار",
       ordersOverTime: "الطلبات عبر الزمن",
       mostSoldParts: "الأكثر مبيعاً",
       serviceVsShop: "الخدمات مقابل المتجر",
@@ -448,7 +458,14 @@ export default function AdminDashboard() {
       shopOrders: "Shop Orders",
       deliveryOption: "Delivery Option",
       discounts: "Discount Codes",
-      registerTech: "Register Technician",
+      notifications: "Notifications",
+      notificationsTitle: "Broadcast Notification",
+      notificationsSubtitle: "Send a message to all app users.",
+      notificationsTitleLabel: "Notification title (optional)",
+      notificationsMessageLabel: "Notification message",
+      notificationsEmojiLabel: "Notification emoji",
+      notificationsSend: "Send notification",
+      notificationsSent: "Notification sent",
       ordersOverTime: "Orders Over Time",
       mostSoldParts: "Top Spare Parts",
       serviceVsShop: "Service vs Shop",
@@ -590,7 +607,14 @@ export default function AdminDashboard() {
     shopOrders: "طلبات المتجر",
     deliveryOption: "خيار التوصيل",
     discounts: "أكواد الخصم",
-    registerTech: "تسجيل فني",
+    notifications: "الإشعارات",
+    notificationsTitle: "إرسال إشعار عام",
+    notificationsSubtitle: "أرسل رسالة لجميع مستخدمي التطبيق.",
+    notificationsTitleLabel: "عنوان الإشعار (اختياري)",
+    notificationsMessageLabel: "نص الإشعار",
+    notificationsEmojiLabel: "إيموجي الإشعار",
+    notificationsSend: "إرسال الإشعار",
+    notificationsSent: "تم إرسال الإشعار",
     ordersOverTime: "الطلبات عبر الزمن",
     mostSoldParts: "الأكثر مبيعاً",
     serviceVsShop: "الخدمات مقابل المتجر",
@@ -672,7 +696,7 @@ export default function AdminDashboard() {
     discounts: ["marketing", "sales"],
     parts: ["sales"],
     roles: ["admin"],
-    "register-tech": ["project_manager"],
+    notifications: ["project_manager"],
     reports: ["project_manager", "sales", "marketing"],
   };
 
@@ -703,7 +727,7 @@ export default function AdminDashboard() {
     { id: "discounts", label: txt.discounts, icon: Wrench },
     { id: "parts", label: txt.parts, icon: Package },
     { id: "roles", label: txt.userRoles, icon: UserCog },
-    { id: "register-tech", label: txt.registerTech, icon: Wrench },
+    { id: "notifications", label: txt.notifications, icon: MessageSquare },
   ]), [txt]);
 
   const visibleTabs = useMemo(
@@ -1678,13 +1702,23 @@ export default function AdminDashboard() {
     },
   });
 
-  const createTechnicianMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest("/api/technicians", "POST", data);
+  const broadcastNotificationMutation = useMutation({
+    mutationFn: async (payload: { title?: string; message: string; emoji?: string }) => {
+      return await apiRequest("/api/admin/notifications/broadcast", "POST", payload);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/technicians/pending"] });
-      toast({ title: lang === 'ar' ? "تم تسجيل الفني بنجاح" : "Technician registered successfully" });
+    onSuccess: (data: any) => {
+      const sentCount = Number(data?.sent ?? 0);
+      toast({
+        title: txt.notificationsSent,
+        description:
+          sentCount > 0
+            ? lang === "ar"
+              ? `تم الإرسال إلى ${sentCount} مستخدم`
+              : `Sent to ${sentCount} users`
+            : undefined,
+      });
+      setNotificationMessage("");
+      setNotificationTitle("");
     },
     onError: () => {
       toast({ title: txt.error, variant: "destructive" });
@@ -3578,35 +3612,66 @@ export default function AdminDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="register-tech" className="space-y-4">
-            <Card data-testid="card-register-tech">
+          <TabsContent value="notifications" className="space-y-4">
+            <Card data-testid="card-notifications">
               <CardHeader>
-                <CardTitle>{txt.registerTech}</CardTitle>
+                <CardTitle>{txt.notificationsTitle}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">{txt.notificationsSubtitle}</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input type="email" placeholder="Email" className="border p-2 rounded" id="tech-email" />
-                  <input type="text" placeholder={txt.name} className="border p-2 rounded" id="tech-name" />
-                  <input type="tel" placeholder={txt.phoneNumber} className="border p-2 rounded" id="tech-phone" />
-                  <input type="number" placeholder={txt.experience} className="border p-2 rounded" id="tech-exp" />
-                  <input type="text" placeholder={txt.nationalId} className="border p-2 rounded" id="tech-id" />
-                  <input type="text" placeholder={txt.iban} className="border p-2 rounded" id="tech-iban" />
-                  <input type="text" placeholder={txt.commercialRegister} className="border p-2 rounded" id="tech-register" />
-                  <Button onClick={() => {
-                    const [email, name, phone, exp, id, iban, register] = [
-                      (document.getElementById('tech-email') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-name') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-phone') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-exp') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-id') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-iban') as HTMLInputElement)?.value,
-                      (document.getElementById('tech-register') as HTMLInputElement)?.value,
-                    ];
-                    if (email && name && phone) {
-                      createTechnicianMutation.mutate({ email, firstName: name, phoneNumber: phone, yearsOfExperience: parseInt(exp || '0'), nationalId: id, iban, commercialRegister: register, latitude: '24.7136', longitude: '46.6753' });
-                    }
-                  }} data-testid="button-register-tech" className="md:col-span-2">
-                    {txt.registerTech}
+                  <Input
+                    value={notificationTitle}
+                    onChange={(e) => setNotificationTitle(e.target.value)}
+                    placeholder={txt.notificationsTitleLabel}
+                    className="md:col-span-2"
+                  />
+                  <Textarea
+                    value={notificationMessage}
+                    onChange={(e) => setNotificationMessage(e.target.value)}
+                    placeholder={txt.notificationsMessageLabel}
+                    className="min-h-[120px] md:col-span-2"
+                  />
+                  <div className="space-y-2 md:col-span-2">
+                    <div className="text-sm font-medium">{txt.notificationsEmojiLabel}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {["📣", "✅", "🚴‍♂️", "🛠️", "🎉", "⚠️"].map((emoji) => (
+                        <Button
+                          key={emoji}
+                          type="button"
+                          size="sm"
+                          variant={notificationEmoji === emoji ? "default" : "outline"}
+                          onClick={() => setNotificationEmoji(emoji)}
+                        >
+                          {emoji}
+                        </Button>
+                      ))}
+                      <Input
+                        value={notificationEmoji}
+                        onChange={(e) => setNotificationEmoji(e.target.value)}
+                        className="w-20 text-center"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      if (!notificationMessage.trim()) {
+                        toast({
+                          title: txt.error,
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      broadcastNotificationMutation.mutate({
+                        title: notificationTitle.trim() || undefined,
+                        message: notificationMessage.trim(),
+                        emoji: notificationEmoji.trim() || undefined,
+                      });
+                    }}
+                    disabled={broadcastNotificationMutation.isPending}
+                    className="md:col-span-2"
+                  >
+                    {broadcastNotificationMutation.isPending ? txt.loading : txt.notificationsSend}
                   </Button>
                 </div>
               </CardContent>

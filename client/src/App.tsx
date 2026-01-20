@@ -27,6 +27,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import OrdersPage from "@/pages/OrdersPage";
 import SupportPage from "@/pages/Support";
+import NotificationsPage from "@/pages/NotificationsPage";
 import {
   FirebaseAuthProvider,
   useFirebaseAuth,
@@ -257,6 +258,14 @@ function Router() {
                 <AppLayout>
                   <OrdersPage />
                 </AppLayout>
+              </Route>
+
+              <Route path="/notifications">
+                <RequireAuth redirectTo="/notifications">
+                  <AppLayout>
+                    <NotificationsPage />
+                  </AppLayout>
+                </RequireAuth>
               </Route>
 
               <Route path="/support">
