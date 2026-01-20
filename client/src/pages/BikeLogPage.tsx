@@ -110,7 +110,7 @@ export default function BikeLogPage() {
 
   return (
     <div className="container mx-auto px-4 pb-10 max-w-4xl">
-      <Card className="bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
+      <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
         <CardHeader className="space-y-3 text-center">
           <div className="space-y-1">
             <CardTitle className="text-2xl">
@@ -141,10 +141,10 @@ export default function BikeLogPage() {
               {lang === "ar" ? "تحديث البيانات" : "Refresh data"}
             </Button>
           </div>
-          {data && (
+              {data && (
             <>
               <div className="grid gap-4 md:grid-cols-4">
-                <Card className="border border-border/60">
+                <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
                       {lang === "ar" ? "إجمالي المسافة" : "Total distance"}
@@ -152,7 +152,7 @@ export default function BikeLogPage() {
                     <p className="text-2xl font-semibold">{data.totalDistanceKm} كم</p>
                   </CardContent>
                 </Card>
-                <Card className="border border-border/60">
+                <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
                       {lang === "ar" ? "عدد الرحلات" : "Ride count"}
@@ -160,7 +160,7 @@ export default function BikeLogPage() {
                     <p className="text-2xl font-semibold">{data.rideCount}</p>
                   </CardContent>
                 </Card>
-                <Card className="border border-border/60">
+                <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4">
                     <p className="text-xs text-muted-foreground">
                       {lang === "ar" ? "المسافة منذ آخر صيانة" : "Since last service"}
@@ -168,7 +168,7 @@ export default function BikeLogPage() {
                     <p className="text-2xl font-semibold">{data.distanceSinceLastServiceKm} كم</p>
                   </CardContent>
                 </Card>
-                <Card className="border border-border/60">
+                <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                   <CardContent className="p-4 space-y-2">
                     <p className="text-xs text-muted-foreground">
                       {lang === "ar" ? "حالة الصيانة" : "Maintenance status"}
@@ -191,7 +191,7 @@ export default function BikeLogPage() {
                 </div>
               )}
 
-              <Card className="border border-border/60">
+              <Card className="bg-black/50 backdrop-blur-md border border-white/10 text-white">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{lang === "ar" ? "آخر رحلة" : "Last ride"}</span>

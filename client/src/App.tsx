@@ -41,6 +41,7 @@ import { CartProvider } from "@/contexts/CartContext";
 import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
+import { initializePushNotificationsOnce } from "@/lib/nativePermissions";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -357,6 +358,10 @@ function App() {
       }, 2500);
       return () => clearTimeout(timer);
     }
+  }, []);
+
+  useEffect(() => {
+    void initializePushNotificationsOnce();
   }, []);
 
   return (
