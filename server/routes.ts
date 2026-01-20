@@ -5189,7 +5189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         latitude: requestData.latitude,
         longitude: requestData.longitude,
         notes: requestData.notes,
-        bike_id: resolvedBikeId ?? (requestData as any).bikeId || null,
+        bike_id: resolvedBikeId ?? ((requestData as any).bikeId || null),
       };
 
       const createdAtIso = new Date().toISOString();
