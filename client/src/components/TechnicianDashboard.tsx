@@ -396,7 +396,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
 export default function TechnicianDashboard() {
   const { lang } = useLanguage();
   const { toast } = useToast();
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
   // Keep the active tab stable after mutations; previously defaultValue reset the view on rerender.
   const [activeTab, setActiveTab] = useState<'new' | 'progress' | 'done'>('new');
   const [optimisticStatuses, setOptimisticStatuses] = useState<Record<string, string>>({});
@@ -474,7 +474,7 @@ export default function TechnicianDashboard() {
   const status = (technician as any)?.status;
   const approvalStatus = status === "online" || status === "offline" ? "approved" : status;
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
-  const currentOnline = (technician as any)?.is_available ?? (technician as any)?.isAvailable ?? false;
+  const currentOnline = (technician as any)?.is_available ?? false;
   const isApprovedStatus = approvalStatus === "approved";
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<TechnicianOrder[]>({
@@ -510,10 +510,13 @@ export default function TechnicianDashboard() {
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
-      return apiRequest('/api/technicians/me/availability', 'PATCH', { is_available: next });
+      return apiRequest('/api/technicians/me/availability', 'PATCH', {
+        isAvailable: next,
+        is_available: next,
+      });
     },
     onSuccess: (updated: any) => {
-      const online = updated?.is_available ?? updated?.isAvailable ?? false;
+      const online = updated?.is_available ?? false;
       setIsOnline(Boolean(online));
       queryClient.invalidateQueries({ queryKey: ['/api/technicians/me'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/technicians'] });
@@ -614,8 +617,6 @@ export default function TechnicianDashboard() {
       }
       if (denied && !availabilityMutation.isPending) {
         stopLocationTracking();
-        setIsOnline(false);
-        availabilityMutation.mutate(false);
       }
     }
   };
@@ -838,15 +839,7 @@ export default function TechnicianDashboard() {
                 disabled={availabilityMutation.isPending}
                 onClick={() => {
                   if (isOnline) return;
-                  availabilityMutation.mutate(true, {
-                    onSuccess: (data: any) => {
-                      const online = String(data?.status || "").toLowerCase() === "online";
-                      setIsOnline(online);
-                      if (online) {
-                        sendLocationUpdate();
-                      }
-                    },
-                  });
+                  availabilityMutation.mutate(true);
                 }}
                 data-testid="button-online"
                 className="rounded-full px-4"
@@ -860,12 +853,7 @@ export default function TechnicianDashboard() {
                 disabled={availabilityMutation.isPending}
                 onClick={() => {
                   if (!isOnline) return;
-                  availabilityMutation.mutate(false, {
-                    onSuccess: (data: any) => {
-                      const online = String(data?.status || "").toLowerCase() === "online";
-                      setIsOnline(online);
-                    },
-                  });
+                  availabilityMutation.mutate(false);
                 }}
                 data-testid="button-offline"
                 className="rounded-full px-4"
