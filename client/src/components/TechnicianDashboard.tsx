@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench } from "lucide-react";
+import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -132,6 +132,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
       ? Number((payoutBase * technicianShareRate).toFixed(2))
       : null;
   const payoutLabel = formatCurrency(computedNet);
+  const payoutDisplay = payoutLabel || (lang === "ar" ? "يتم احتسابها" : "Pending");
   const providedDistance = toNumber((props as any)?.distanceKm ?? (props as any)?.technicianDistanceKm ?? (props as any)?.distance_km);
   const providedEta = toNumber((props as any)?.etaMinutes ?? (props as any)?.eta_minutes ?? (props as any)?.technicianEtaMinutes);
   const numericLat = toNumber(latitude);
@@ -215,18 +216,29 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
             <Badge variant={status === 'pending' ? 'default' : status === 'accepted' ? 'secondary' : 'outline'}>
               {getStatusLabel()}
             </Badge>
-            {payoutLabel && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-right shadow-sm">
-                <div className="text-[11px] font-semibold text-emerald-700">
-                  {lang === 'ar' ? 'مستحقاتك' : 'Your payout'}
-                </div>
-                <div className="text-lg font-bold text-emerald-700">{payoutLabel}</div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right shadow-sm">
+              <div className="text-[11px] font-semibold text-amber-800">
+                {lang === 'ar' ? 'مستحقاتك عند القبول' : 'Your payout on accept'}
               </div>
-            )}
+              <div className="text-2xl font-extrabold text-amber-900">{payoutDisplay}</div>
+              <div className="text-[11px] text-amber-700">
+                {lang === 'ar' ? 'قيمة واضحة تحفّزك على القبول' : 'A clear, motivating amount'}
+              </div>
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {isNewStatus && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <AlertTriangle className="h-4 w-4 mt-0.5" />
+            <span>
+              {lang === 'ar'
+                ? 'تنبيه: الرفض المتكرر يقلّل من فرص وصول الطلبات لك.'
+                : 'Warning: Frequent rejections may reduce incoming requests.'}
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-sm">
           <MapPin className="w-4 h-4 text-muted-foreground" />
           <span>{location || (lang === 'ar' ? 'الرياض' : 'Riyadh')}</span>

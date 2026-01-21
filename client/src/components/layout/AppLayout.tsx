@@ -1,6 +1,6 @@
 import AppHeader from "./AppHeader";
 import { Capacitor } from "@capacitor/core";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useNativeAuth } from "@/contexts/NativeAuthContext";
 import { queryClient } from "@/lib/queryClient";
@@ -19,11 +19,83 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
   const isNative = Capacitor.isNativePlatform();
   const nativeAuth = useNativeAuth();
   const [location] = useLocation();
+  const [pullOffset, setPullOffset] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pullStartRef = useRef<number | null>(null);
+  const isPullingRef = useRef(false);
+  const pullOffsetRef = useRef(0);
+  const refreshThreshold = 70;
+
+  const refreshData = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setPullOffset(60);
+    pullOffsetRef.current = 60;
+    try {
+      await queryClient.invalidateQueries();
+      await queryClient.refetchQueries({ type: "active" });
+    } finally {
+      setIsRefreshing(false);
+      setPullOffset(0);
+      pullOffsetRef.current = 0;
+    }
+  };
 
   useEffect(() => {
     if (location.startsWith("/admin")) return;
     loadMockOrders();
   }, [location]);
+
+  useEffect(() => {
+    if (!isNative) return;
+
+    const getScrollTop = () =>
+      window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (isRefreshing || getScrollTop() > 0) return;
+      pullStartRef.current = event.touches[0]?.clientY ?? null;
+      isPullingRef.current = true;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!isPullingRef.current || pullStartRef.current === null || isRefreshing) return;
+      if (getScrollTop() > 0) return;
+      const currentY = event.touches[0]?.clientY ?? pullStartRef.current;
+      const delta = Math.max(0, currentY - pullStartRef.current);
+      const nextOffset = Math.min(delta, 120);
+      pullOffsetRef.current = nextOffset;
+      setPullOffset(nextOffset);
+    };
+
+    const handleTouchEnd = () => {
+      if (!isPullingRef.current || isRefreshing) {
+        setPullOffset(0);
+        pullOffsetRef.current = 0;
+        pullStartRef.current = null;
+        isPullingRef.current = false;
+        return;
+      }
+      if (pullOffsetRef.current >= refreshThreshold) {
+        void refreshData();
+      } else {
+        setPullOffset(0);
+        pullOffsetRef.current = 0;
+      }
+      pullStartRef.current = null;
+      isPullingRef.current = false;
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd);
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isNative, isRefreshing]);
 
   const handleLogout = async () => {
     console.log('[Logout] ===== LOGOUT STARTED =====');
@@ -93,6 +165,20 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
           paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
         }}
       >
+        {isNative && (
+          <div
+            className="pointer-events-none absolute left-0 right-0 top-0 flex justify-center"
+            style={{
+              transform: `translateY(${Math.min(pullOffset, 80)}px)`,
+              opacity: Math.min(pullOffset / 60, 1),
+              transition: isRefreshing ? "opacity 120ms ease" : "transform 120ms ease",
+            }}
+          >
+            <div className="rounded-full border border-border/40 bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
+              {isRefreshing ? "Refreshing..." : "Pull to refresh"}
+            </div>
+          </div>
+        )}
         {children}
       </main>
     </SafeAreaLayout>

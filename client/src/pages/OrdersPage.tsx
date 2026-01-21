@@ -15,6 +15,7 @@ import {
   CreditCard,
   FileText,
   Package,
+  Star,
 } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -100,6 +101,10 @@ export default function OrdersPage() {
     enabled: !!user,
   });
   const reviews = Array.isArray(reviewsData) ? reviewsData : [];
+  const reviewedOrderIds = useMemo(
+    () => new Set(reviews.map((review) => review.order_id ?? review.orderId).filter(Boolean)),
+    [reviews],
+  );
   const [reviewTarget, setReviewTarget] = useState<ServiceRequest | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -638,6 +643,7 @@ export default function OrdersPage() {
               ? "غير محدد"
               : "Not available";
             const isRejected = order.status === "rejected_by_technician";
+            const canReview = order.status === "completed" && !reviewedOrderIds.has(order.id);
             return (
               <Card
                 key={order.id}
@@ -825,6 +831,18 @@ export default function OrdersPage() {
                           </div>
                         </div>
                       </div>
+
+                      {canReview && (
+                        <Button
+                          variant="default"
+                          className="w-full gap-2"
+                          onClick={() => setReviewTarget(order as unknown as ServiceRequest)}
+                          data-testid={`button-rate-${order.id}`}
+                        >
+                          <Star className="w-4 h-4" />
+                          {lang === "ar" ? "قيّم الفني" : "Rate the technician"}
+                        </Button>
+                      )}
 
                       <Button
                         variant="outline"
