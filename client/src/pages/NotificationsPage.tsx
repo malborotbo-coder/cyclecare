@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { parseTimestamp } from "@/lib/date";
 
 type NotificationItem = {
   id: string;
@@ -30,8 +31,8 @@ const typeEmojiFallback: Record<string, string> = {
 
 const formatTimeAgo = (value?: string | null, lang?: string) => {
   if (!value) return lang === "ar" ? "الآن" : "Just now";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseTimestamp(value);
+  if (!date) return value;
   const diffMs = Date.now() - date.getTime();
   const minutes = Math.floor(diffMs / 60000);
   const hours = Math.floor(minutes / 60);
@@ -88,7 +89,8 @@ export default function NotificationsPage() {
       markOneMutation.mutate(notification.id);
     }
     if (notification.entityType === "service_request") {
-      setLocation("/orders");
+      const target = notification.type === "service_request" ? "/technician" : "/orders";
+      setLocation(target);
     }
   };
 

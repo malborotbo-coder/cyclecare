@@ -23,6 +23,7 @@ import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
 import type { Order, ServiceRequest } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { parseTimestamp } from "@/lib/date";
 
 type ServiceOrderItem = {
   name: string;
@@ -383,8 +384,10 @@ export default function OrdersPage() {
     void generateInvoicePDF(invoice, pdfUser, lang as "ar" | "en", meta);
   };
 
-  const formatDate = (value: string) =>
-    new Date(value).toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
+  const formatDate = (value: string) => {
+    const date = parseTimestamp(value);
+    return date ? date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US") : value;
+  };
 
   const resolveItemName = (item: any) => {
     if (item?.feeType === "delivery") {

@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { OrderTrackingStep } from "@/lib/mockOrders";
+import { parseTimestamp } from "@/lib/date";
 
 const statusClasses: Record<OrderTrackingStep["status"], { dot: string; line: string; text: string }> = {
   done: {
@@ -20,14 +21,12 @@ const statusClasses: Record<OrderTrackingStep["status"], { dot: string; line: st
 };
 
 const formatTime = (timestamp: string) => {
-  try {
-    return new Date(timestamp).toLocaleTimeString("ar-SA", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
+  const date = parseTimestamp(timestamp);
+  if (!date) return "";
+  return date.toLocaleTimeString("ar-SA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 };
 
 export default function OrderTrackingTimeline({

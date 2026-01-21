@@ -13,6 +13,7 @@ import type { Bike, ServiceRequest, Technician } from "@shared/schema";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
+import { parseTimestamp } from "@/lib/date";
 
 type TechnicianOrder = ServiceRequest & {
   invoiceNumber?: string | null;
@@ -107,11 +108,28 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
   const netAmountValue = toNumber(technicianNetAmount);
   const invoiceTotalValue = toNumber(invoiceTotal);
   const commissionValue = toNumber(commissionRate) ?? 25;
+  const invoiceData = (props as any)?.invoice ?? null;
+  const invoiceSubtotalValue = toNumber(
+    invoiceData?.subtotal ?? (props as any)?.invoiceSubtotal ?? (props as any)?.invoice_subtotal,
+  );
+  const invoiceTaxValue = toNumber(
+    invoiceData?.taxAmount ??
+      invoiceData?.tax_amount ??
+      (props as any)?.invoiceTaxAmount ??
+      (props as any)?.taxAmount ??
+      (props as any)?.tax_amount,
+  );
+  const estimatedCostValue = toNumber((props as any)?.estimatedCost ?? (props as any)?.estimated_cost);
+  const payoutBase =
+    invoiceSubtotalValue ??
+    (invoiceTotalValue !== null && invoiceTaxValue !== null ? invoiceTotalValue - invoiceTaxValue : null) ??
+    estimatedCostValue;
+  const technicianShareRate = 1 - commissionValue / 100;
   const computedNet =
     netAmountValue !== null
       ? netAmountValue
-      : invoiceTotalValue !== null
-      ? Number((invoiceTotalValue - (invoiceTotalValue * commissionValue) / 100).toFixed(2))
+      : payoutBase !== null
+      ? Number((payoutBase * technicianShareRate).toFixed(2))
       : null;
   const payoutLabel = formatCurrency(computedNet);
   const providedDistance = toNumber((props as any)?.distanceKm ?? (props as any)?.technicianDistanceKm ?? (props as any)?.distance_km);
@@ -146,10 +164,11 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`
       : null;
 
-  const formatTime = (date: Date | null) => {
+  const formatTime = (value?: string | Date | null) => {
+    const date = parseTimestamp(value ?? null);
     if (!date) return lang === 'ar' ? 'غير محدد' : 'Not specified';
     const now = new Date();
-    const diff = now.getTime() - new Date(date).getTime();
+    const diff = now.getTime() - date.getTime();
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);

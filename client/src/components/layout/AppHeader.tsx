@@ -5,9 +5,18 @@ import SideMenu from "./SideMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
-import { ShoppingCart } from "lucide-react";
+import { Bell, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/contexts/CartContext";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+
+type NotificationItem = {
+  id: string;
+  readAt?: string | null;
+};
 
 interface AppHeaderProps {
   onLogout?: () => void;
@@ -19,6 +28,20 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const [, setLocation] = useLocation();
   const isNative = Capacitor.isNativePlatform();
   const { itemCount } = useCart();
+  const { user, isGuest } = useFirebaseAuth();
+
+  const { data: notifications } = useQuery<NotificationItem[]>({
+    queryKey: ["/api/notifications"],
+    queryFn: () => apiRequest("/api/notifications", "GET"),
+    enabled: Boolean(user) && !isGuest,
+    refetchOnWindowFocus: true,
+  });
+
+  const unreadCount = useMemo(
+    () => (Array.isArray(notifications) ? notifications.filter((n) => !n.readAt).length : 0),
+    [notifications],
+  );
+  const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   const handleLogoClick = () => {
     setLocation("/");
@@ -44,6 +67,23 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
         </div>
         
         <div className="flex items-center gap-2">
+          {user && !isGuest && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLocation("/notifications")}
+              className="relative"
+              data-testid="button-notifications"
+              aria-label={lang === "ar" ? "الإشعارات" : "Notifications"}
+            >
+              <Bell className={`h-5 w-5 ${unreadCount > 0 ? "text-amber-300" : ""}`} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-black text-[11px] font-bold flex items-center justify-center">
+                  {unreadLabel}
+                </span>
+              )}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"

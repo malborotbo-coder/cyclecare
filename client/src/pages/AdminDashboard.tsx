@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { parseTimestamp } from "@/lib/date";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { useToast } from "@/hooks/use-toast";
@@ -1536,17 +1537,46 @@ export default function AdminDashboard() {
     return `${text.slice(0, 80)}...`;
   };
 
+  const toNumber = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const resolvePayoutBreakdown = (payload: any) => {
+    const invoice = payload?.invoice ?? {};
+    const subtotal = toNumber(invoice?.subtotal ?? payload?.subtotal ?? payload?.estimatedCost ?? payload?.estimated_cost);
+    const taxAmount = toNumber(
+      invoice?.taxAmount ?? invoice?.tax_amount ?? payload?.taxAmount ?? payload?.tax_amount,
+    );
+    const total = toNumber(
+      payload?.invoiceTotal ?? invoice?.total ?? payload?.total ?? payload?.estimatedCost ?? payload?.estimated_cost,
+    );
+    const base =
+      subtotal ??
+      (total !== null && taxAmount !== null ? total - taxAmount : null) ??
+      toNumber(payload?.estimatedCost ?? payload?.estimated_cost);
+    if (base === null) {
+      return { base: null, techShare: null, appShare: null, taxAmount };
+    }
+    const safeBase = Math.max(0, base);
+    const commissionRate = toNumber(payload?.commissionRate) ?? 25;
+    const techShare = Number((safeBase * (1 - commissionRate / 100)).toFixed(2));
+    const appShare = Number((safeBase - techShare + (taxAmount ?? 0)).toFixed(2));
+    return { base: safeBase, techShare, appShare, taxAmount };
+  };
+
   const formatSupportDate = (value?: string | null) => {
     if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
+    const date = parseTimestamp(value);
+    if (!date) return value;
     return date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
   const formatOrderDate = (value?: string | Date | null) => {
     if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
+    const date = parseTimestamp(value);
+    if (!date) return String(value);
     return date.toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US");
   };
 
@@ -2849,6 +2879,7 @@ export default function AdminDashboard() {
                             const total = Number(
                               request.total ?? request.estimatedCost ?? invoiceTotalRaw ?? 0,
                             );
+                            const payout = resolvePayoutBreakdown(request);
                             return (
                               <TableRow key={request.id} data-testid={`request-item-${request.id}`}>
                                 <TableCell className="font-medium">{orderNumber}</TableCell>
@@ -2888,6 +2919,18 @@ export default function AdminDashboard() {
                                         ? formatCurrency(Number(invoiceTotalRaw))
                                         : "-"}
                                     </div>
+                                    {payout.techShare !== null && payout.appShare !== null && (
+                                      <div className="text-muted-foreground">
+                                        {lang === "ar" ? "حصة الفني" : "Tech share"}:{" "}
+                                        {formatCurrency(payout.techShare)}
+                                      </div>
+                                    )}
+                                    {payout.appShare !== null && (
+                                      <div className="text-muted-foreground">
+                                        {lang === "ar" ? "حصة التطبيق" : "App share"}:{" "}
+                                        {formatCurrency(payout.appShare)}
+                                      </div>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell>
