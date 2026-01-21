@@ -59,16 +59,15 @@ const addMinutes = (date: Date, minutes: number) =>
 const formatNumber = (value: number, fallback = 0) =>
   Number.isFinite(value) ? value : fallback;
 
-const generateInvoiceNumber = () =>
-  `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-const generateOrderNumber = () => {
+const generateShortReference = (prefix: string) => {
   const now = new Date();
-  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const timePart = now.toISOString().slice(11, 19).replace(/:/g, "");
-  const randPart = Math.floor(1000 + Math.random() * 9000);
-  return `ORD-${datePart}-${timePart}-${randPart}`;
+  const datePart = now.toISOString().slice(2, 10).replace(/-/g, "");
+  const randPart = Math.floor(10000 + Math.random() * 90000);
+  return `${prefix}-${datePart}-${randPart}`;
 };
+
+const generateInvoiceNumber = () => generateShortReference("INV");
+const generateOrderNumber = () => generateShortReference("ORD");
 
 const buildTrackingSteps = (createdAt: Date, etaMinutes: number): OrderTrackingStep[] => {
   const paidAt = createdAt;

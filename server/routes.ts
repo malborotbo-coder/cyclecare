@@ -355,8 +355,8 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
     },
     {
       id: "arrived",
-      title: "تم الوصول",
-      description: "الفني وصل إلى موقعك ويبدأ الخدمة.",
+      title: "جاري تنفيذ الصيانة",
+      description: "الفني بدأ تنفيذ الخدمة.",
     },
     {
       id: "completed",
@@ -365,10 +365,31 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
     },
   ];
 
+  if (status === "rejected_by_technician") {
+    const steps = templates.map((step, index) => ({
+      ...step,
+      status: index === 0 ? "done" : "pending",
+      timestamp: addMinutes(baseTime, index * 6).toISOString(),
+    }));
+    const rejectedStep = {
+      id: "rejected",
+      title: "تم رفض الطلب",
+      description: "الفني رفض الطلب ويمكنك البحث عن فني آخر.",
+      status: "current",
+      timestamp: addMinutes(baseTime, templates.length * 6).toISOString(),
+    };
+    return [...steps, rejectedStep];
+  }
+
   const stageMap: Record<string, number> = {
     pending: 0,
+    created: 0,
+    assigned: 1,
     accepted: 1,
-    in_progress: 2,
+    on_the_way: 2,
+    arrived: 3,
+    working: 3,
+    in_progress: 3,
     completed: 4,
     cancelled: 0,
   };
@@ -391,12 +412,27 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
   });
 };
 
+const mergeTrackingSteps = (baseSteps: TrackingStep[], existing: TrackingStep[]) => {
+  const byId = new Map(existing.map((step) => [step.id, step]));
+  return baseSteps.map((step) => {
+    const stored = byId.get(step.id);
+    if (!stored) return step;
+    return {
+      ...step,
+      title: stored.title || step.title,
+      description: stored.description || step.description,
+      timestamp: stored.timestamp || step.timestamp,
+    };
+  });
+};
+
 const normalizeTrackingSteps = (input: any, status?: string, createdAt?: string): TrackingStep[] => {
+  const baseSteps = buildDefaultTrackingSteps(status, createdAt);
   const parsed = parseJsonValue(input);
-  if (Array.isArray(parsed)) {
-    return parsed as TrackingStep[];
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    return mergeTrackingSteps(baseSteps, parsed as TrackingStep[]);
   }
-  return buildDefaultTrackingSteps(status, createdAt);
+  return baseSteps;
 };
 
 const buildShopTrackingSteps = (deliveryOption?: string, createdAt?: string): TrackingStep[] => {
@@ -659,6 +695,13 @@ function buildOrderStatusNotification(status: string, lang: Language) {
       title: isArabic ? "قيد التنفيذ" : "In progress",
       message: isArabic ? "طلبك قيد التنفيذ الآن" : "Your request is in progress.",
       emoji: "🛠️",
+    },
+    rejected_by_technician: {
+      title: isArabic ? "تم رفض الطلب" : "Request rejected",
+      message: isArabic
+        ? "الفني رفض الطلب. يمكنك البحث عن فني آخر."
+        : "The technician rejected the request. You can search for another technician.",
+      emoji: "❌",
     },
     completed: {
       title: isArabic ? "اكتملت الخدمة" : "Service completed",
@@ -1170,12 +1213,21 @@ const handleProfileAvatarUpload = async (req: any, res: any) => {
   }
 };
 
-const buildOrderNumber = () => {
+const buildShortReference = (prefix: string) => {
   const now = new Date();
-  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const timePart = now.toISOString().slice(11, 19).replace(/:/g, "");
-  const randPart = Math.floor(1000 + Math.random() * 9000);
-  return `ORD-${datePart}-${timePart}-${randPart}`;
+  const datePart = now.toISOString().slice(2, 10).replace(/-/g, "");
+  const randPart = Math.floor(10000 + Math.random() * 90000);
+  return `${prefix}-${datePart}-${randPart}`;
+};
+
+const buildOrderNumber = () => buildShortReference("ORD");
+const buildInvoiceNumber = () => buildShortReference("INV");
+const buildServiceOrderNumber = (requestId?: string, createdAt?: string) => {
+  if (!requestId) return buildOrderNumber();
+  const dateSource = createdAt ? new Date(createdAt) : new Date();
+  const datePart = dateSource.toISOString().slice(2, 10).replace(/-/g, "");
+  const suffix = requestId.replace(/-/g, "").slice(0, 6).toUpperCase();
+  return `ORD-${datePart}-${suffix}`;
 };
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -3972,7 +4024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers: { Prefer: "return=representation" },
       }).catch(() => {});
 
-      const invoiceNumber = `INV-TEST-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const invoiceNumber = buildInvoiceNumber();
       const invoiceData = validateSchema(insertInvoiceSchema, {
         invoiceNumber,
         userId: orderUserId,
@@ -4299,7 +4351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         if (!invoice) {
-          const invoiceNumber = `INV-SHOP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const invoiceNumber = buildInvoiceNumber();
           const invoiceData = validateSchema(insertInvoiceSchema, {
             invoiceNumber,
             userId: userUuid,
@@ -4789,6 +4841,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
         }
       }
+      let orderByRequestId = new Map<string, any>();
+      if (requestIds.length > 0) {
+        const ids = requestIds.map((id) => encodeURIComponent(id)).join(",");
+        const { resp: orderResp, data: orderData } = await pgFetch(
+          `/orders?service_request_id=in.(${ids})`,
+        );
+        if (orderResp.ok && Array.isArray(orderData)) {
+          orderByRequestId = new Map(
+            orderData.map((order: any) => [order.service_request_id ?? order.serviceRequestId, order]),
+          );
+        }
+      }
       let bikeById = new Map<string, any>();
       if (bikeIds.length > 0) {
         const ids = bikeIds.map((id) => encodeURIComponent(id)).join(",");
@@ -4800,11 +4864,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bikeById = new Map(bikes.map((bike) => [bike.id, bike]));
         }
       }
+      const defaultCommissionRate = 25;
       const enriched = safeRequests.map((request: any) => {
         const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
+        const order = request.id ? orderByRequestId.get(request.id) : null;
         const normalized = normalizeServiceRequestRow(request);
         const bikeId = normalized.bikeId ?? request.bike_id ?? request.bikeId;
         const bike = bikeId ? bikeById.get(bikeId) : null;
+        const rawNet = order?.technician_net_amount ?? order?.technicianNetAmount ?? null;
+        const netNumeric = Number(rawNet);
+        const invoiceTotalRaw = invoice?.total;
+        const invoiceTotal = Number(invoiceTotalRaw);
+        const commissionRate = Number(order?.commission_rate ?? order?.commissionRate ?? defaultCommissionRate);
+        const hasInvoiceTotal = invoiceTotalRaw !== null && invoiceTotalRaw !== undefined && invoiceTotalRaw !== "";
+        const fallbackNet =
+          hasInvoiceTotal && Number.isFinite(invoiceTotal) && Number.isFinite(commissionRate)
+            ? Number((invoiceTotal - (invoiceTotal * commissionRate) / 100).toFixed(2))
+            : null;
         return {
           ...request,
           ...normalized,
@@ -4812,6 +4888,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invoiceNumber: invoice?.invoiceNumber ?? null,
           invoiceStatus: invoice?.status ?? null,
           invoiceTotal: invoice?.total ?? null,
+          technicianNetAmount: Number.isFinite(netNumeric) ? netNumeric : fallbackNet,
+          commissionRate: Number.isFinite(commissionRate) ? commissionRate : defaultCommissionRate,
           invoice,
         };
       });
@@ -4858,10 +4936,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (request.status === "accepted") {
           return res.json(request);
         }
+        const createdAt = request.created_at ?? request.createdAt ?? new Date().toISOString();
+        const trackingSteps = normalizeTrackingSteps(
+          request.tracking_steps ?? request.trackingSteps,
+          "accepted",
+          createdAt,
+        );
         const payload = {
           status: "accepted",
           accepted_at: new Date().toISOString(),
           technician_id: technician.id,
+          tracking_steps: trackingSteps,
         };
         const { resp: updResp, data: updData } = await pgFetch(
           `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
@@ -4935,10 +5020,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (request.status === "rejected_by_technician") {
           return res.json(request);
         }
+        const createdAt = request.created_at ?? request.createdAt ?? new Date().toISOString();
+        const trackingSteps = normalizeTrackingSteps(
+          request.tracking_steps ?? request.trackingSteps,
+          "rejected_by_technician",
+          createdAt,
+        );
         const payload = {
           status: "rejected_by_technician",
           rejected_at: new Date().toISOString(),
           technician_id: null,
+          tracking_steps: trackingSteps,
         };
         const { resp: updResp, data: updData } = await pgFetch(
           `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
@@ -4948,6 +5040,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "Failed to reject order" });
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
+        const requestUserId = request.user_id ?? request.userId;
+        const rejectedNotification = buildOrderStatusNotification("rejected_by_technician", getRequestLang(req));
+        if (requestUserId && rejectedNotification) {
+          await createNotification({
+            userId: requestUserId,
+            title: rejectedNotification.title,
+            message: rejectedNotification.message,
+            emoji: rejectedNotification.emoji,
+            type: rejectedNotification.type,
+            entityType: "service_request",
+            entityId: orderId,
+          });
+        }
         console.log("[TECH][ORDER][REJECT]", {
           technicianId: technician.id,
           orderId,
@@ -5001,7 +5106,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (request.status === nextStatus) {
           return res.json(request);
         }
-        const payload = { status: nextStatus };
+        const createdAt = request.created_at ?? request.createdAt ?? new Date().toISOString();
+        const trackingSteps = normalizeTrackingSteps(
+          request.tracking_steps ?? request.trackingSteps,
+          nextStatus,
+          createdAt,
+        );
+        const payload = {
+          status: nextStatus,
+          tracking_steps: trackingSteps,
+        };
         const { resp: updResp, data: updData } = await pgFetch(
           `/service_requests?id=eq.${encodeURIComponent(orderId)}`,
           { method: "PATCH", body: payload, headers: { Prefer: "return=representation" } },
@@ -5102,9 +5216,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        const createdAt = request.created_at ?? request.createdAt ?? new Date().toISOString();
+        const trackingSteps = normalizeTrackingSteps(
+          request.tracking_steps ?? request.trackingSteps,
+          "completed",
+          createdAt,
+        );
         const payload: Record<string, any> = {
           status: "completed",
           completed_at: new Date().toISOString(),
+          tracking_steps: trackingSteps,
         };
         if (imageUrl) {
           payload.completed_image_url = imageUrl;
@@ -5310,6 +5431,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAtIso,
       );
       const route = normalizeRoute(body.route ?? body.route_data ?? body.route_json, requestData.location);
+      const providedOrderNumber = typeof body.orderNumber === "string" ? body.orderNumber.trim() : "";
+      const orderNumber = providedOrderNumber || buildOrderNumber();
 
       const { resp, data } = await pgFetch("/service_requests", {
         method: "POST",
@@ -5335,6 +5458,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (route) {
         patchPayload.route = route;
       }
+      if (orderNumber) {
+        patchPayload.order_number = orderNumber;
+      }
 
       if (created?.id && Object.keys(patchPayload).length > 0) {
         const { resp: patchResp, data: patchData } = await pgFetch(
@@ -5348,6 +5474,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (patchResp.ok) {
           const patched = Array.isArray(patchData) ? patchData[0] : patchData;
+          const technicianIdForNotify = patched?.technician_id ?? patched?.technicianId;
+          if (technicianIdForNotify) {
+            const { resp: techResp, data: techData } = await pgFetch(
+              `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
+            );
+            if (techResp.ok) {
+              const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
+              const techUserId = tech?.user_id ?? tech?.userId;
+              if (techUserId) {
+                const isArabic = lang === "ar";
+                const serviceLabel = requestData?.serviceType || (isArabic ? "خدمة" : "service");
+                const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
+                await createNotification({
+                  userId: techUserId,
+                  title: isArabic ? "طلب جديد" : "New request",
+                  message: isArabic
+                    ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
+                    : `New ${serviceLabel} request at ${locationLabel}.`,
+                  emoji: "🆕",
+                  type: "service_request",
+                  entityType: "service_request",
+                  entityId: patched?.id ?? created?.id ?? null,
+                });
+              }
+            }
+          }
           res.status(201).json(patched || created);
           return;
         }
@@ -5358,6 +5510,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      const technicianIdForNotify = created?.technician_id ?? created?.technicianId;
+      if (technicianIdForNotify) {
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
+        );
+        if (techResp.ok) {
+          const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
+          const techUserId = tech?.user_id ?? tech?.userId;
+          if (techUserId) {
+            const isArabic = lang === "ar";
+            const serviceLabel = requestData?.serviceType || (isArabic ? "خدمة" : "service");
+            const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
+            await createNotification({
+              userId: techUserId,
+              title: isArabic ? "طلب جديد" : "New request",
+              message: isArabic
+                ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
+                : `New ${serviceLabel} request at ${locationLabel}.`,
+              emoji: "🆕",
+              type: "service_request",
+              entityType: "service_request",
+              entityId: created?.id ?? null,
+            });
+          }
+        }
+      }
       res.status(201).json(created);
     } catch (error) {
       const handled = handleRouteError(error, req, res);
@@ -5415,10 +5593,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        const nextStatus = typeof req.body?.status === "string" ? req.body.status : null;
+        const nextTechnicianId =
+          typeof req.body?.technicianId === "string"
+            ? req.body.technicianId
+            : typeof req.body?.technician_id === "string"
+            ? req.body.technician_id
+            : null;
+        const technicianChanged =
+          nextTechnicianId && nextTechnicianId !== existingRequest.technicianId;
+
         const request = await storage.updateServiceRequest(
           req.params.id,
           req.body,
         );
+
+        if (nextStatus) {
+          const createdAt = existingRequest.createdAt ?? new Date().toISOString();
+          const trackingSteps = normalizeTrackingSteps(
+            (existingRequest as any)?.trackingSteps ?? (existingRequest as any)?.tracking_steps,
+            nextStatus,
+            createdAt,
+          );
+          await pgFetch(
+            `/service_requests?id=eq.${encodeURIComponent(req.params.id)}`,
+            { method: "PATCH", body: { tracking_steps: trackingSteps } },
+          ).catch(() => {});
+        }
+
+        if (technicianChanged) {
+          const { resp: techResp, data: techData } = await pgFetch(
+            `/technicians?id=eq.${encodeURIComponent(nextTechnicianId)}&select=id,user_id`,
+          );
+          if (techResp.ok) {
+            const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
+            const techUserId = tech?.user_id ?? tech?.userId;
+            if (techUserId) {
+              const lang = getRequestLang(req);
+              const isArabic = lang === "ar";
+              const serviceLabel = existingRequest.serviceType || (isArabic ? "خدمة" : "service");
+              const locationLabel = existingRequest.location || (isArabic ? "موقع العميل" : "customer location");
+              await createNotification({
+                userId: techUserId,
+                title: isArabic ? "طلب جديد" : "New request",
+                message: isArabic
+                  ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
+                  : `New ${serviceLabel} request at ${locationLabel}.`,
+                emoji: "🆕",
+                type: "service_request",
+                entityType: "service_request",
+                entityId: req.params.id,
+              });
+            }
+          }
+        }
+
         res.json(request);
       } catch (error) {
         console.error("Error updating service request:", error);
@@ -7080,6 +7309,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
+      const technicianIds = serviceRequests
+        .map((request: any) => request.technician_id || request.technicianId)
+        .filter(Boolean);
+      const technicianById = new Map<string, any>();
+      if (technicianIds.length > 0) {
+        const techIds = technicianIds.map((id: string) => encodeURIComponent(id)).join(",");
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?id=in.(${techIds})&select=id,rating,review_count,user:users(first_name,last_name)`,
+        );
+        if (techResp.ok && Array.isArray(techData)) {
+          techData.forEach((tech: any) => {
+            const user = tech.user;
+            const nameFromUser = user
+              ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+              : null;
+            technicianById.set(tech.id, {
+              ...tech,
+              displayName: tech.name || tech.full_name || nameFromUser || null,
+            });
+          });
+        }
+      }
+
       const orders = serviceRequests.map((request: any) => {
         const requestId = request.id;
         const invoice = requestId ? invoiceByRequest.get(requestId) : undefined;
@@ -7093,20 +7345,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           request.route ?? request.route_data ?? request.routeData,
           request.location,
         );
+        const technicianId = request.technician_id || request.technicianId || null;
+        const technician = technicianId ? technicianById.get(technicianId) : null;
 
         return {
           id: requestId,
           serviceRequestId: requestId,
           invoiceId: invoice?.id ?? null,
-          orderNumber: request.order_number || request.orderNumber || requestId,
+          orderNumber:
+            request.order_number ||
+            request.orderNumber ||
+            buildServiceOrderNumber(requestId, createdAt),
           invoiceNumber: invoice?.invoice_number || invoice?.invoiceNumber || null,
-          status: invoice?.status || request.status || "pending",
+          invoiceStatus: invoice?.status ?? null,
+          status: request.status || "pending",
           serviceType: request.service_type || request.serviceType,
           location: request.location,
           latitude: request.latitude,
           longitude: request.longitude,
           notes: request.notes,
-          technicianId: request.technician_id || request.technicianId,
+          technicianId,
+          technicianName: technician?.displayName ?? null,
+          technicianRating: Number(technician?.rating ?? 0) || null,
+          technicianReviewCount: Number(technician?.review_count ?? 0) || null,
           trackingSteps,
           route,
           subtotal: Number(invoice?.subtotal ?? request.estimated_cost ?? 0),

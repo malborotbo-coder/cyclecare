@@ -18,6 +18,8 @@ type TechnicianOrder = ServiceRequest & {
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
   invoiceTotal?: number | string | null;
+  technicianNetAmount?: number | string | null;
+  commissionRate?: number | string | null;
   bike?: Bike | null;
 };
 
@@ -31,6 +33,8 @@ interface ServiceRequestCardProps extends ServiceRequest {
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
   invoiceTotal?: number | string | null;
+  technicianNetAmount?: number | string | null;
+  commissionRate?: number | string | null;
   technicianCoords?: { lat: number; lng: number } | null;
   bike?: Bike | null;
 }
@@ -85,6 +89,8 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
     invoiceNumber,
     invoiceStatus,
     invoiceTotal,
+    technicianNetAmount,
+    commissionRate,
     technicianCoords,
     bike,
   } = props;
@@ -98,6 +104,16 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
     return `${numeric.toFixed(2)} ${lang === 'ar' ? 'ر.س' : 'SAR'}`;
   };
   const invoiceTotalLabel = formatCurrency(invoiceTotal);
+  const netAmountValue = toNumber(technicianNetAmount);
+  const invoiceTotalValue = toNumber(invoiceTotal);
+  const commissionValue = toNumber(commissionRate) ?? 25;
+  const computedNet =
+    netAmountValue !== null
+      ? netAmountValue
+      : invoiceTotalValue !== null
+      ? Number((invoiceTotalValue - (invoiceTotalValue * commissionValue) / 100).toFixed(2))
+      : null;
+  const payoutLabel = formatCurrency(computedNet);
   const providedDistance = toNumber((props as any)?.distanceKm ?? (props as any)?.technicianDistanceKm ?? (props as any)?.distance_km);
   const providedEta = toNumber((props as any)?.etaMinutes ?? (props as any)?.eta_minutes ?? (props as any)?.technicianEtaMinutes);
   const numericLat = toNumber(latitude);
@@ -169,16 +185,26 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
   return (
     <Card className={`border-r-4 ${status === 'pending' ? 'border-r-primary' : status === 'accepted' || status === 'on_the_way' || status === 'working' || status === 'in_progress' ? 'border-r-blue-500' : 'border-r-green-500'}`}>
       <CardHeader>
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="text-lg">
               {lang === 'ar' ? 'العميل' : 'Customer'} #{userId?.substring(0, 8)}
             </CardTitle>
             <p className="text-sm text-muted-foreground">{serviceType}</p>
           </div>
-          <Badge variant={status === 'pending' ? 'default' : status === 'accepted' ? 'secondary' : 'outline'}>
-            {getStatusLabel()}
-          </Badge>
+          <div className="flex flex-col items-end gap-2">
+            <Badge variant={status === 'pending' ? 'default' : status === 'accepted' ? 'secondary' : 'outline'}>
+              {getStatusLabel()}
+            </Badge>
+            {payoutLabel && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-right shadow-sm">
+                <div className="text-[11px] font-semibold text-emerald-700">
+                  {lang === 'ar' ? 'مستحقاتك' : 'Your payout'}
+                </div>
+                <div className="text-lg font-bold text-emerald-700">{payoutLabel}</div>
+              </div>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -376,6 +402,8 @@ export default function TechnicianDashboard() {
   const [optimisticStatuses, setOptimisticStatuses] = useState<Record<string, string>>({});
   const isNative = Capacitor.isNativePlatform();
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingRequestIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedRequestsRef = useRef(false);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
     <div className="relative min-h-screen bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div
@@ -467,6 +495,18 @@ export default function TechnicianDashboard() {
     ...request,
     status: optimisticStatuses[request.id] ?? request.status,
   }));
+  const pendingRequests = useMemo(
+    () => effectiveRequests.filter((r) => ['pending', 'assigned', 'created'].includes(r.status || '')),
+    [effectiveRequests],
+  );
+  const inProgressRequests = useMemo(
+    () => effectiveRequests.filter((r) => ['accepted', 'on_the_way', 'working', 'in_progress'].includes(r.status || '')),
+    [effectiveRequests],
+  );
+  const completedRequests = useMemo(
+    () => effectiveRequests.filter((r) => r.status === 'completed'),
+    [effectiveRequests],
+  );
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {
@@ -496,6 +536,32 @@ export default function TechnicianDashboard() {
       setIsOnline(currentOnline);
     }
   }, [technician, availabilityMutation.isPending, currentOnline]);
+
+  useEffect(() => {
+    if (reqLoading) return;
+    const currentIds = new Set(pendingRequests.map((request) => request.id));
+    if (!hasLoadedRequestsRef.current) {
+      hasLoadedRequestsRef.current = true;
+      pendingRequestIdsRef.current = currentIds;
+      return;
+    }
+    let newCount = 0;
+    currentIds.forEach((id) => {
+      if (!pendingRequestIdsRef.current.has(id)) {
+        newCount += 1;
+      }
+    });
+    if (newCount > 0) {
+      toast({
+        title: lang === 'ar' ? 'طلب جديد' : 'New request',
+        description:
+          lang === 'ar'
+            ? `تم استلام ${newCount} طلب جديد`
+            : `${newCount} new request${newCount > 1 ? 's' : ''} received`,
+      });
+    }
+    pendingRequestIdsRef.current = currentIds;
+  }, [lang, pendingRequests, reqLoading, toast]);
 
   const sendLocationUpdate = async (silent = false) => {
     try {
@@ -747,11 +813,6 @@ export default function TechnicianDashboard() {
     );
   }
 
-  const pendingRequests = effectiveRequests.filter(r => ['pending', 'assigned', 'created'].includes(r.status || ''));
-  const inProgressRequests = effectiveRequests.filter(r =>
-    ['accepted', 'on_the_way', 'working', 'in_progress'].includes(r.status || ''),
-  );
-  const completedRequests = effectiveRequests.filter(r => r.status === 'completed');
   const isActionBusy =
     acceptMutation.isPending ||
     rejectMutation.isPending ||

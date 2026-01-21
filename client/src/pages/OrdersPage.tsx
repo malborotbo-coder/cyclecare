@@ -17,22 +17,53 @@ import {
   Package,
 } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
-import { loadMockOrders, type StoredOrder } from "@/lib/mockOrders";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import OrderTrackingTimeline from "@/components/OrderTrackingTimeline";
 import type { Order, ServiceRequest } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
-const statusConfig: Record<
-  StoredOrder["status"],
-  { label: string; className: string }
-> = {
-  paid: { label: "مدفوع", className: "bg-emerald-500/15 text-emerald-700 border-emerald-200" },
-  assigned: { label: "تم الإسناد", className: "bg-blue-500/15 text-blue-700 border-blue-200" },
-  on_the_way: { label: "الفني في الطريق", className: "bg-amber-500/15 text-amber-700 border-amber-200" },
-  arrived: { label: "تم الوصول", className: "bg-indigo-500/15 text-indigo-700 border-indigo-200" },
-  completed: { label: "مكتمل", className: "bg-slate-500/15 text-slate-700 border-slate-200" },
+type ServiceOrderItem = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+};
+
+type ServiceOrderSummary = {
+  id: string;
+  serviceRequestId?: string | null;
+  orderNumber: string;
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  status: string;
+  serviceType?: string | null;
+  technicianName?: string | null;
+  technicianRating?: number | null;
+  notes?: string | null;
+  locationText?: string | null;
+  location?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  paymentMethod?: string | null;
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  items: ServiceOrderItem[];
+  trackingSteps: any[];
+  route?: any;
+  createdAt: string;
+};
+
+type NearbyTechnician = {
+  id: string;
+  name?: string | null;
+  rating?: number | string | null;
+  reviewCount?: number | string | null;
+  distanceKm?: number | string | null;
+  etaMinutes?: number | string | null;
 };
 
 const paymentMethodLabels: Record<string, string> = {
@@ -46,9 +77,14 @@ const paymentMethodLabels: Record<string, string> = {
 const formatCurrency = (value: number) => `${Number(value).toFixed(2)} ر.س`;
 
 export default function OrdersPage() {
-  const serviceOrders = useMemo(() => loadMockOrders(), []);
+  const { toast } = useToast();
   const { user } = useFirebaseAuth();
   const { lang } = useLanguage();
+  const { data: serviceOrdersData, isLoading: serviceOrdersLoading } = useQuery<ServiceOrderSummary[]>({
+    queryKey: ["/api/orders"],
+    enabled: !!user,
+  });
+  const rawServiceOrders = Array.isArray(serviceOrdersData) ? serviceOrdersData : [];
   const { data: shopOrdersData, isLoading: shopOrdersLoading } = useQuery<Order[]>({
     queryKey: ["/api/shop/orders"],
   });
@@ -67,15 +103,113 @@ export default function OrdersPage() {
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<ServiceOrderSummary | null>(null);
+  const [nearbyTechnicians, setNearbyTechnicians] = useState<NearbyTechnician[]>([]);
+  const [loadingTechnicians, setLoadingTechnicians] = useState(false);
+  const [assigningTechnicianId, setAssigningTechnicianId] = useState<string | null>(null);
+  const [reassignError, setReassignError] = useState<string | null>(null);
+
+  const parseJsonArray = (raw: any) => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const parseJsonObject = (raw: any) => {
+    if (!raw) return null;
+    if (typeof raw === "object") return raw;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const normalizeTrackingSteps = (raw: any) => {
+    if (Array.isArray(raw)) return raw as any[];
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const normalizeServiceOrder = (order: any): ServiceOrderSummary => {
+    const invoice = order?.invoice ?? {};
+    const createdAt =
+      order?.createdAt ?? order?.created_at ?? order?.serviceRequest?.created_at ?? new Date().toISOString();
+    const orderNumber =
+      order?.orderNumber ?? order?.order_number ?? order?.serviceRequest?.order_number ?? order?.id ?? "-";
+    const invoiceNumber =
+      order?.invoiceNumber ?? order?.invoice_number ?? invoice?.invoiceNumber ?? invoice?.invoice_number ?? null;
+    const items = parseJsonArray(order?.items ?? invoice?.items ?? []);
+    const subtotal = Number(order?.subtotal ?? invoice?.subtotal ?? 0);
+    const taxRate = Number(order?.taxRate ?? invoice?.tax_rate ?? invoice?.taxRate ?? 15);
+    const taxAmount = Number(order?.taxAmount ?? invoice?.tax_amount ?? invoice?.taxAmount ?? 0);
+    const total = Number(order?.total ?? invoice?.total ?? 0);
+    const trackingSteps = normalizeTrackingSteps(
+      order?.trackingSteps ?? order?.tracking_steps ?? order?.serviceRequest?.tracking_steps,
+    );
+    const route = parseJsonObject(order?.route ?? order?.route_data ?? order?.routeData ?? order?.serviceRequest?.route);
+    const locationText = order?.locationText ?? order?.location ?? order?.serviceRequest?.location ?? null;
+    const resolvedId =
+      order?.id ?? order?.serviceRequestId ?? order?.service_request_id ?? order?.orderNumber ?? "unknown";
+    const ratingValue = Number(order?.technicianRating ?? order?.technician_rating ?? NaN);
+    return {
+      id: resolvedId,
+      serviceRequestId: order?.serviceRequestId ?? order?.service_request_id ?? order?.id ?? null,
+      orderNumber,
+      invoiceNumber,
+      invoiceStatus: order?.invoiceStatus ?? invoice?.status ?? null,
+      status: order?.status ?? order?.serviceRequest?.status ?? "pending",
+      serviceType: order?.serviceType ?? order?.service_type ?? order?.serviceRequest?.service_type ?? null,
+      technicianName: order?.technicianName ?? order?.technician ?? null,
+      technicianRating: Number.isFinite(ratingValue) ? ratingValue : null,
+      notes: order?.notes ?? null,
+      locationText,
+      location: order?.location ?? order?.serviceRequest?.location ?? null,
+      latitude: order?.latitude ?? order?.serviceRequest?.latitude ?? null,
+      longitude: order?.longitude ?? order?.serviceRequest?.longitude ?? null,
+      paymentMethod: order?.paymentMethod ?? null,
+      subtotal,
+      taxRate,
+      taxAmount,
+      total,
+      items,
+      trackingSteps,
+      route,
+      createdAt,
+    };
+  };
+
+  const normalizedServiceOrders = useMemo(
+    () => rawServiceOrders.map((order) => normalizeServiceOrder(order)),
+    [rawServiceOrders],
+  );
 
   const totals = useMemo(() => {
-    const serviceTotal = serviceOrders.reduce((sum, order) => sum + order.total, 0);
+    const serviceTotal = normalizedServiceOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
     const shopTotal = shopOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
     const activeCount =
-      serviceOrders.filter((order) => order.status !== "completed").length +
+      normalizedServiceOrders.filter((order) => order.status !== "completed").length +
       shopOrders.filter((order) => order.status !== "completed").length;
     return { totalSpent: serviceTotal + shopTotal, activeCount };
-  }, [serviceOrders, shopOrders]);
+  }, [normalizedServiceOrders, shopOrders]);
 
   useEffect(() => {
     if (!user || reviewTarget) return;
@@ -91,6 +225,30 @@ export default function OrdersPage() {
       setReviewComment("");
     }
   }, [reviews, serviceRequests, reviewTarget, user]);
+
+  useEffect(() => {
+    if (!reassignTarget) return;
+    const lat = Number(reassignTarget.latitude ?? reassignTarget.location?.split(",")?.[0]);
+    const lng = Number(reassignTarget.longitude ?? reassignTarget.location?.split(",")?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setNearbyTechnicians([]);
+      setReassignError(lang === "ar" ? "تعذر تحديد موقع الطلب." : "Order location is unavailable.");
+      return;
+    }
+    setReassignError(null);
+    setLoadingTechnicians(true);
+    apiRequest(`/api/technicians/nearby?lat=${lat}&lng=${lng}`, "GET")
+      .then((data) => {
+        setNearbyTechnicians(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setNearbyTechnicians([]);
+        setReassignError(lang === "ar" ? "تعذر تحميل الفنيين المتاحين." : "Failed to load technicians.");
+      })
+      .finally(() => {
+        setLoadingTechnicians(false);
+      });
+  }, [lang, reassignTarget]);
 
   const submitReview = async () => {
     if (!reviewTarget) return;
@@ -109,23 +267,60 @@ export default function OrdersPage() {
     }
   };
 
-  const downloadInvoice = (order: StoredOrder) => {
+  const handleOpenReassign = (order: ServiceOrderSummary) => {
+    setReassignTarget(order);
+  };
+
+  const handleReassign = async (technicianId: string) => {
+    if (!reassignTarget) return;
+    const requestId = reassignTarget.serviceRequestId || reassignTarget.id;
+    if (!requestId) return;
+    setAssigningTechnicianId(technicianId);
+    try {
+      await apiRequest(`/api/service-requests/${requestId}`, "PATCH", {
+        technicianId,
+        status: "pending",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
+      toast({
+        title: lang === "ar" ? "تم إرسال الطلب" : "Request sent",
+        description: lang === "ar" ? "سيتم إشعار الفني الجديد بالطلب." : "The technician has been notified.",
+      });
+      setReassignTarget(null);
+    } catch (error: any) {
+      toast({
+        title: lang === "ar" ? "تعذر إسناد الفني" : "Assignment failed",
+        description: error?.message || (lang === "ar" ? "يرجى المحاولة لاحقاً" : "Please try again later."),
+        variant: "destructive",
+      });
+    } finally {
+      setAssigningTechnicianId(null);
+    }
+  };
+
+  const downloadInvoice = (order: ServiceOrderSummary) => {
+    const paymentLabel = order.paymentMethod
+      ? paymentMethodLabels[order.paymentMethod] || order.paymentMethod
+      : lang === "ar"
+      ? "غير محدد"
+      : "Not available";
     const invoice = {
-      invoiceNumber: order.invoiceNumber,
+      invoiceNumber: order.invoiceNumber || "-",
       subtotal: order.subtotal,
       taxRate: order.taxRate,
       taxAmount: order.taxAmount,
       total: order.total,
       issuedDate: order.createdAt,
-      status: order.status === "paid" ? "PAID" : "ISSUED",
+      status: order.invoiceStatus === "paid" ? "PAID" : "ISSUED",
       items: order.items,
     };
 
     const meta = {
       orderId: order.orderNumber,
       serviceName: order.serviceType,
-      technicianName: order.technician,
-      paymentMethod: paymentMethodLabels[order.paymentMethod || "mock"] || order.paymentMethod,
+      technicianName: order.technicianName,
+      paymentMethod: paymentLabel,
       bookingDate: order.createdAt,
       location: order.locationText,
       routeFrom: order.route?.fromLabel,
@@ -191,19 +386,6 @@ export default function OrdersPage() {
   const formatDate = (value: string) =>
     new Date(value).toLocaleString(lang === "ar" ? "ar-SA" : "en-US");
 
-  const parseJsonArray = (raw: any) => {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === "string") {
-      try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  };
-
   const resolveItemName = (item: any) => {
     if (item?.feeType === "delivery") {
       return lang === "ar" ? "رسوم التوصيل" : "Delivery fee";
@@ -214,17 +396,62 @@ export default function OrdersPage() {
     return item?.name || "-";
   };
 
-  const normalizeTrackingSteps = (raw: any) => {
-    if (Array.isArray(raw)) return raw as any[];
-    if (typeof raw === "string") {
-      try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-    return [];
+  const resolveStatusConfig = (status: string) => {
+    const map = {
+      pending: {
+        label: lang === "ar" ? "بانتظار الفني" : "Pending",
+        className: "bg-slate-500/15 text-slate-700 border-slate-200",
+      },
+      created: {
+        label: lang === "ar" ? "بانتظار الفني" : "Pending",
+        className: "bg-slate-500/15 text-slate-700 border-slate-200",
+      },
+      assigned: {
+        label: lang === "ar" ? "تم الإسناد" : "Assigned",
+        className: "bg-blue-500/15 text-blue-700 border-blue-200",
+      },
+      accepted: {
+        label: lang === "ar" ? "تم قبول الطلب" : "Accepted",
+        className: "bg-emerald-500/15 text-emerald-700 border-emerald-200",
+      },
+      on_the_way: {
+        label: lang === "ar" ? "الفني في الطريق" : "On the way",
+        className: "bg-amber-500/15 text-amber-700 border-amber-200",
+      },
+      arrived: {
+        label: lang === "ar" ? "تم الوصول" : "Arrived",
+        className: "bg-indigo-500/15 text-indigo-700 border-indigo-200",
+      },
+      working: {
+        label: lang === "ar" ? "جاري تنفيذ الصيانة" : "Working",
+        className: "bg-indigo-500/15 text-indigo-700 border-indigo-200",
+      },
+      in_progress: {
+        label: lang === "ar" ? "قيد التنفيذ" : "In progress",
+        className: "bg-indigo-500/15 text-indigo-700 border-indigo-200",
+      },
+      completed: {
+        label: lang === "ar" ? "مكتمل" : "Completed",
+        className: "bg-slate-500/15 text-slate-700 border-slate-200",
+      },
+      rejected_by_technician: {
+        label: lang === "ar" ? "مرفوض من الفني" : "Rejected",
+        className: "bg-red-500/15 text-red-700 border-red-200",
+      },
+      cancelled: {
+        label: lang === "ar" ? "ملغي" : "Cancelled",
+        className: "bg-slate-500/15 text-slate-700 border-slate-200",
+      },
+      paid: {
+        label: lang === "ar" ? "مدفوع" : "Paid",
+        className: "bg-emerald-500/15 text-emerald-700 border-emerald-200",
+      },
+    };
+    const resolvedStatus = status || "pending";
+    return map[resolvedStatus as keyof typeof map] || {
+      label: resolvedStatus,
+      className: "bg-slate-500/15 text-slate-700 border-slate-200",
+    };
   };
 
   const shopStatusLabel = (status: string) => {
@@ -283,6 +510,75 @@ export default function OrdersPage() {
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={!!reassignTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReassignTarget(null);
+            setNearbyTechnicians([]);
+            setReassignError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{lang === "ar" ? "اختيار فني آخر" : "Choose another technician"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {reassignError && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {reassignError}
+              </div>
+            )}
+            {loadingTechnicians ? (
+              <div className="text-center text-muted-foreground">
+                {lang === "ar" ? "جارٍ تحميل الفنيين..." : "Loading technicians..."}
+              </div>
+            ) : nearbyTechnicians.length === 0 ? (
+              <div className="text-center text-muted-foreground">
+                {lang === "ar" ? "لا يوجد فنيون متاحون حالياً" : "No technicians available right now"}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {nearbyTechnicians.map((tech) => {
+                  const rating = Number(tech.rating ?? 0);
+                  const distance = Number(tech.distanceKm ?? 0);
+                  const eta = Number(tech.etaMinutes ?? 0);
+                  return (
+                    <div
+                      key={tech.id}
+                      className="flex flex-col gap-2 rounded-lg border border-border/60 bg-white/90 dark:bg-white/5 p-3 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <div className="font-semibold">{tech.name || (lang === "ar" ? "فني معتمد" : "Certified technician")}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {rating ? `${rating.toFixed(1)} ⭐` : "-"}
+                          {distance ? ` • ${distance.toFixed(1)} ${lang === "ar" ? "كم" : "km"}` : ""}
+                          {eta ? ` • ${Math.round(eta)} ${lang === "ar" ? "دقيقة" : "min"}` : ""}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReassign(tech.id)}
+                        disabled={assigningTechnicianId === tech.id}
+                      >
+                        {assigningTechnicianId === tech.id
+                          ? lang === "ar"
+                            ? "جارٍ الإسناد..."
+                            : "Assigning..."
+                          : lang === "ar"
+                          ? "اختيار"
+                          : "Select"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="container max-w-6xl mx-auto p-4 space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
@@ -300,7 +596,7 @@ export default function OrdersPage() {
         <Card className="bg-white/80 dark:bg-slate-900/70 border border-white/30">
           <CardContent className="p-4 space-y-1">
             <p className="text-sm text-muted-foreground">إجمالي الطلبات</p>
-            <p className="text-2xl font-bold">{serviceOrders.length + shopOrders.length}</p>
+            <p className="text-2xl font-bold">{normalizedServiceOrders.length + shopOrders.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-white/80 dark:bg-slate-900/70 border border-white/30">
@@ -317,16 +613,28 @@ export default function OrdersPage() {
         </Card>
       </div>
 
-      {serviceOrders.length === 0 && shopOrders.length === 0 ? (
+      {normalizedServiceOrders.length === 0 && shopOrders.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
-            لا توجد طلبات حتى الآن
+            {serviceOrdersLoading || shopOrdersLoading
+              ? lang === "ar"
+                ? "جاري تحميل الطلبات..."
+                : "Loading orders..."
+              : lang === "ar"
+              ? "لا توجد طلبات حتى الآن"
+              : "No orders yet."}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {serviceOrders.map((order) => {
-            const statusStyle = statusConfig[order.status];
+          {normalizedServiceOrders.map((order) => {
+            const statusStyle = resolveStatusConfig(order.status);
+            const paymentLabel = order.paymentMethod
+              ? paymentMethodLabels[order.paymentMethod] || order.paymentMethod
+              : lang === "ar"
+              ? "غير محدد"
+              : "Not available";
+            const isRejected = order.status === "rejected_by_technician";
             return (
               <Card
                 key={order.id}
@@ -339,7 +647,7 @@ export default function OrdersPage() {
                         طلب {order.orderNumber}
                       </CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        فاتورة رقم {order.invoiceNumber}
+                        فاتورة رقم {order.invoiceNumber || "-"}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -358,6 +666,22 @@ export default function OrdersPage() {
                 </CardHeader>
 
                 <CardContent className="space-y-5">
+                  {isRejected && (
+                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="text-sm text-destructive">
+                        {lang === "ar"
+                          ? "تم رفض الطلب من الفني. يمكنك اختيار فني آخر لإكمال الخدمة."
+                          : "The technician rejected this request. Choose another technician to continue."}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenReassign(order)}
+                      >
+                        {lang === "ar" ? "ابحث عن فني آخر" : "Find another technician"}
+                      </Button>
+                    </div>
+                  )}
                   <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2">
@@ -369,19 +693,19 @@ export default function OrdersPage() {
                           <div className="space-y-2 text-sm">
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">الخدمة</span>
-                              <span>{order.serviceType}</span>
+                              <span>{order.serviceType || (lang === "ar" ? "خدمة" : "Service")}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">الفني</span>
-                              <span>{order.technician || "غير محدد"}</span>
+                              <span>{order.technicianName || "غير محدد"}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">التقييم</span>
-                              <span>{order.technicianRating?.toFixed(1) ?? "4.8"} ⭐</span>
+                              <span>{order.technicianRating ? order.technicianRating.toFixed(1) : "-" } ⭐</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">الموقع</span>
-                              <span>{order.locationText || "الرياض"}</span>
+                              <span>{order.locationText || order.location || "الرياض"}</span>
                             </div>
                             {order.notes && (
                               <div className="flex items-center justify-between">
@@ -400,7 +724,7 @@ export default function OrdersPage() {
                           <div className="space-y-2 text-sm">
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">طريقة الدفع</span>
-                              <span>{paymentMethodLabels[order.paymentMethod || "mock"] || "دفع تجريبي"}</span>
+                              <span>{paymentLabel}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">المجموع الفرعي</span>
@@ -465,12 +789,20 @@ export default function OrdersPage() {
                             <FileText className="w-4 h-4 text-primary" />
                             <h3 className="font-semibold">تفاصيل الفاتورة</h3>
                           </div>
-                          <span className="text-xs text-muted-foreground">{order.invoiceNumber}</span>
+                          <div className="text-xs text-muted-foreground text-right">
+                            <div>{order.invoiceNumber || "-"}</div>
+                            {order.invoiceStatus && (
+                              <div>
+                                {lang === "ar" ? "الحالة: " : "Status: "}
+                                {order.invoiceStatus}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div className="space-y-2 text-sm">
                           {order.items.map((item, index) => (
                             <div key={`${order.id}-item-${index}`} className="flex items-center justify-between">
-                              <span className="text-muted-foreground">{item.name}</span>
+                              <span className="text-muted-foreground">{resolveItemName(item)}</span>
                               <span>{formatCurrency(item.total)}</span>
                             </div>
                           ))}
