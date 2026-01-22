@@ -31,7 +31,8 @@ import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT, verifyJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { randomUUID, createHmac, createSign } from "crypto";
+import { randomUUID, createHmac } from "crypto";
+import apn from "apn";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
@@ -660,13 +661,6 @@ const APNS_ENV = process.env.APNS_ENV === "sandbox" ? "sandbox" : "production";
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
 const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
 
-const base64UrlEncode = (input: string | Buffer) =>
-  Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-
 const normalizeApnsKey = () => {
   if (!APNS_AUTH_KEY) return null;
   let key = APNS_AUTH_KEY.trim();
@@ -686,27 +680,22 @@ const normalizeApnsKey = () => {
   return key;
 };
 
-let apnsJwtCache: { token: string; issuedAt: number } | null = null;
-const APNS_JWT_TTL_MS = 1000 * 60 * 50;
+let apnsProvider: apn.Provider | null = null;
 
-const getApnsJwt = () => {
+const getApnsProvider = () => {
+  if (apnsProvider) return apnsProvider;
   if (!APNS_KEY_ID || !APNS_TEAM_ID || !APNS_AUTH_KEY) return null;
-  const now = Date.now();
-  if (apnsJwtCache && now - apnsJwtCache.issuedAt < APNS_JWT_TTL_MS) {
-    return apnsJwtCache.token;
-  }
   const key = normalizeApnsKey();
   if (!key) return null;
-  const header = { alg: "ES256", kid: APNS_KEY_ID };
-  const payload = { iss: APNS_TEAM_ID, iat: Math.floor(now / 1000) };
-  const data = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}`;
-  const signer = createSign("SHA256");
-  signer.update(data);
-  signer.end();
-  const signature = signer.sign(key, "base64");
-  const jwt = `${data}.${base64UrlEncode(Buffer.from(signature, "base64"))}`;
-  apnsJwtCache = { token: jwt, issuedAt: now };
-  return jwt;
+  apnsProvider = new apn.Provider({
+    token: {
+      key,
+      keyId: APNS_KEY_ID,
+      teamId: APNS_TEAM_ID,
+    },
+    production: APNS_ENV !== "sandbox",
+  });
+  return apnsProvider;
 };
 
 const buildPushPayload = (notification: any) => {
@@ -754,29 +743,31 @@ const logDeliveryAttempt = async (payload: {
 };
 
 const sendApnsPush = async (token: string, payload: { title: string; body: string; data: any }) => {
-  const jwt = getApnsJwt();
-  if (!jwt || !APNS_BUNDLE_ID) {
+  const provider = getApnsProvider();
+  if (!provider || !APNS_BUNDLE_ID) {
     return { ok: false, status: 500, body: { message: "APNs config missing" } };
   }
-  const host = APNS_ENV === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
-  const res = await fetch(`${host}/3/device/${token}`, {
-    method: "POST",
-    headers: {
-      authorization: `bearer ${jwt}`,
-      "apns-topic": APNS_BUNDLE_ID,
-      "apns-push-type": "alert",
-      "apns-priority": "10",
-    },
-    body: JSON.stringify({
-      aps: {
-        alert: { title: payload.title, body: payload.body },
-        sound: "default",
-      },
-      data: payload.data ?? {},
-    }),
-  });
-  const text = await res.text().catch(() => "");
-  return { ok: res.ok, status: res.status, body: text || null };
+  const note = new apn.Notification();
+  note.topic = APNS_BUNDLE_ID;
+  note.pushType = "alert";
+  note.priority = 10;
+  note.alert = { title: payload.title, body: payload.body };
+  note.sound = "default";
+  note.payload = { data: payload.data ?? {} };
+
+  const response = await provider.send(note, token);
+  if (response.failed && response.failed.length > 0) {
+    const failure = response.failed[0];
+    const status = typeof failure.status === "number" ? failure.status : 500;
+    const safeFailure = {
+      device: failure.device,
+      status: failure.status ?? null,
+      response: failure.response ?? null,
+      error: failure.error ? { name: failure.error.name, message: failure.error.message } : null,
+    };
+    return { ok: false, status, body: safeFailure };
+  }
+  return { ok: true, status: 200, body: response.sent?.[0] ?? null };
 };
 
 const sendFcmPush = async (token: string, payload: { title: string; body: string; data: any }) => {
