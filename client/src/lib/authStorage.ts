@@ -142,3 +142,14 @@ export async function getBestAuthToken(): Promise<string | null> {
     localStorage.getItem(FIREBASE_TOKEN_KEY)
   );
 }
+
+export async function getAuthToken(): Promise<string | null> {
+  if (isNative) {
+    const value = await readPreference(AUTH_TOKEN_KEY);
+    if (value) {
+      localStorage.setItem(AUTH_TOKEN_KEY, value);
+      return value;
+    }
+  }
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}

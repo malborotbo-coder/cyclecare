@@ -7,10 +7,13 @@ import {
   type ActionPerformed,
   type Token,
 } from "@capacitor/push-notifications";
-import { apiRequest } from "@/lib/queryClient";
+import { buildApiUrl } from "@/lib/apiConfig";
+import { getAuthToken } from "@/lib/authStorage";
 
 const TOKEN_STORAGE_KEY = "push_device_token";
 const TOKEN_TYPE_STORAGE_KEY = "push_device_token_type";
+const PENDING_TOKEN_KEY = "push_pending_token";
+const PENDING_TOKEN_TYPE_KEY = "push_pending_token_type";
 const PERMISSION_FLAG_KEY = "push_permission_requested";
 
 const isNative = Capacitor.isNativePlatform();
@@ -24,6 +27,7 @@ let registerInFlight = false;
 let cachedToken: string | null = null;
 let lastSentToken: string | null = null;
 let lastSentUserId: string | null = null;
+let authListenerAttached = false;
 let registrationAllowed = false;
 let currentUserId: string | null = null;
 let cachedAppVersion: string | null = null;
@@ -67,6 +71,43 @@ const ensureCachedToken = async () => {
   return cachedToken;
 };
 
+const persistPendingToken = async (token: string, tokenType: string) => {
+  await writeStoredValue(PENDING_TOKEN_KEY, token);
+  await writeStoredValue(PENDING_TOKEN_TYPE_KEY, tokenType);
+};
+
+const clearPendingToken = async () => {
+  await writeStoredValue(PENDING_TOKEN_KEY, "");
+  await writeStoredValue(PENDING_TOKEN_TYPE_KEY, "");
+};
+
+const sendRegisterRequest = async (payload: {
+  token: string;
+  tokenType: string;
+  platform: string;
+  deviceId?: string | null;
+  authToken: string;
+}) => {
+  const res = await fetch(buildApiUrl("/api/push/register"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${payload.authToken}`,
+    },
+    body: JSON.stringify({
+      token: payload.token,
+      tokenType: payload.tokenType,
+      platform: payload.platform,
+      deviceId: payload.deviceId ?? null,
+    }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody?.message || `push_register_failed_${res.status}`);
+  }
+  return res.json().catch(() => ({}));
+};
+
 const registerDeviceToken = async (token: string, userId: string) => {
   if (
     !token ||
@@ -75,24 +116,30 @@ const registerDeviceToken = async (token: string, userId: string) => {
     (token === lastSentToken && userId === lastSentUserId)
   )
     return;
+  const authToken = await getAuthToken();
+  if (!authToken) {
+    console.log("[Push] Skipped: no auth token yet");
+    await persistPendingToken(token, getTokenType());
+    return;
+  }
   registerInFlight = true;
   try {
     const info = cachedAppVersion
       ? { version: cachedAppVersion }
       : await App.getInfo().catch(() => ({ version: null }));
     cachedAppVersion = info?.version || cachedAppVersion;
-    await apiRequest("/api/devices/register", "POST", {
-      userId,
+    await sendRegisterRequest({
       token,
       tokenType: getTokenType(),
       platform,
-      appVersion: cachedAppVersion,
-      environment,
+      deviceId: null,
+      authToken,
     });
     lastSentToken = token;
     lastSentUserId = userId;
     await writeStoredValue(TOKEN_STORAGE_KEY, token);
     await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
+    await clearPendingToken();
     console.log("[Push][Token] Registered on backend.");
   } catch (error) {
     console.log("[Push][Token] Registration failed:", error);
@@ -106,6 +153,12 @@ const handleToken = async (tokenValue: string) => {
   console.log("[Push][Token] Received:", tokenValue);
   await writeStoredValue(TOKEN_STORAGE_KEY, tokenValue);
   await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
+  const authToken = await getAuthToken();
+  if (!authToken) {
+    console.log("[Push] Skipped: no auth token yet");
+    await persistPendingToken(tokenValue, getTokenType());
+    return;
+  }
   if (registrationAllowed && currentUserId) {
     await registerDeviceToken(tokenValue, currentUserId);
   }
@@ -178,6 +231,14 @@ export const initializePushManagerOnce = async () => {
   if (!isNative || initialized) return;
   initialized = true;
   attachListeners();
+  if (!authListenerAttached && typeof window !== "undefined") {
+    authListenerAttached = true;
+    window.addEventListener("auth-token-updated", () => {
+      if (currentUserId) {
+        void syncPushRegistrationOnLogin(currentUserId);
+      }
+    });
+  }
   await requestPermissionAndRegister();
 };
 
@@ -195,8 +256,15 @@ export const syncPushRegistrationOnLogin = async (userId?: string | null) => {
   registrationAllowed = Boolean(userId);
   currentUserId = userId ?? null;
   if (!registrationAllowed || !currentUserId) return;
+  const authToken = await getAuthToken();
+  if (!authToken) {
+    console.log("[Push] Skipped: no auth token yet");
+    return;
+  }
+  const pendingToken = await readStoredValue(PENDING_TOKEN_KEY);
   const token = await ensureCachedToken();
-  if (token) {
-    await registerDeviceToken(token, currentUserId);
+  const effectiveToken = pendingToken || token;
+  if (effectiveToken) {
+    await registerDeviceToken(effectiveToken, currentUserId);
   }
 };
