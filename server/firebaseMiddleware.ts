@@ -41,6 +41,17 @@ const APP_JWT_AUDIENCE = "cyclecare-users";
 let auth: admin.auth.Auth | null = null;
 let initialized = false;
 
+const decodeJwtPayload = (token: string) => {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const decoded = Buffer.from(parts[1], "base64url").toString("utf8");
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+};
+
 // Initialize Firebase Admin SDK
 export async function initializeFirebaseAdmin() {
   if (initialized) return auth;
@@ -98,6 +109,11 @@ export async function setupFirebaseAuth(app: Express) {
 
   // Middleware to verify Firebase ID tokens or phone session tokens
   app.use("/api", async (req: Request, res: Response, next: NextFunction) => {
+    req.jwtUser = undefined;
+    req.firebaseUser = undefined;
+    req.authError = undefined;
+    req.userId = undefined;
+
     const authHeader = req.headers.authorization;
     const tokenMatch = authHeader?.match(/^Bearer\s+(.+)$/i);
     const token = tokenMatch?.[1]?.trim();
@@ -119,20 +135,13 @@ export async function setupFirebaseAuth(app: Express) {
       }
 
       // If token looks like our app JWT but failed verification, skip Firebase
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        try {
-          const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-          if (payload.iss === APP_JWT_ISSUER && payload.aud === APP_JWT_AUDIENCE) {
-            const now = Math.floor(Date.now() / 1000);
-            const reason = payload.exp && payload.exp < now ? "token_expired" : "invalid_token";
-            console.warn("[Auth] Skipping Firebase check for app JWT with invalid signature/expiry");
-            req.authError = { code: reason, message: "app_jwt_invalid" };
-            return next();
-          }
-        } catch (e) {
-          // ignore decode errors and continue
-        }
+      const payload = decodeJwtPayload(token);
+      if (payload?.iss === APP_JWT_ISSUER && payload?.aud === APP_JWT_AUDIENCE) {
+        const now = Math.floor(Date.now() / 1000);
+        const reason = payload.exp && payload.exp < now ? "token_expired" : "invalid_token";
+        console.warn("[Auth] Skipping Firebase check for app JWT with invalid signature/expiry");
+        req.authError = { code: reason, message: "app_jwt_invalid" };
+        return next();
       }
 
       // Check if it's a phone session token (fallback auth) - check database first

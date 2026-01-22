@@ -1803,6 +1803,17 @@ const resolvePushRegisterAuth = async (
   | { auth: AuthContext; method: "jwt" | "firebase" }
   | { auth: null; reason: string; hasToken: boolean }
 > => {
+  const decodeJwtPayload = (token: string) => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return null;
+      const decoded = Buffer.from(parts[1], "base64url").toString("utf8");
+      return JSON.parse(decoded);
+    } catch {
+      return null;
+    }
+  };
+
   const existing = getAuthContext(req);
   if (existing) {
     const method = (req as any).jwtUser ? "jwt" : req.firebaseUser ? "firebase" : "jwt";
@@ -1828,6 +1839,13 @@ const resolvePushRegisterAuth = async (
       },
       method: "jwt",
     };
+  }
+
+  const appPayload = decodeJwtPayload(token);
+  if (appPayload?.iss === "cyclecare-app" && appPayload?.aud === "cyclecare-users") {
+    const now = Math.floor(Date.now() / 1000);
+    const reason = appPayload.exp && appPayload.exp < now ? "token_expired" : "invalid_token";
+    return { auth: null, reason, hasToken: true };
   }
 
   const firebaseAuth = await initializeFirebaseAdmin();
