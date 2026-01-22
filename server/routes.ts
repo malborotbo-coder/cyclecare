@@ -31,7 +31,7 @@ import type { Role, InsertDiscountCode } from "@shared/schema";
 import { computePricing } from "./pricingEngine";
 import { signJWT, verifyJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { randomUUID, createHmac } from "crypto";
+import { randomUUID, createHmac, createSign } from "crypto";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
@@ -603,12 +603,18 @@ const normalizeServiceRequestRow = (row: any) => ({
 const normalizeNotificationRow = (row: any) => ({
   id: row.id,
   userId: row.user_id ?? row.userId ?? null,
+  role: row.role ?? null,
   title: row.title ?? "",
   message: row.message ?? "",
   emoji: row.emoji ?? null,
   type: row.type ?? null,
   entityType: row.entity_type ?? row.entityType ?? null,
   entityId: row.entity_id ?? row.entityId ?? null,
+  state: row.state ?? null,
+  activityType: row.activity_type ?? row.activityType ?? null,
+  activityId: row.activity_id ?? row.activityId ?? null,
+  activityState: row.activity_state ?? row.activityState ?? null,
+  liveActivityPayload: row.live_activity_payload ?? row.liveActivityPayload ?? null,
   readAt: row.read_at ?? row.readAt ?? null,
   createdAt: row.created_at ?? row.createdAt ?? null,
 });
@@ -620,6 +626,8 @@ const normalizePushTokenRow = (row: any) => ({
   tokenType: row.token_type ?? row.tokenType ?? null,
   platform: row.platform ?? null,
   deviceId: row.device_id ?? row.deviceId ?? null,
+  appVersion: row.app_version ?? row.appVersion ?? null,
+  environment: row.environment ?? null,
   lastSeenAt: row.last_seen_at ?? row.lastSeenAt ?? null,
   createdAt: row.created_at ?? row.createdAt ?? null,
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
@@ -644,57 +652,338 @@ const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: str
 
 const NOTIFICATION_COOLDOWN_MS = 1000 * 60 * 60 * 24 * 7;
 
+const APNS_KEY_ID = process.env.APNS_KEY_ID || "";
+const APNS_TEAM_ID = process.env.APNS_TEAM_ID || "";
+const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || APPLE_BUNDLE_IDS[0] || "";
+const APNS_AUTH_KEY = process.env.APNS_AUTH_KEY || "";
+const APNS_ENV = process.env.APNS_ENV === "sandbox" ? "sandbox" : "production";
+const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
+const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
+
+const base64UrlEncode = (input: string | Buffer) =>
+  Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+
+const normalizeApnsKey = () => {
+  if (!APNS_AUTH_KEY) return null;
+  let key = APNS_AUTH_KEY.trim();
+  if (!key.includes("BEGIN PRIVATE KEY")) {
+    try {
+      const decoded = Buffer.from(key, "base64").toString("utf8");
+      if (decoded.includes("BEGIN PRIVATE KEY")) {
+        key = decoded.trim();
+      }
+    } catch {
+      // Keep raw key if base64 decode fails.
+    }
+  }
+  if (!key.includes("BEGIN PRIVATE KEY")) {
+    key = `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
+  }
+  return key;
+};
+
+let apnsJwtCache: { token: string; issuedAt: number } | null = null;
+const APNS_JWT_TTL_MS = 1000 * 60 * 50;
+
+const getApnsJwt = () => {
+  if (!APNS_KEY_ID || !APNS_TEAM_ID || !APNS_AUTH_KEY) return null;
+  const now = Date.now();
+  if (apnsJwtCache && now - apnsJwtCache.issuedAt < APNS_JWT_TTL_MS) {
+    return apnsJwtCache.token;
+  }
+  const key = normalizeApnsKey();
+  if (!key) return null;
+  const header = { alg: "ES256", kid: APNS_KEY_ID };
+  const payload = { iss: APNS_TEAM_ID, iat: Math.floor(now / 1000) };
+  const data = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(payload))}`;
+  const signer = createSign("SHA256");
+  signer.update(data);
+  signer.end();
+  const signature = signer.sign(key, "base64");
+  const jwt = `${data}.${base64UrlEncode(Buffer.from(signature, "base64"))}`;
+  apnsJwtCache = { token: jwt, issuedAt: now };
+  return jwt;
+};
+
+const buildPushPayload = (notification: any) => {
+  const data = {
+    notificationId: notification.id ?? null,
+    type: notification.type ?? null,
+    entityId: notification.entityId ?? null,
+    activityType: notification.activityType ?? null,
+    activityId: notification.activityId ?? null,
+    activityState: notification.activityState ?? null,
+    liveActivityPayload: notification.liveActivityPayload ?? null,
+  };
+  return {
+    title: notification.title,
+    body: notification.message,
+    data,
+  };
+};
+
+const logDeliveryAttempt = async (payload: {
+  notificationId: string;
+  userId: string;
+  token: string;
+  platform: string | null;
+  status: string;
+  response: any;
+}) => {
+  try {
+    await pgFetch("/notification_deliveries", {
+      method: "POST",
+      body: [
+        {
+          notification_id: payload.notificationId,
+          user_id: payload.userId,
+          token: payload.token,
+          platform: payload.platform,
+          status: payload.status,
+          response: payload.response ?? null,
+        },
+      ],
+    });
+  } catch (error) {
+    console.warn("[NOTIFICATIONS][DELIVERY_LOG][FAILED]", error);
+  }
+};
+
+const sendApnsPush = async (token: string, payload: { title: string; body: string; data: any }) => {
+  const jwt = getApnsJwt();
+  if (!jwt || !APNS_BUNDLE_ID) {
+    return { ok: false, status: 500, body: { message: "APNs config missing" } };
+  }
+  const host = APNS_ENV === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
+  const res = await fetch(`${host}/3/device/${token}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${jwt}`,
+      "apns-topic": APNS_BUNDLE_ID,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+    },
+    body: JSON.stringify({
+      aps: {
+        alert: { title: payload.title, body: payload.body },
+        sound: "default",
+      },
+      data: payload.data ?? {},
+    }),
+  });
+  const text = await res.text().catch(() => "");
+  return { ok: res.ok, status: res.status, body: text || null };
+};
+
+const sendFcmPush = async (token: string, payload: { title: string; body: string; data: any }) => {
+  if (!FCM_SERVER_KEY) {
+    return { ok: false, status: 500, body: { message: "FCM config missing" } };
+  }
+  const res = await fetch("https://fcm.googleapis.com/fcm/send", {
+    method: "POST",
+    headers: {
+      Authorization: `key=${FCM_SERVER_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      to: token,
+      notification: { title: payload.title, body: payload.body },
+      data: payload.data ?? {},
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, body };
+};
+
+const deliverNotificationPush = async (notification: any) => {
+  if (!notification?.id || !notification?.userId) return { sent: 0, failed: 0 };
+  const { resp, data } = await pgFetch(
+    `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true`,
+  );
+  if (!resp.ok) {
+    console.warn("[NOTIFICATIONS][PUSH][TOKENS_FAILED]", { status: resp.status, body: data });
+    return { sent: 0, failed: 0 };
+  }
+  const tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
+  if (tokens.length === 0) return { sent: 0, failed: 0 };
+
+  const payload = buildPushPayload(notification);
+  let sent = 0;
+  let failed = 0;
+
+  for (const tokenRow of tokens) {
+    const token = tokenRow.token;
+    if (!token) continue;
+    const platform = tokenRow.platform ?? null;
+    const tokenType = tokenRow.tokenType ?? (platform === "ios" ? "apns" : "fcm");
+    const response =
+      tokenType === "apns"
+        ? await sendApnsPush(token, payload)
+        : await sendFcmPush(token, payload);
+    if (response.ok) {
+      sent += 1;
+      await logDeliveryAttempt({
+        notificationId: notification.id,
+        userId: notification.userId,
+        token,
+        platform,
+        status: "sent",
+        response: response.body,
+      });
+    } else {
+      failed += 1;
+      await logDeliveryAttempt({
+        notificationId: notification.id,
+        userId: notification.userId,
+        token,
+        platform,
+        status: "failed",
+        response: response.body,
+      });
+    }
+  }
+
+  return { sent, failed };
+};
+
+const registerDeviceToken = async (payload: {
+  userId: string;
+  token: string;
+  tokenType: "apns" | "fcm";
+  platform?: string | null;
+  deviceId?: string | null;
+  appVersion?: string | null;
+  environment?: string | null;
+}) => {
+  const now = new Date().toISOString();
+  const { resp, data } = await pgFetch("/push_tokens?on_conflict=user_id,token,token_type", {
+    method: "POST",
+    body: [
+      {
+        user_id: payload.userId,
+        token: payload.token,
+        token_type: payload.tokenType,
+        platform: payload.platform || null,
+        device_id: payload.deviceId || null,
+        app_version: payload.appVersion || null,
+        environment: payload.environment || null,
+        last_seen_at: now,
+        updated_at: now,
+        is_active: true,
+      },
+    ],
+    headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+  });
+  if (!resp.ok) {
+    console.warn("[PUSH][REGISTER][FAILED]", { status: resp.status, body: data });
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return row ? normalizePushTokenRow(row) : null;
+};
+
 async function createNotification(payload: {
   userId: string;
+  role?: string | null;
   title: string;
   message: string;
   emoji?: string | null;
   type?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  state?: string | null;
+  activityType?: string | null;
+  activityId?: string | null;
+  activityState?: string | null;
+  liveActivityPayload?: any;
+  sendPush?: boolean;
 }) {
   try {
     const body = {
       user_id: payload.userId,
+      role: payload.role ?? null,
       title: payload.title,
       message: payload.message,
       emoji: payload.emoji || null,
       type: payload.type || null,
       entity_type: payload.entityType || null,
       entity_id: payload.entityId || null,
+      state: payload.state ?? "created",
+      activity_type: payload.activityType ?? null,
+      activity_id: payload.activityId ?? null,
+      activity_state: payload.activityState ?? null,
+      live_activity_payload: payload.liveActivityPayload ?? null,
     };
-    await pgFetch("/notifications", {
+    const { resp, data } = await pgFetch("/notifications", {
       method: "POST",
       body: [body],
       headers: { Prefer: "return=representation" },
     });
+    if (!resp.ok) {
+      console.warn("[NOTIFICATIONS][CREATE][FAILED]", data);
+      return null;
+    }
+    const created = Array.isArray(data) ? data[0] : data?.[0] ?? data;
+    const normalized = created ? normalizeNotificationRow(created) : null;
+    if (normalized) {
+      console.log("[NOTIFICATIONS][CREATED]", {
+        id: normalized.id,
+        userId: normalized.userId,
+        type: normalized.type,
+        state: normalized.state,
+      });
+    }
+    if (normalized && payload.sendPush !== false) {
+      const delivery = await deliverNotificationPush(normalized);
+      const nextState = delivery.sent > 0 ? "sent" : "failed";
+      await pgFetch(`/notifications?id=eq.${encodeURIComponent(normalized.id)}`, {
+        method: "PATCH",
+        body: { state: nextState },
+      }).catch(() => {});
+      console.log("[NOTIFICATIONS][PUSH][RESULT]", {
+        id: normalized.id,
+        sent: delivery.sent,
+        failed: delivery.failed,
+        state: nextState,
+      });
+    }
+    return normalized;
   } catch (error) {
     console.warn("[NOTIFICATIONS][CREATE][FAILED]", error);
+    return null;
   }
 }
 
 function buildOrderStatusNotification(status: string, lang: Language) {
   const isArabic = lang === "ar";
-  const map: Record<string, { title: string; message: string; emoji: string }> = {
+  const map: Record<string, { title: string; message: string; emoji: string; activityState?: string | null }> = {
     accepted: {
       title: isArabic ? "تم قبول الطلب" : "Request accepted",
       message: isArabic ? "تم استلام طلبك من الفني" : "Your technician has accepted the request.",
       emoji: "✅",
+      activityState: "confirmed",
     },
     on_the_way: {
       title: isArabic ? "الفني في الطريق" : "Technician on the way",
       message: isArabic ? "الفني في الطريق إليك الآن" : "Your technician is on the way.",
       emoji: "🚴‍♂️",
+      activityState: "on_the_way",
     },
     working: {
       title: isArabic ? "بدء العمل" : "Work started",
       message: isArabic ? "الفني بدأ العمل على طلبك" : "The technician has started working.",
       emoji: "🛠️",
+      activityState: "started",
     },
     in_progress: {
       title: isArabic ? "قيد التنفيذ" : "In progress",
       message: isArabic ? "طلبك قيد التنفيذ الآن" : "Your request is in progress.",
       emoji: "🛠️",
+      activityState: "started",
     },
     rejected_by_technician: {
       title: isArabic ? "تم رفض الطلب" : "Request rejected",
@@ -702,16 +991,18 @@ function buildOrderStatusNotification(status: string, lang: Language) {
         ? "الفني رفض الطلب. يمكنك البحث عن فني آخر."
         : "The technician rejected the request. You can search for another technician.",
       emoji: "❌",
+      activityState: null,
     },
     completed: {
       title: isArabic ? "اكتملت الخدمة" : "Service completed",
       message: isArabic ? "تم الانتهاء من طلبك بنجاح" : "Your request has been completed.",
       emoji: "🎉",
+      activityState: "completed",
     },
   };
   const entry = map[status];
   if (!entry) return null;
-  return { ...entry, type: "order_status" };
+  return { ...entry, type: "order_update", activityType: "order_tracking", activityState: entry.activityState ?? null };
 }
 
 async function maybeCreateMaintenanceNotification(userId: string, status: string, remainingKm: number, lang: Language) {
@@ -744,6 +1035,7 @@ async function maybeCreateMaintenanceNotification(userId: string, status: string
 
     await createNotification({
       userId,
+      role: "customer",
       title,
       message,
       emoji,
@@ -4961,12 +5253,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (requestUserId && acceptNotification) {
           await createNotification({
             userId: requestUserId,
+            role: "customer",
             title: acceptNotification.title,
             message: acceptNotification.message,
             emoji: acceptNotification.emoji,
             type: acceptNotification.type,
             entityType: "service_request",
             entityId: orderId,
+            activityType: acceptNotification.activityType,
+            activityId: orderId,
+            activityState: acceptNotification.activityState,
           });
         }
         console.log("[TECH][ORDER][ACCEPT]", {
@@ -5045,12 +5341,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (requestUserId && rejectedNotification) {
           await createNotification({
             userId: requestUserId,
+            role: "customer",
             title: rejectedNotification.title,
             message: rejectedNotification.message,
             emoji: rejectedNotification.emoji,
             type: rejectedNotification.type,
             entityType: "service_request",
             entityId: orderId,
+            activityType: rejectedNotification.activityType,
+            activityId: orderId,
+            activityState: rejectedNotification.activityState,
           });
         }
         console.log("[TECH][ORDER][REJECT]", {
@@ -5129,12 +5429,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (requestUserId && statusNotification) {
           await createNotification({
             userId: requestUserId,
+            role: "customer",
             title: statusNotification.title,
             message: statusNotification.message,
             emoji: statusNotification.emoji,
             type: statusNotification.type,
             entityType: "service_request",
             entityId: orderId,
+            activityType: statusNotification.activityType,
+            activityId: orderId,
+            activityState: statusNotification.activityState,
           });
         }
         console.log("[TECH][ORDER][STATUS_CHANGE]", {
@@ -5288,12 +5592,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (requestUserId && completedNotification) {
           await createNotification({
             userId: requestUserId,
+            role: "customer",
             title: completedNotification.title,
             message: completedNotification.message,
             emoji: completedNotification.emoji,
             type: completedNotification.type,
             entityType: "service_request",
             entityId: orderId,
+            activityType: completedNotification.activityType,
+            activityId: orderId,
+            activityState: completedNotification.activityState,
           });
         }
         console.log("[TECH][ORDER][COMPLETE]", {
@@ -5488,14 +5796,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
                 await createNotification({
                   userId: techUserId,
+                  role: "technician",
                   title: isArabic ? "طلب جديد" : "New request",
                   message: isArabic
                     ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
                     : `New ${serviceLabel} request at ${locationLabel}.`,
                   emoji: "🆕",
-                  type: "service_request",
+                  type: "technician_update",
                   entityType: "service_request",
                   entityId: patched?.id ?? created?.id ?? null,
+                  activityType: "technician_route",
+                  activityId: patched?.id ?? created?.id ?? null,
+                  activityState: "assigned",
                 });
               }
             }
@@ -5524,14 +5836,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
             await createNotification({
               userId: techUserId,
+              role: "technician",
               title: isArabic ? "طلب جديد" : "New request",
               message: isArabic
                 ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
                 : `New ${serviceLabel} request at ${locationLabel}.`,
               emoji: "🆕",
-              type: "service_request",
+              type: "technician_update",
               entityType: "service_request",
               entityId: created?.id ?? null,
+              activityType: "technician_route",
+              activityId: created?.id ?? null,
+              activityState: "assigned",
             });
           }
         }
@@ -5635,14 +5951,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const locationLabel = existingRequest.location || (isArabic ? "موقع العميل" : "customer location");
               await createNotification({
                 userId: techUserId,
+                role: "technician",
                 title: isArabic ? "طلب جديد" : "New request",
                 message: isArabic
                   ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
                   : `New ${serviceLabel} request at ${locationLabel}.`,
                 emoji: "🆕",
-                type: "service_request",
+                type: "technician_update",
                 entityType: "service_request",
                 entityId: req.params.id,
+                activityType: "technician_route",
+                activityId: req.params.id,
+                activityState: "assigned",
               });
             }
           }
@@ -5718,6 +6038,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/devices/register", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const bodyUserId = typeof req.body?.userId === "string" ? req.body.userId.trim() : "";
+      if (bodyUserId && bodyUserId !== userUuid) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+      const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
+      const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+      const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+      const rawAppVersion = typeof req.body?.appVersion === "string" ? req.body.appVersion.trim() : "";
+      const rawEnv = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
+
+      if (!rawToken || !rawType) {
+        return res.status(400).json({ message: "token and tokenType are required" });
+      }
+
+      const tokenType = rawType === "fcm" || rawType === "apns" ? rawType : null;
+      if (!tokenType) {
+        return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
+      }
+
+      const row = await registerDeviceToken({
+        userId: userUuid,
+        token: rawToken,
+        tokenType,
+        platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
+        appVersion: rawAppVersion || null,
+        environment: rawEnv || null,
+      });
+
+      if (!row) {
+        return res.status(500).json({ message: "Failed to register device" });
+      }
+
+      res.json(row);
+    } catch (error) {
+      console.error("[DEVICES][REGISTER] Error:", error);
+      res.status(500).json({ message: "Failed to register device" });
+    }
+  });
+
+  app.post("/api/notifications/send", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const isInternal = INTERNAL_NOTIFICATION_KEY
+        ? req.headers["x-internal-key"] === INTERNAL_NOTIFICATION_KEY
+        : false;
+      if (!isInternal && auth?.isAdmin !== true) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const payload = req.body || {};
+      const userId = typeof payload.userId === "string" ? payload.userId : userUuid;
+      const title = typeof payload.title === "string" ? payload.title : "";
+      const message = typeof payload.body === "string" ? payload.body : payload.message || "";
+      if (!userId || !title || !message) {
+        return res.status(400).json({ message: "userId, title, and body are required" });
+      }
+
+      const created = await createNotification({
+        userId,
+        role: payload.role || null,
+        title,
+        message,
+        emoji: payload.emoji || null,
+        type: payload.type || null,
+        entityType: payload.entityType || null,
+        entityId: payload.entityId || null,
+        activityType: payload.activityType || null,
+        activityId: payload.activityId || null,
+        activityState: payload.activityState || null,
+        liveActivityPayload: payload.liveActivityPayload || null,
+        state: "created",
+      });
+
+      res.json(created || { success: false });
+    } catch (error) {
+      console.error("[NOTIFICATIONS][SEND] Error:", error);
+      res.status(500).json({ message: "Failed to send notification" });
+    }
+  });
+
   app.post("/api/push/register", isAuthenticated, async (req: any, res) => {
     try {
       const auth = getAuthContext(req);
@@ -5737,31 +6146,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
       }
 
-      const now = new Date().toISOString();
-      const { resp, data } = await pgFetch("/push_tokens?on_conflict=user_id,token,token_type", {
-        method: "POST",
-        body: [
-          {
-            user_id: userUuid,
-            token: rawToken,
-            token_type: tokenType,
-            platform: rawPlatform || null,
-            device_id: rawDeviceId || null,
-            last_seen_at: now,
-            updated_at: now,
-            is_active: true,
-          },
-        ],
-        headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+      const row = await registerDeviceToken({
+        userId: userUuid,
+        token: rawToken,
+        tokenType,
+        platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
       });
 
-      if (!resp.ok) {
-        console.warn("[PUSH][REGISTER][FAILED]", { status: resp.status, body: data });
+      if (!row) {
         return res.status(500).json({ message: "Failed to register push token" });
       }
 
-      const row = Array.isArray(data) ? data[0] : data?.[0];
-      res.json(row ? normalizePushTokenRow(row) : { success: true });
+      res.json(row);
     } catch (error) {
       console.error("[PUSH][REGISTER] Error:", error);
       res.status(500).json({ message: "Failed to register push token" });
@@ -6023,32 +6420,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn("[NOTIFICATIONS][LOG][FAILED]", error);
       });
 
-      const notifications = userIds.map((userId) => ({
-        user_id: userId,
-        title,
-        message: rawMessage,
-        emoji,
-        type,
-        entity_type: "broadcast",
-      }));
+      const resolvedRole =
+        target === "technicians" ? "technician" : target === "riders" ? "rider" : null;
+      let sent = 0;
 
-      const chunkSize = 200;
-      for (let i = 0; i < notifications.length; i += chunkSize) {
-        const chunk = notifications.slice(i, i + chunkSize);
-        const { resp: createResp, data: createData } = await pgFetch("/notifications", {
-          method: "POST",
-          body: chunk,
-          headers: { Prefer: "return=representation" },
+      for (const userId of userIds) {
+        const created = await createNotification({
+          userId,
+          role: resolvedRole,
+          title,
+          message: rawMessage,
+          emoji,
+          type: "admin",
+          entityType: "broadcast",
+          state: "created",
         });
-        if (!createResp.ok) {
-          console.warn("[NOTIFICATIONS][BROADCAST][FAILED]", {
-            status: createResp.status,
-            body: createData,
-          });
+        if (created) {
+          sent += 1;
         }
       }
 
-      res.json({ sent: notifications.length });
+      res.json({ sent });
     } catch (error) {
       console.error("[NOTIFICATIONS][BROADCAST] Error:", error);
       res.status(500).json({ message: "Failed to broadcast notifications" });
