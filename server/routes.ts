@@ -6121,6 +6121,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/push/register", async (req: any, res) => {
     try {
+      // Any authenticated user can register their device token; no admin check here.
       const resolved = await resolvePushRegisterAuth(req);
       if (!resolved || !("auth" in resolved) || !resolved.auth) {
         const reason = (resolved as any)?.reason || "unauthorized";
@@ -6130,8 +6131,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           hasToken,
           authError: (req as any)?.authError || null,
         });
-        const status = hasToken ? 403 : 401;
-        return res.status(status).json({ message: "Unauthorized", reason });
+        return res.status(401).json({ message: "Unauthorized", reason });
       }
       console.log("[PUSH][REGISTER][AUTH]", { method: resolved.method, userId: resolved.auth.userId });
       const userUuid = await ensureUserUuid(resolved.auth);
@@ -6162,7 +6162,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(500).json({ message: "Failed to register push token" });
       }
 
-      console.log("[PUSH][REGISTER][SUCCESS]", { userId: userUuid, tokenType, platform: rawPlatform || null });
+      console.log("[PUSH][REGISTER][SUCCESS]", {
+        userId: userUuid,
+        tokenType,
+        platform: rawPlatform || null,
+        bundleId: process.env.APNS_BUNDLE_ID || null,
+      });
       res.json(row);
     } catch (error) {
       console.error("[PUSH][REGISTER] Error:", error);
