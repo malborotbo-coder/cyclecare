@@ -42,6 +42,7 @@ import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
 import { initializePushNotificationsOnce } from "@/lib/nativePermissions";
+import { initializeOneSignalOnce, printOneSignalDiagnostics, requestNotificationPermissionOnce, syncOneSignalUser } from "@/lib/onesignal";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -362,12 +363,14 @@ function App() {
 
   useEffect(() => {
     void initializePushNotificationsOnce();
+    void initializeOneSignalOnce();
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <FirebaseAuthProvider>
         <NativeAuthProvider>
+          <OneSignalGate />
           <CartProvider>
             <ThemeProvider>
               <LanguageProvider>
@@ -387,6 +390,28 @@ function App() {
       </FirebaseAuthProvider>
     </QueryClientProvider>
   );
+}
+
+function OneSignalGate() {
+  const { user } = useFirebaseAuth();
+
+  useEffect(() => {
+    if (!user?.id) {
+      void syncOneSignalUser(null);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      // TestFlight requires explicit permission prompt after the UI is fully mounted.
+      await requestNotificationPermissionOnce("login");
+      await syncOneSignalUser(user.id);
+      await printOneSignalDiagnostics("login");
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [user?.id]);
+
+  return null;
 }
 
 export default App;
