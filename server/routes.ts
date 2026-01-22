@@ -31,7 +31,7 @@ import { computePricing } from "./pricingEngine";
 import { signJWT, verifyJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomUUID, createHmac } from "crypto";
-import apn from "apn";
+import { sendApns } from "./push/apns";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
@@ -652,50 +652,8 @@ const buildUserDisplayName = (user?: { firstName?: string | null; lastName?: str
 
 const NOTIFICATION_COOLDOWN_MS = 1000 * 60 * 60 * 24 * 7;
 
-const APNS_KEY_ID = process.env.APNS_KEY_ID || "";
-const APNS_TEAM_ID = process.env.APNS_TEAM_ID || "";
-const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || APPLE_BUNDLE_IDS[0] || "";
-const APNS_AUTH_KEY = process.env.APNS_AUTH_KEY || "";
-const APNS_ENV = process.env.APNS_ENV === "sandbox" ? "sandbox" : "production";
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
 const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
-
-const normalizeApnsKey = () => {
-  if (!APNS_AUTH_KEY) return null;
-  let key = APNS_AUTH_KEY.trim();
-  if (!key.includes("BEGIN PRIVATE KEY")) {
-    try {
-      const decoded = Buffer.from(key, "base64").toString("utf8");
-      if (decoded.includes("BEGIN PRIVATE KEY")) {
-        key = decoded.trim();
-      }
-    } catch {
-      // Keep raw key if base64 decode fails.
-    }
-  }
-  if (!key.includes("BEGIN PRIVATE KEY")) {
-    key = `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
-  }
-  return key;
-};
-
-let apnsProvider: apn.Provider | null = null;
-
-const getApnsProvider = () => {
-  if (apnsProvider) return apnsProvider;
-  if (!APNS_KEY_ID || !APNS_TEAM_ID || !APNS_AUTH_KEY) return null;
-  const key = normalizeApnsKey();
-  if (!key) return null;
-  apnsProvider = new apn.Provider({
-    token: {
-      key,
-      keyId: APNS_KEY_ID,
-      teamId: APNS_TEAM_ID,
-    },
-    production: APNS_ENV !== "sandbox",
-  });
-  return apnsProvider;
-};
 
 const buildPushPayload = (notification: any) => {
   const data = {
@@ -742,31 +700,17 @@ const logDeliveryAttempt = async (payload: {
 };
 
 const sendApnsPush = async (token: string, payload: { title: string; body: string; data: any }) => {
-  const provider = getApnsProvider();
-  if (!provider || !APNS_BUNDLE_ID) {
-    return { ok: false, status: 500, body: { message: "APNs config missing" } };
-  }
-  const note = new apn.Notification();
-  note.topic = APNS_BUNDLE_ID;
-  note.pushType = "alert";
-  note.priority = 10;
-  note.alert = { title: payload.title, body: payload.body };
-  note.sound = "default";
-  note.payload = { data: payload.data ?? {} };
-
-  const response = await provider.send(note, token);
-  if (response.failed && response.failed.length > 0) {
-    const failure = response.failed[0];
-    const status = typeof failure.status === "number" ? failure.status : 500;
-    const safeFailure = {
-      device: failure.device,
-      status: failure.status ?? null,
-      response: failure.response ?? null,
-      error: failure.error ? { name: failure.error.name, message: failure.error.message } : null,
-    };
-    return { ok: false, status, body: safeFailure };
-  }
-  return { ok: true, status: 200, body: response.sent?.[0] ?? null };
+  const result = await sendApns({
+    token,
+    title: payload.title,
+    body: payload.body,
+    data: payload.data ?? {},
+  });
+  return {
+    ok: result.ok,
+    status: result.status ?? (result.ok ? 200 : 500),
+    body: result.details ?? { reason: result.reason ?? null, env: result.env },
+  };
 };
 
 const sendFcmPush = async (token: string, payload: { title: string; body: string; data: any }) => {
