@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import OneSignal from "onesignal-cordova-plugin";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -77,18 +78,117 @@ const normalizePermissionStatus = (value: any) => {
   return status || "unknown";
 };
 
+const readPermissionFlag = async () => {
+  try {
+    if (typeof Preferences?.get === "function") {
+      const { value } = await Preferences.get({ key: PERMISSION_FLAG_KEY });
+      if (value === "true") return true;
+    }
+  } catch {
+    // Ignore storage failures; do not block app startup.
+  }
+  if (typeof localStorage !== "undefined") {
+    return localStorage.getItem(PERMISSION_FLAG_KEY) === "true";
+  }
+  return false;
+};
+
+const writePermissionFlag = async () => {
+  try {
+    if (typeof Preferences?.set === "function") {
+      await Preferences.set({ key: PERMISSION_FLAG_KEY, value: "true" });
+      return;
+    }
+  } catch {
+    // Ignore storage failures; do not block app startup.
+  }
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(PERMISSION_FLAG_KEY, "true");
+  }
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const readOneSignalState = async () => {
+  const os = safeGetOneSignal();
+  const user = os?.User;
+  let state: any = null;
+  if (typeof user?.getState === "function") {
+    try {
+      state = await user.getState();
+    } catch {
+      state = null;
+    }
+  }
+
+  let onesignalId = state?.onesignalId ?? user?.onesignalId ?? user?.id ?? null;
+  let subscriptionId = state?.pushSubscription?.id ?? user?.pushSubscription?.id ?? null;
+  let token = state?.pushSubscription?.token ?? user?.pushSubscription?.token ?? null;
+  let optedIn = state?.pushSubscription?.optedIn ?? user?.pushSubscription?.optedIn ?? null;
+
+  if ((!onesignalId || !subscriptionId || !token || optedIn == null) && typeof os?.getDeviceState === "function") {
+    try {
+      const deviceState = await os.getDeviceState();
+      onesignalId = onesignalId ?? deviceState?.userId ?? null;
+      subscriptionId = subscriptionId ?? deviceState?.pushSubscription?.id ?? deviceState?.userId ?? null;
+      token = token ?? deviceState?.pushToken ?? null;
+      if (optedIn == null) {
+        optedIn = deviceState?.isSubscribed ?? null;
+      }
+    } catch {
+      // Ignore device state failures; do not block app startup.
+    }
+  }
+
+  return { onesignalId, subscriptionId, token, optedIn };
+};
+
+const waitForOneSignalReady = async (options?: { timeoutMs?: number; intervalMs?: number }) => {
+  const timeoutMs = options?.timeoutMs ?? 12000;
+  const intervalMs = options?.intervalMs ?? 300;
+  const start = Date.now();
+  let lastState: Awaited<ReturnType<typeof readOneSignalState>> | null = null;
+
+  while (Date.now() - start < timeoutMs) {
+    lastState = await readOneSignalState();
+    const ready =
+      Boolean(lastState.onesignalId) &&
+      (Boolean(lastState.subscriptionId) || Boolean(lastState.token) || lastState.optedIn === true);
+    if (ready) {
+      return { ...lastState, ready: true, waitedMs: Date.now() - start };
+    }
+    await sleep(intervalMs);
+  }
+
+  return {
+    ...(lastState || { onesignalId: null, subscriptionId: null, token: null, optedIn: null }),
+    ready: false,
+    waitedMs: Date.now() - start,
+  };
+};
+
 export const requestNotificationPermissionOnce = async (trigger: "login" | "home") => {
   if (!isNative || platform !== "ios") return;
-  if (typeof localStorage === "undefined") return;
-  if (localStorage.getItem(PERMISSION_FLAG_KEY) === "true") return;
   const os = safeGetOneSignal();
   if (!os?.Notifications?.requestPermission) return;
 
   const current = normalizePermissionStatus(await readPermissionStatus());
   console.log("[Push][Permission]", { trigger, status: current });
 
+  const alreadyRequested = await readPermissionFlag();
+  if (alreadyRequested && current !== "not_determined" && current !== "unknown") {
+    return;
+  }
+
   if (current === "granted" || current === "denied") {
-    localStorage.setItem(PERMISSION_FLAG_KEY, "true");
+    await writePermissionFlag();
+    if (current === "denied") {
+      console.log("[Push][Permission] Notifications are denied. Enable them in iOS Settings.");
+    }
+    return;
+  }
+
+  if (current !== "not_determined" && current !== "unknown") {
     return;
   }
 
@@ -96,10 +196,14 @@ export const requestNotificationPermissionOnce = async (trigger: "login" | "home
     const granted = await os.Notifications.requestPermission(true);
     const resolved = normalizePermissionStatus(granted ?? (await readPermissionStatus()));
     console.log("[Push][Permission]", { trigger, status: resolved });
+    if (resolved === "granted" || resolved === "denied") {
+      await writePermissionFlag();
+      if (resolved === "denied") {
+        console.log("[Push][Permission] Notifications are denied. Enable them in iOS Settings.");
+      }
+    }
   } catch {
     // Fail silently; do not block app startup.
-  } finally {
-    localStorage.setItem(PERMISSION_FLAG_KEY, "true");
   }
 };
 
@@ -109,30 +213,23 @@ export const printOneSignalDiagnostics = async (context: string) => {
   if (!os) return;
 
   const permission = normalizePermissionStatus(await readPermissionStatus());
-  const subscription = os?.User?.pushSubscription;
-  let deviceState: any = null;
-  if (typeof os?.getDeviceState === "function") {
-    try {
-      deviceState = await os.getDeviceState();
-    } catch {
-      deviceState = null;
-    }
-  }
-
-  const subscriptionId = subscription?.id ?? deviceState?.pushSubscription?.id ?? deviceState?.userId ?? null;
-  const subscriptionToken = subscription?.token ?? deviceState?.pushToken ?? null;
-  const optedIn = subscription?.optedIn ?? deviceState?.isSubscribed ?? null;
-  const onesignalId = os?.User?.onesignalId ?? os?.User?.id ?? deviceState?.userId ?? null;
-  const apnsEnvGuess = import.meta.env.DEV ? "sandbox" : "production";
+  const { onesignalId, subscriptionId, token, optedIn } = await readOneSignalState();
+  const readyState = {
+    hasOneSignalId: Boolean(onesignalId),
+    hasPushSubscriptionId: Boolean(subscriptionId),
+    hasPushToken: Boolean(token),
+    optedIn: optedIn === true,
+  };
 
   console.log("[OneSignal][Diagnostics]", {
     context,
     permission,
     pushSubscriptionId: subscriptionId,
-    pushSubscriptionToken: subscriptionToken,
+    pushSubscriptionToken: token,
     pushSubscriptionOptedIn: optedIn,
     onesignalId,
-    apnsEnvironment: apnsEnvGuess,
+    readyState,
+    environmentNote: "TestFlight builds use production APNs.",
     platform: getPlatformLabel(),
   });
 };
@@ -181,9 +278,7 @@ export const syncOneSignalUser = async (userId: string | null | undefined) => {
   const os = safeGetOneSignal();
   if (!os) return;
 
-  if (!initialized) {
-    await initializeOneSignalOnce();
-  }
+  await initializeOneSignalOnce();
 
   if (!userId) {
     if (lastLoggedInUser && typeof os.logout === "function") {
@@ -198,6 +293,12 @@ export const syncOneSignalUser = async (userId: string | null | undefined) => {
     return;
   }
 
+  const readiness = await waitForOneSignalReady();
+  if (!readiness.ready) {
+    await printOneSignalDiagnostics("login-timeout");
+    return;
+  }
+
   if (userId !== lastLoggedInUser && typeof os.login === "function") {
     try {
       await os.login(userId);
@@ -207,7 +308,9 @@ export const syncOneSignalUser = async (userId: string | null | undefined) => {
     lastLoggedInUser = userId;
   }
 
-  const id = subscriptionId || (await resolveSubscriptionId());
+  await printOneSignalDiagnostics("after-login");
+
+  const id = subscriptionId || readiness.subscriptionId || (await resolveSubscriptionId()) || readiness.onesignalId;
   if (id) {
     await registerDevice(userId, id);
   }

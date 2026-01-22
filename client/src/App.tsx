@@ -42,7 +42,7 @@ import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
 import { initializePushNotificationsOnce } from "@/lib/nativePermissions";
-import { initializeOneSignalOnce, printOneSignalDiagnostics, requestNotificationPermissionOnce, syncOneSignalUser } from "@/lib/onesignal";
+import { initializeOneSignalOnce, requestNotificationPermissionOnce, syncOneSignalUser } from "@/lib/onesignal";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -400,15 +400,12 @@ function OneSignalGate() {
       void syncOneSignalUser(null);
       return;
     }
-
-    const timer = window.setTimeout(async () => {
-      // TestFlight requires explicit permission prompt after the UI is fully mounted.
+    // TestFlight requires explicit permission prompt after the UI is fully mounted.
+    const run = async () => {
       await requestNotificationPermissionOnce("login");
       await syncOneSignalUser(user.id);
-      await printOneSignalDiagnostics("login");
-    }, 0);
-
-    return () => window.clearTimeout(timer);
+    };
+    void run();
   }, [user?.id]);
 
   return null;
