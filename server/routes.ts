@@ -1856,7 +1856,10 @@ function getAuthContext(req: any): AuthContext | null {
 
 const resolvePushRegisterAuth = async (
   req: any,
-): Promise<{ auth: AuthContext; method: "jwt" | "firebase" } | null> => {
+): Promise<
+  | { auth: AuthContext; method: "jwt" | "firebase" }
+  | { auth: null; reason: string; hasToken: boolean }
+> => {
   const existing = getAuthContext(req);
   if (existing) {
     const method = (req as any).jwtUser ? "jwt" : req.firebaseUser ? "firebase" : "jwt";
@@ -1864,9 +1867,11 @@ const resolvePushRegisterAuth = async (
   }
 
   const authHeader = req.headers.authorization;
-  const tokenMatch = authHeader?.match(/^Bearer\\s+(.+)$/i);
+  const tokenMatch = authHeader?.match(/^Bearer\s+(.+)$/i);
   const token = tokenMatch?.[1]?.trim();
-  if (!token) return null;
+  if (!token) {
+    return { auth: null, reason: "missing_token", hasToken: false };
+  }
 
   const jwtPayload = verifyJWT(token);
   if (jwtPayload) {
@@ -1883,7 +1888,9 @@ const resolvePushRegisterAuth = async (
   }
 
   const firebaseAuth = await initializeFirebaseAdmin();
-  if (!firebaseAuth) return null;
+  if (!firebaseAuth) {
+    return { auth: null, reason: "firebase_not_configured", hasToken: true };
+  }
   try {
     const decoded = await firebaseAuth.verifyIdToken(token);
     req.firebaseUser = decoded;
@@ -1902,7 +1909,7 @@ const resolvePushRegisterAuth = async (
     });
   }
 
-  return null;
+  return { auth: null, reason: "invalid_token", hasToken: true };
 };
 
 async function ensureUserUuid(auth: AuthContext): Promise<string> {
@@ -6172,9 +6179,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/push/register", async (req: any, res) => {
     try {
       const resolved = await resolvePushRegisterAuth(req);
-      if (!resolved) {
-        console.log("[PUSH][REGISTER][AUTH] Unauthorized");
-        return res.status(401).json({ message: "Unauthorized" });
+      if (!resolved || !("auth" in resolved) || !resolved.auth) {
+        const reason = (resolved as any)?.reason || "unauthorized";
+        const hasToken = Boolean((resolved as any)?.hasToken);
+        console.log("[PUSH][REGISTER][AUTH] Unauthorized", {
+          reason,
+          hasToken,
+          authError: (req as any)?.authError || null,
+        });
+        const status = hasToken ? 403 : 401;
+        return res.status(status).json({ message: "Unauthorized", reason });
       }
       console.log("[PUSH][REGISTER][AUTH]", { method: resolved.method, userId: resolved.auth.userId });
       const userUuid = await ensureUserUuid(resolved.auth);
