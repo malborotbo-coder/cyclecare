@@ -1,4 +1,5 @@
 import express from "express";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupGoogleAuth } from "./googleAuth";
@@ -117,7 +118,7 @@ async function startServer() {
     // ===========================
     // 🔥 API ROUTES هنا
     // ===========================
-    const server = await registerRoutes(app);
+    await registerRoutes(app);
     log("API routes registered");
 
     // Error handler
@@ -126,6 +127,8 @@ async function startServer() {
     // ===========================
     // 🔥 FRONTEND STATIC آخر شيء
     // ===========================
+    const server = createServer(app);
+
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {

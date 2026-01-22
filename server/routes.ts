@@ -1,5 +1,4 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin, initializeFirebaseAdmin } from "./firebaseMiddleware";
@@ -2068,7 +2067,7 @@ async function ensureGuestUserId(guestToken?: string | null): Promise<string> {
   return created.id;
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express): Promise<void> {
   // Firebase Auth + Twilio OTP for phone authentication
   // IMPORTANT: Must be registered BEFORE Google Auth so Firebase middleware runs on all /api routes
   await setupFirebaseAuth(app);
@@ -8194,7 +8193,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Auth session endpoint is handled in googleAuth.ts
 
-  const httpServer = createServer(app);
-
-  return httpServer;
+  return;
 }
