@@ -1854,6 +1854,57 @@ function getAuthContext(req: any): AuthContext | null {
   return null;
 }
 
+const resolvePushRegisterAuth = async (
+  req: any,
+): Promise<{ auth: AuthContext; method: "jwt" | "firebase" } | null> => {
+  const existing = getAuthContext(req);
+  if (existing) {
+    const method = (req as any).jwtUser ? "jwt" : req.firebaseUser ? "firebase" : "jwt";
+    return { auth: existing, method };
+  }
+
+  const authHeader = req.headers.authorization;
+  const tokenMatch = authHeader?.match(/^Bearer\\s+(.+)$/i);
+  const token = tokenMatch?.[1]?.trim();
+  if (!token) return null;
+
+  const jwtPayload = verifyJWT(token);
+  if (jwtPayload) {
+    (req as any).jwtUser = jwtPayload;
+    return {
+      auth: {
+        userId: jwtPayload.sub,
+        isAdmin: jwtPayload.isAdmin === true,
+        email: jwtPayload.email || undefined,
+        phoneNumber: undefined,
+      },
+      method: "jwt",
+    };
+  }
+
+  const firebaseAuth = await initializeFirebaseAdmin();
+  if (!firebaseAuth) return null;
+  try {
+    const decoded = await firebaseAuth.verifyIdToken(token);
+    req.firebaseUser = decoded;
+    return {
+      auth: {
+        userId: decoded.uid,
+        isAdmin: decoded.admin === true,
+        email: decoded.email || undefined,
+        phoneNumber: (decoded as any).phone_number || undefined,
+      },
+      method: "firebase",
+    };
+  } catch (error) {
+    console.warn("[PUSH][REGISTER][AUTH] Firebase token verification failed", {
+      message: (error as any)?.message,
+    });
+  }
+
+  return null;
+};
+
 async function ensureUserUuid(auth: AuthContext): Promise<string> {
   const uuidRegex = /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{12}$/;
   const providerId = auth.userId;
@@ -6118,11 +6169,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/push/register", isAuthenticated, async (req: any, res) => {
+  app.post("/api/push/register", async (req: any, res) => {
     try {
-      const auth = getAuthContext(req);
-      if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const userUuid = await ensureUserUuid(auth);
+      const resolved = await resolvePushRegisterAuth(req);
+      if (!resolved) {
+        console.log("[PUSH][REGISTER][AUTH] Unauthorized");
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      console.log("[PUSH][REGISTER][AUTH]", { method: resolved.method, userId: resolved.auth.userId });
+      const userUuid = await ensureUserUuid(resolved.auth);
       const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
       const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
       const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
@@ -6146,9 +6201,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!row) {
+        console.warn("[PUSH][REGISTER][FAILED]", { userId: userUuid });
         return res.status(500).json({ message: "Failed to register push token" });
       }
 
+      console.log("[PUSH][REGISTER][SUCCESS]", { userId: userUuid, tokenType, platform: rawPlatform || null });
       res.json(row);
     } catch (error) {
       console.error("[PUSH][REGISTER] Error:", error);
