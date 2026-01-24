@@ -784,6 +784,23 @@ const deliverNotificationPush = async (notification: any) => {
   return { sent, failed };
 };
 
+const sendNotificationPush = async (notification: any) => {
+  if (!notification?.id) return { sent: 0, failed: 0 };
+  const delivery = await deliverNotificationPush(notification);
+  const nextState = delivery.sent > 0 ? "sent" : "failed";
+  await pgFetch(`/notifications?id=eq.${encodeURIComponent(notification.id)}`, {
+    method: "PATCH",
+    body: { state: nextState },
+  }).catch(() => {});
+  console.log("[NOTIFICATIONS][PUSH][RESULT]", {
+    id: notification.id,
+    sent: delivery.sent,
+    failed: delivery.failed,
+    state: nextState,
+  });
+  return delivery;
+};
+
 const registerDeviceToken = async (payload: {
   userId: string;
   token: string;
@@ -872,18 +889,7 @@ async function createNotification(payload: {
       });
     }
     if (normalized && payload.sendPush !== false) {
-      const delivery = await deliverNotificationPush(normalized);
-      const nextState = delivery.sent > 0 ? "sent" : "failed";
-      await pgFetch(`/notifications?id=eq.${encodeURIComponent(normalized.id)}`, {
-        method: "PATCH",
-        body: { state: nextState },
-      }).catch(() => {});
-      console.log("[NOTIFICATIONS][PUSH][RESULT]", {
-        id: normalized.id,
-        sent: delivery.sent,
-        failed: delivery.failed,
-        state: nextState,
-      });
+      await sendNotificationPush(normalized);
     }
     return normalized;
   } catch (error) {
@@ -993,7 +999,7 @@ const triggerSystemNotification = async (
   const copy = SYSTEM_NOTIFICATION_COPY[event];
   const isArabic = lang === "ar";
   const text = isArabic ? copy.ar : copy.en;
-  return createNotification({
+  const created = await createNotification({
     userId: context.userId,
     role: "customer",
     title: text.title,
@@ -1006,7 +1012,12 @@ const triggerSystemNotification = async (
     activityId: context.orderId,
     activityState: copy.activityState ?? null,
     liveActivityPayload: context.extraData?.liveActivityPayload ?? null,
+    sendPush: false,
   });
+  if (created) {
+    await sendNotificationPush(created);
+  }
+  return created;
 };
 
 async function maybeCreateMaintenanceNotification(userId: string, status: string, remainingKm: number, lang: Language) {
