@@ -892,52 +892,122 @@ async function createNotification(payload: {
   }
 }
 
-function buildOrderStatusNotification(status: string, lang: Language) {
+type SystemNotificationEvent =
+  | "ORDER_CREATED"
+  | "ORDER_PAID"
+  | "TECHNICIAN_ASSIGNED"
+  | "TECHNICIAN_ACCEPTED"
+  | "TECHNICIAN_ON_THE_WAY"
+  | "TECHNICIAN_ARRIVED"
+  | "SERVICE_STARTED"
+  | "SERVICE_COMPLETED"
+  | "SERVICE_CANCELLED";
+
+const SYSTEM_EVENT_BY_STATUS: Record<string, SystemNotificationEvent> = {
+  pending: "ORDER_CREATED",
+  accepted: "TECHNICIAN_ACCEPTED",
+  on_the_way: "TECHNICIAN_ON_THE_WAY",
+  working: "SERVICE_STARTED",
+  in_progress: "SERVICE_STARTED",
+  completed: "SERVICE_COMPLETED",
+  rejected_by_technician: "SERVICE_CANCELLED",
+};
+
+const SYSTEM_NOTIFICATION_COPY: Record<SystemNotificationEvent, {
+  ar: { title: string; message: string };
+  en: { title: string; message: string };
+  emoji: string;
+  activityState?: string | null;
+}> = {
+  ORDER_CREATED: {
+    ar: { title: "تم تأكيد طلبك بنجاح", message: "تم تأكيد طلبك بنجاح ✅" },
+    en: { title: "Order confirmed", message: "Your order has been confirmed ✅" },
+    emoji: "✅",
+    activityState: "confirmed",
+  },
+  ORDER_PAID: {
+    ar: { title: "تم استلام الدفع بنجاح", message: "تم استلام الدفع بنجاح 💳" },
+    en: { title: "Payment received", message: "Payment received successfully 💳" },
+    emoji: "💳",
+    activityState: null,
+  },
+  TECHNICIAN_ASSIGNED: {
+    ar: { title: "تم تعيين فني لطلبك", message: "تم تعيين فني لطلبك 👨‍🔧" },
+    en: { title: "Technician assigned", message: "A technician was assigned to your request 👨‍🔧" },
+    emoji: "👨‍🔧",
+    activityState: null,
+  },
+  TECHNICIAN_ACCEPTED: {
+    ar: { title: "قام الفني بقبول طلبك", message: "قام الفني بقبول طلبك 👍" },
+    en: { title: "Technician accepted", message: "Your technician accepted the request 👍" },
+    emoji: "👍",
+    activityState: "confirmed",
+  },
+  TECHNICIAN_ON_THE_WAY: {
+    ar: { title: "الفني في الطريق إليك", message: "الفني في الطريق إليك 🚴‍♂️" },
+    en: { title: "Technician on the way", message: "Your technician is on the way 🚴‍♂️" },
+    emoji: "🚴‍♂️",
+    activityState: "on_the_way",
+  },
+  TECHNICIAN_ARRIVED: {
+    ar: { title: "وصل الفني إلى موقعك", message: "وصل الفني إلى موقعك 📍" },
+    en: { title: "Technician arrived", message: "The technician arrived at your location 📍" },
+    emoji: "📍",
+    activityState: null,
+  },
+  SERVICE_STARTED: {
+    ar: { title: "بدأ الفني العمل على طلبك", message: "بدأ الفني العمل على طلبك 🛠️" },
+    en: { title: "Service started", message: "The technician started working 🛠️" },
+    emoji: "🛠️",
+    activityState: "started",
+  },
+  SERVICE_COMPLETED: {
+    ar: { title: "تم إنجاز الطلب بنجاح", message: "تم إنجاز الطلب بنجاح 🎉" },
+    en: { title: "Service completed", message: "Your request has been completed 🎉" },
+    emoji: "🎉",
+    activityState: "completed",
+  },
+  SERVICE_CANCELLED: {
+    ar: { title: "تم إلغاء الطلب", message: "تم إلغاء الطلب ❌" },
+    en: { title: "Service cancelled", message: "The request has been cancelled ❌" },
+    emoji: "❌",
+    activityState: null,
+  },
+};
+
+const resolveSystemEvent = (eventOrStatus: string): SystemNotificationEvent | null => {
+  if (!eventOrStatus) return null;
+  if (SYSTEM_NOTIFICATION_COPY[eventOrStatus as SystemNotificationEvent]) {
+    return eventOrStatus as SystemNotificationEvent;
+  }
+  return SYSTEM_EVENT_BY_STATUS[eventOrStatus] || null;
+};
+
+const triggerSystemNotification = async (
+  eventOrStatus: string,
+  context: { userId: string; orderId: string; technicianId?: string | null; extraData?: any },
+  lang: Language,
+) => {
+  const event = resolveSystemEvent(eventOrStatus);
+  if (!event) return null;
+  const copy = SYSTEM_NOTIFICATION_COPY[event];
   const isArabic = lang === "ar";
-  const map: Record<string, { title: string; message: string; emoji: string; activityState?: string | null }> = {
-    accepted: {
-      title: isArabic ? "تم قبول الطلب" : "Request accepted",
-      message: isArabic ? "تم استلام طلبك من الفني" : "Your technician has accepted the request.",
-      emoji: "✅",
-      activityState: "confirmed",
-    },
-    on_the_way: {
-      title: isArabic ? "الفني في الطريق" : "Technician on the way",
-      message: isArabic ? "الفني في الطريق إليك الآن" : "Your technician is on the way.",
-      emoji: "🚴‍♂️",
-      activityState: "on_the_way",
-    },
-    working: {
-      title: isArabic ? "بدء العمل" : "Work started",
-      message: isArabic ? "الفني بدأ العمل على طلبك" : "The technician has started working.",
-      emoji: "🛠️",
-      activityState: "started",
-    },
-    in_progress: {
-      title: isArabic ? "قيد التنفيذ" : "In progress",
-      message: isArabic ? "طلبك قيد التنفيذ الآن" : "Your request is in progress.",
-      emoji: "🛠️",
-      activityState: "started",
-    },
-    rejected_by_technician: {
-      title: isArabic ? "تم رفض الطلب" : "Request rejected",
-      message: isArabic
-        ? "الفني رفض الطلب. يمكنك البحث عن فني آخر."
-        : "The technician rejected the request. You can search for another technician.",
-      emoji: "❌",
-      activityState: null,
-    },
-    completed: {
-      title: isArabic ? "اكتملت الخدمة" : "Service completed",
-      message: isArabic ? "تم الانتهاء من طلبك بنجاح" : "Your request has been completed.",
-      emoji: "🎉",
-      activityState: "completed",
-    },
-  };
-  const entry = map[status];
-  if (!entry) return null;
-  return { ...entry, type: "order_update", activityType: "order_tracking", activityState: entry.activityState ?? null };
-}
+  const text = isArabic ? copy.ar : copy.en;
+  return createNotification({
+    userId: context.userId,
+    role: "customer",
+    title: text.title,
+    message: text.message,
+    emoji: copy.emoji,
+    type: "order_update",
+    entityType: "service_request",
+    entityId: context.orderId,
+    activityType: "order_tracking",
+    activityId: context.orderId,
+    activityState: copy.activityState ?? null,
+    liveActivityPayload: context.extraData?.liveActivityPayload ?? null,
+  });
+};
 
 async function maybeCreateMaintenanceNotification(userId: string, status: string, remainingKm: number, lang: Language) {
   if (status !== "NEAR" && status !== "OVERDUE") return;
@@ -5259,21 +5329,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
         const requestUserId = request.user_id ?? request.userId;
-        const acceptNotification = buildOrderStatusNotification("accepted", getRequestLang(req));
-        if (requestUserId && acceptNotification) {
-          await createNotification({
-            userId: requestUserId,
-            role: "customer",
-            title: acceptNotification.title,
-            message: acceptNotification.message,
-            emoji: acceptNotification.emoji,
-            type: acceptNotification.type,
-            entityType: "service_request",
-            entityId: orderId,
-            activityType: acceptNotification.activityType,
-            activityId: orderId,
-            activityState: acceptNotification.activityState,
-          });
+        if (requestUserId) {
+          await triggerSystemNotification("accepted", { userId: requestUserId, orderId }, getRequestLang(req));
         }
         console.log("[TECH][ORDER][ACCEPT]", {
           technicianId: technician.id,
@@ -5347,21 +5404,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
         const requestUserId = request.user_id ?? request.userId;
-        const rejectedNotification = buildOrderStatusNotification("rejected_by_technician", getRequestLang(req));
-        if (requestUserId && rejectedNotification) {
-          await createNotification({
-            userId: requestUserId,
-            role: "customer",
-            title: rejectedNotification.title,
-            message: rejectedNotification.message,
-            emoji: rejectedNotification.emoji,
-            type: rejectedNotification.type,
-            entityType: "service_request",
-            entityId: orderId,
-            activityType: rejectedNotification.activityType,
-            activityId: orderId,
-            activityState: rejectedNotification.activityState,
-          });
+        if (requestUserId) {
+          await triggerSystemNotification("rejected_by_technician", { userId: requestUserId, orderId }, getRequestLang(req));
         }
         console.log("[TECH][ORDER][REJECT]", {
           technicianId: technician.id,
@@ -5435,21 +5479,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
         const updated = Array.isArray(updData) ? updData[0] : updData;
         const requestUserId = request.user_id ?? request.userId;
-        const statusNotification = buildOrderStatusNotification(nextStatus, getRequestLang(req));
-        if (requestUserId && statusNotification) {
-          await createNotification({
-            userId: requestUserId,
-            role: "customer",
-            title: statusNotification.title,
-            message: statusNotification.message,
-            emoji: statusNotification.emoji,
-            type: statusNotification.type,
-            entityType: "service_request",
-            entityId: orderId,
-            activityType: statusNotification.activityType,
-            activityId: orderId,
-            activityState: statusNotification.activityState,
-          });
+        if (requestUserId) {
+          await triggerSystemNotification(nextStatus, { userId: requestUserId, orderId }, getRequestLang(req));
         }
         console.log("[TECH][ORDER][STATUS_CHANGE]", {
           technicianId: technician.id,
@@ -5598,21 +5629,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           }
         }
         const requestUserId = request.user_id ?? request.userId;
-        const completedNotification = buildOrderStatusNotification("completed", getRequestLang(req));
-        if (requestUserId && completedNotification) {
-          await createNotification({
-            userId: requestUserId,
-            role: "customer",
-            title: completedNotification.title,
-            message: completedNotification.message,
-            emoji: completedNotification.emoji,
-            type: completedNotification.type,
-            entityType: "service_request",
-            entityId: orderId,
-            activityType: completedNotification.activityType,
-            activityId: orderId,
-            activityState: completedNotification.activityState,
-          });
+        if (requestUserId) {
+          await triggerSystemNotification("completed", { userId: requestUserId, orderId }, getRequestLang(req));
         }
         console.log("[TECH][ORDER][COMPLETE]", {
           technicianId: technician.id,
@@ -5768,6 +5786,18 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       const created = Array.isArray(data) ? data[0] : data;
+      const createdOrderId = created?.id ?? null;
+      if (createdOrderId && userId) {
+        await triggerSystemNotification(
+          "ORDER_CREATED",
+          {
+            userId,
+            orderId: createdOrderId,
+            technicianId: created?.technician_id ?? created?.technicianId ?? null,
+          },
+          lang,
+        );
+      }
 
       const patchPayload: Record<string, any> = {};
       if (trackingSteps) {
@@ -5794,6 +5824,16 @@ export async function registerRoutes(app: Express): Promise<void> {
           const patched = Array.isArray(patchData) ? patchData[0] : patchData;
           const technicianIdForNotify = patched?.technician_id ?? patched?.technicianId;
           if (technicianIdForNotify) {
+            if (userId) {
+              const orderId = patched?.id ?? created?.id ?? null;
+              if (orderId) {
+                await triggerSystemNotification("TECHNICIAN_ASSIGNED", {
+                  userId,
+                  orderId,
+                  technicianId: technicianIdForNotify,
+                }, lang);
+              }
+            }
             const { resp: techResp, data: techData } = await pgFetch(
               `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
             );
@@ -5834,6 +5874,13 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       const technicianIdForNotify = created?.technician_id ?? created?.technicianId;
       if (technicianIdForNotify) {
+        if (userId && created?.id) {
+          await triggerSystemNotification("TECHNICIAN_ASSIGNED", {
+            userId,
+            orderId: created.id,
+            technicianId: technicianIdForNotify,
+          }, lang);
+        }
         const { resp: techResp, data: techData } = await pgFetch(
           `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
         );
@@ -5956,6 +6003,14 @@ export async function registerRoutes(app: Express): Promise<void> {
             const techUserId = tech?.user_id ?? tech?.userId;
             if (techUserId) {
               const lang = getRequestLang(req);
+              const requestUserId = existingRequest.userId;
+              if (requestUserId) {
+                await triggerSystemNotification(
+                  "TECHNICIAN_ASSIGNED",
+                  { userId: requestUserId, orderId: req.params.id, technicianId: nextTechnicianId },
+                  lang,
+                );
+              }
               const isArabic = lang === "ar";
               const serviceLabel = existingRequest.serviceType || (isArabic ? "خدمة" : "service");
               const locationLabel = existingRequest.location || (isArabic ? "موقع العميل" : "customer location");
@@ -5976,6 +6031,14 @@ export async function registerRoutes(app: Express): Promise<void> {
               });
             }
           }
+        }
+
+        if (nextStatus && nextStatus !== existingRequest.status && existingRequest.userId) {
+          await triggerSystemNotification(
+            nextStatus,
+            { userId: existingRequest.userId, orderId: req.params.id },
+            getRequestLang(req),
+          );
         }
 
         res.json(request);
