@@ -5283,11 +5283,37 @@ export async function registerRoutes(app: Express): Promise<void> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
-      const requests = await storage.getUserServiceRequests(userUuid);
+      let rows: any[] = [];
+      let needsFallback = false;
+      try {
+        const { resp, data } = await pgFetch(
+          `/service_requests?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
+        );
+        if (!resp.ok) {
+          console.warn("[SERVICE_REQUESTS][LIST][FAILED]", { status: resp.status, body: data });
+          needsFallback = true;
+        } else {
+          rows = Array.isArray(data) ? data : [];
+        }
+      } catch (error) {
+        console.warn("[SERVICE_REQUESTS][LIST][ERROR]", error);
+        needsFallback = true;
+      }
+
+      if (needsFallback) {
+        try {
+          rows = await storage.getUserServiceRequests(userUuid);
+        } catch (error) {
+          console.error("Error fetching service requests:", error);
+          return res.json([]);
+        }
+      }
+
+      const requests = Array.isArray(rows) ? rows.map(normalizeServiceRequestRow) : [];
       res.json(requests);
     } catch (error) {
       console.error("Error fetching service requests:", error);
-      res.status(500).json({ message: "Failed to fetch service requests" });
+      res.json([]);
     }
   });
 
@@ -5369,18 +5395,6 @@ export async function registerRoutes(app: Express): Promise<void> {
           );
         }
       }
-      let orderByRequestId = new Map<string, any>();
-      if (requestIds.length > 0) {
-        const ids = requestIds.map((id) => encodeURIComponent(id)).join(",");
-        const { resp: orderResp, data: orderData } = await pgFetch(
-          `/orders?service_request_id=in.(${ids})`,
-        );
-        if (orderResp.ok && Array.isArray(orderData)) {
-          orderByRequestId = new Map(
-            orderData.map((order: any) => [order.service_request_id ?? order.serviceRequestId, order]),
-          );
-        }
-      }
       let bikeById = new Map<string, any>();
       if (bikeIds.length > 0) {
         const ids = bikeIds.map((id) => encodeURIComponent(id)).join(",");
@@ -5395,7 +5409,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const defaultCommissionRate = 25;
       const enriched = safeRequests.map((request: any) => {
         const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
-        const order = request.id ? orderByRequestId.get(request.id) : null;
+        const order = null;
         const normalized = normalizeServiceRequestRow(request);
         const bikeId = normalized.bikeId ?? request.bike_id ?? request.bikeId;
         const bike = bikeId ? bikeById.get(bikeId) : null;
