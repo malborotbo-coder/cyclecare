@@ -31,7 +31,7 @@ import { computePricing } from "./pricingEngine";
 import { signJWT, verifyJWT } from "./jwt";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomUUID, createHmac } from "crypto";
-import { sendApns } from "./push/apns";
+import { sendApns, sendApnsLiveActivity } from "./push/apns";
 
 const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
@@ -675,6 +675,130 @@ const buildPushPayload = (notification: any) => {
   };
 };
 
+type LiveActivityPushEvent = "update" | "end";
+
+type LiveActivityContentState = {
+  status: string;
+  title: string;
+  subtitle: string;
+  progress: number;
+  stageIndex: number;
+  totalStages: number;
+  timestamp: number;
+  technicianName?: string | null;
+  etaMinutes?: number | null;
+  locale: string;
+};
+
+const normalizeLiveActivityStatus = (status?: string | null) => {
+  const raw = String(status || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "assigned_to_technician") return "assigned";
+  if (raw === "accepted") return "assigned";
+  if (raw === "rejected_by_technician") return "cancelled";
+  return raw;
+};
+
+const buildLiveActivityContentState = (params: {
+  status: string;
+  title?: string | null;
+  message?: string | null;
+  lang: Language;
+}) => {
+  const normalized = normalizeLiveActivityStatus(params.status);
+  if (!normalized) return null;
+  const stageMap: Record<string, { progress: number; stageIndex: number; totalStages: number }> = {
+    assigned: { progress: 0.25, stageIndex: 0, totalStages: 4 },
+    on_the_way: { progress: 0.5, stageIndex: 1, totalStages: 4 },
+    working: { progress: 0.75, stageIndex: 2, totalStages: 4 },
+    in_progress: { progress: 0.75, stageIndex: 2, totalStages: 4 },
+    completed: { progress: 1, stageIndex: 3, totalStages: 4 },
+    cancelled: { progress: 1, stageIndex: 3, totalStages: 4 },
+  };
+  const stage = stageMap[normalized];
+  if (!stage) return null;
+  const fallbackTitle = params.lang === "ar" ? "تحديث الطلب" : "Order update";
+  return {
+    status: normalized,
+    title: params.title || fallbackTitle,
+    subtitle: params.message || params.title || fallbackTitle,
+    progress: stage.progress,
+    stageIndex: stage.stageIndex,
+    totalStages: stage.totalStages,
+    timestamp: Math.floor(Date.now() / 1000),
+    locale: params.lang,
+  };
+};
+
+const sendLiveActivityUpdate = async (payload: {
+  orderId: string;
+  status: string;
+  title?: string | null;
+  message?: string | null;
+  lang: Language;
+}): Promise<{ sent: number; failed: number }> => {
+  const state = buildLiveActivityContentState({
+    status: payload.status,
+    title: payload.title,
+    message: payload.message,
+    lang: payload.lang,
+  });
+  if (!state) return { sent: 0, failed: 0 };
+
+  const normalizedStatus = normalizeLiveActivityStatus(payload.status);
+  if (!normalizedStatus) return { sent: 0, failed: 0 };
+  const terminal = new Set(["completed", "cancelled"]);
+  const event: LiveActivityPushEvent = terminal.has(normalizedStatus) ? "end" : "update";
+
+  const { resp, data } = await pgFetch(
+    `/live_activity_tokens?order_id=eq.${encodeURIComponent(payload.orderId)}&is_active=eq.true`,
+  );
+  if (!resp.ok) {
+    console.warn("[LIVE_ACTIVITY][TOKENS][FAILED]", { status: resp.status, body: data });
+    return { sent: 0, failed: 0 };
+  }
+  const tokens = Array.isArray(data) ? data : [];
+  if (tokens.length === 0) return { sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of tokens) {
+    const token = row?.token;
+    if (!token) continue;
+    const response = await sendApnsLiveActivity({
+      token,
+      event,
+      contentState: state,
+      timestamp: state.timestamp,
+    });
+    if (response.ok) {
+      sent += 1;
+    } else {
+      failed += 1;
+      const reason = String(response.reason || "").toLowerCase();
+      if (response.status === 410 || reason.includes("unregistered")) {
+        const tokenId = row?.id;
+        if (tokenId) {
+          await pgFetch(`/live_activity_tokens?id=eq.${encodeURIComponent(tokenId)}`, {
+            method: "PATCH",
+            body: { is_active: false, updated_at: new Date().toISOString() },
+          }).catch(() => {});
+        }
+      }
+    }
+  }
+
+  console.log("[LIVE_ACTIVITY][PUSH][RESULT]", {
+    orderId: payload.orderId,
+    status: payload.status,
+    sent,
+    failed,
+    event,
+  });
+  return { sent, failed };
+};
+
 const isPaymentCompletedForRequest = async (serviceRequestId: string) => {
   if (!serviceRequestId) return false;
   try {
@@ -857,6 +981,43 @@ const registerDeviceToken = async (payload: {
   return row ? normalizePushTokenRow(row) : null;
 };
 
+const registerLiveActivityToken = async (payload: {
+  userId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  token: string;
+}) => {
+  const now = new Date().toISOString();
+  await pgFetch(
+    `/live_activity_tokens?order_id=eq.${encodeURIComponent(payload.orderId)}&user_id=eq.${encodeURIComponent(payload.userId)}&token=neq.${encodeURIComponent(payload.token)}`,
+    {
+      method: "PATCH",
+      body: { is_active: false, updated_at: now },
+    },
+  ).catch(() => {});
+
+  const { resp, data } = await pgFetch("/live_activity_tokens?on_conflict=order_id,token", {
+    method: "POST",
+    body: [
+      {
+        order_id: payload.orderId,
+        user_id: payload.userId,
+        order_number: payload.orderNumber || null,
+        token: payload.token,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    headers: { Prefer: "return=representation,resolution=merge-duplicates" },
+  });
+  if (!resp.ok) {
+    console.warn("[LIVE_ACTIVITY][REGISTER][FAILED]", { status: resp.status, body: data });
+    return null;
+  }
+  return Array.isArray(data) ? data[0] : data?.[0];
+};
+
 async function createNotification(payload: {
   userId: string;
   role?: string | null;
@@ -954,7 +1115,7 @@ const SYSTEM_NOTIFICATION_COPY: Record<SystemNotificationEvent, {
     ar: { title: "تم تأكيد طلبك بنجاح", message: "تم تأكيد طلبك بنجاح ✅" },
     en: { title: "Order confirmed", message: "Your order has been confirmed ✅" },
     emoji: "✅",
-    activityState: "confirmed",
+    activityState: null,
   },
   ORDER_PAID: {
     ar: { title: "تم استلام الدفع بنجاح", message: "تم استلام الدفع بنجاح 💳" },
@@ -966,13 +1127,13 @@ const SYSTEM_NOTIFICATION_COPY: Record<SystemNotificationEvent, {
     ar: { title: "تم تعيين فني لطلبك", message: "تم تعيين فني لطلبك 👨‍🔧" },
     en: { title: "Technician assigned", message: "A technician was assigned to your request 👨‍🔧" },
     emoji: "👨‍🔧",
-    activityState: null,
+    activityState: "assigned",
   },
   TECHNICIAN_ACCEPTED: {
     ar: { title: "قام الفني بقبول طلبك", message: "قام الفني بقبول طلبك 👍" },
     en: { title: "Technician accepted", message: "Your technician accepted the request 👍" },
     emoji: "👍",
-    activityState: "confirmed",
+    activityState: "assigned",
   },
   TECHNICIAN_ON_THE_WAY: {
     ar: { title: "الفني في الطريق إليك", message: "الفني في الطريق إليك 🚴‍♂️" },
@@ -1017,6 +1178,8 @@ const resolveSystemEvent = (eventOrStatus: string): SystemNotificationEvent | nu
 const resolveLiveActivityState = (eventOrStatus: string, event: SystemNotificationEvent): string | null => {
   const normalized = String(eventOrStatus || "").trim();
   const directStates = new Set([
+    "assigned",
+    "assigned_to_technician",
     "accepted",
     "on_the_way",
     "working",
@@ -1025,11 +1188,18 @@ const resolveLiveActivityState = (eventOrStatus: string, event: SystemNotificati
     "cancelled",
     "rejected_by_technician",
   ]);
-  if (directStates.has(normalized)) return normalized;
+  if (directStates.has(normalized)) {
+    if (normalized === "assigned_to_technician") return "assigned";
+    if (normalized === "accepted") return "assigned";
+    if (normalized === "rejected_by_technician") return "cancelled";
+    return normalized;
+  }
 
   switch (event) {
     case "TECHNICIAN_ACCEPTED":
-      return "accepted";
+      return "assigned";
+    case "TECHNICIAN_ASSIGNED":
+      return "assigned";
     case "TECHNICIAN_ON_THE_WAY":
       return "on_the_way";
     case "SERVICE_STARTED":
@@ -1071,6 +1241,15 @@ const triggerSystemNotification = async (
   });
   if (created) {
     await sendNotificationPush(created);
+    if (resolvedActivityState) {
+      await sendLiveActivityUpdate({
+        orderId: context.orderId,
+        status: resolvedActivityState,
+        title: text.title,
+        message: text.message,
+        lang,
+      });
+    }
   }
   return created;
 };
@@ -6407,6 +6586,119 @@ export async function registerRoutes(app: Express): Promise<void> {
     } catch (error) {
       console.error("[NOTIFICATIONS][SEND] Error:", error);
       res.status(500).json({ message: "Failed to send notification" });
+    }
+  });
+
+  app.post("/api/live-activities/register", async (req: any, res) => {
+    try {
+      const resolved = await resolvePushRegisterAuth(req);
+      if (!resolved || !("auth" in resolved) || !resolved.auth) {
+        const reason = (resolved as any)?.reason || "unauthorized";
+        const hasToken = Boolean((resolved as any)?.hasToken);
+        console.log("[LIVE_ACTIVITY][REGISTER][AUTH] Unauthorized", { reason, hasToken });
+        return res.status(401).json({ message: "Unauthorized", reason });
+      }
+      const userUuid = await ensureUserUuid(resolved.auth);
+      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const orderNumber = typeof req.body?.orderNumber === "string" ? req.body.orderNumber.trim() : "";
+      const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+      if (!orderId || !token) {
+        return res.status(400).json({ message: "orderId and token are required" });
+      }
+
+      const row = await registerLiveActivityToken({
+        userId: userUuid,
+        orderId,
+        orderNumber: orderNumber || null,
+        token,
+      });
+
+      if (!row) {
+        return res.status(500).json({ message: "Failed to register live activity token" });
+      }
+
+      console.log("[LIVE_ACTIVITY][REGISTER][SUCCESS]", {
+        userId: userUuid,
+        orderId,
+      });
+      res.json(row);
+    } catch (error) {
+      console.error("[LIVE_ACTIVITY][REGISTER] Error:", error);
+      res.status(500).json({ message: "Failed to register live activity token" });
+    }
+  });
+
+  app.post("/api/live-activities/update", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const isInternal = INTERNAL_NOTIFICATION_KEY
+        ? req.headers["x-internal-key"] === INTERNAL_NOTIFICATION_KEY
+        : false;
+      if (!isInternal && auth?.isAdmin !== true) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const status = typeof req.body?.status === "string" ? req.body.status.trim() : "";
+      if (!orderId || !status) {
+        return res.status(400).json({ message: "orderId and status are required" });
+      }
+
+      const title = typeof req.body?.title === "string" ? req.body.title : null;
+      const message = typeof req.body?.message === "string"
+        ? req.body.message
+        : typeof req.body?.body === "string"
+        ? req.body.body
+        : null;
+      const result = await sendLiveActivityUpdate({
+        orderId,
+        status,
+        title,
+        message,
+        lang: getRequestLang(req),
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("[LIVE_ACTIVITY][UPDATE] Error:", error);
+      res.status(500).json({ message: "Failed to update live activity" });
+    }
+  });
+
+  app.post("/api/live-activities/end", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ message: "Unauthorized" });
+      const isInternal = INTERNAL_NOTIFICATION_KEY
+        ? req.headers["x-internal-key"] === INTERNAL_NOTIFICATION_KEY
+        : false;
+      if (!isInternal && auth?.isAdmin !== true) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const status = typeof req.body?.status === "string" ? req.body.status.trim() : "completed";
+      if (!orderId) {
+        return res.status(400).json({ message: "orderId is required" });
+      }
+
+      const title = typeof req.body?.title === "string" ? req.body.title : null;
+      const message = typeof req.body?.message === "string"
+        ? req.body.message
+        : typeof req.body?.body === "string"
+        ? req.body.body
+        : null;
+      const result = await sendLiveActivityUpdate({
+        orderId,
+        status,
+        title,
+        message,
+        lang: getRequestLang(req),
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("[LIVE_ACTIVITY][END] Error:", error);
+      res.status(500).json({ message: "Failed to end live activity" });
     }
   });
 

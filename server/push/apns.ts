@@ -9,6 +9,28 @@ type SendApnsInput = {
   data?: Record<string, any>;
 };
 
+type LiveActivityEvent = "update" | "end";
+
+type LiveActivityContentState = {
+  status: string;
+  title: string;
+  subtitle: string;
+  progress: number;
+  stageIndex: number;
+  totalStages: number;
+  timestamp: number;
+  technicianName?: string | null;
+  etaMinutes?: number | null;
+  locale?: string;
+};
+
+type SendApnsLiveActivityInput = {
+  token: string;
+  event: LiveActivityEvent;
+  contentState: LiveActivityContentState;
+  timestamp?: number;
+};
+
 type SendApnsResult = {
   ok: boolean;
   status?: number;
@@ -126,6 +148,83 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
   }
 
   console.log("[APNS][SEND][SUCCESS]", {
+    status: 200,
+    reason: null,
+    token: input.token,
+    env,
+  });
+  return {
+    ok: true,
+    status: 200,
+    env,
+    details: {
+      sent: response.sent,
+      failed: response.failed,
+    },
+  };
+};
+
+export const sendApnsLiveActivity = async (
+  input: SendApnsLiveActivityInput,
+): Promise<SendApnsResult> => {
+  const env = resolveApnsEnv();
+  const bundleId = process.env.APNS_BUNDLE_ID || "";
+  const provider = getApnsProvider(env);
+
+  if (!provider || !bundleId) {
+    console.log("[APNS][LIVE_ACTIVITY][FAILED]", {
+      status: 500,
+      reason: "apns_config_missing",
+      token: input.token,
+      env,
+    });
+    return { ok: false, status: 500, reason: "apns_config_missing", env };
+  }
+
+  const notification = new apn.Notification();
+  notification.topic = `${bundleId}.push-type.liveactivity`;
+  notification.pushType = "liveactivity";
+  notification.priority = 10;
+  notification.expiry = Math.floor(Date.now() / 1000) + 3600;
+  notification.payload = {
+    aps: {
+      timestamp: input.timestamp ?? Math.floor(Date.now() / 1000),
+      event: input.event,
+      "content-state": {
+        ...input.contentState,
+      },
+    },
+  };
+
+  const response = await provider.send(notification, input.token);
+  if (response.failed && response.failed.length > 0) {
+    const failure = response.failed[0];
+    const status = typeof failure.status === "number"
+      ? failure.status
+      : typeof failure.response?.status === "number"
+      ? failure.response.status
+      : 500;
+    const reason = failure.response?.reason || failure.error?.message || "apns_failed";
+    console.log("[APNS][LIVE_ACTIVITY][FAILED]", {
+      status,
+      reason,
+      token: input.token,
+      env,
+      failed: response.failed,
+    });
+    return {
+      ok: false,
+      status,
+      reason,
+      env,
+      details: {
+        failed: response.failed,
+        sent: response.sent,
+      },
+    };
+  }
+
+  console.log("[APNS][LIVE_ACTIVITY][SUCCESS]", {
     status: 200,
     reason: null,
     token: input.token,

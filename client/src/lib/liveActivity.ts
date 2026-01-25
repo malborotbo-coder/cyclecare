@@ -38,6 +38,14 @@ const getRequestTimestamp = (request: any) => {
 const mapStatusToState = (status: string, lang: "ar" | "en") => {
   const isArabic = lang === "ar";
   switch (status) {
+    case "assigned":
+    case "assigned_to_technician":
+      return {
+        title: isArabic ? "تم تعيين فني لطلبك 👨‍🔧" : "Technician assigned",
+        subtitle: isArabic ? "جاري تجهيز الفني" : "Preparing your technician",
+        progress: 0.25,
+        stageIndex: 0,
+      };
     case "accepted":
       return {
         title: isArabic ? "قام الفني بقبول طلبك 👍" : "Technician accepted your request",
@@ -113,8 +121,9 @@ const normalizeActivityState = (state?: string | null) => {
   if (raw === "confirmed") return null;
   if (raw === "started") return "working";
   if (raw === "rejected") return "rejected_by_technician";
-  if (raw === "assigned_to_technician") return null;
-  if (raw === "assigned") return null;
+  if (raw === "assigned_to_technician") return "assigned";
+  if (raw === "accepted") return "assigned";
+  if (raw === "assigned") return "assigned";
   return raw;
 };
 
@@ -178,7 +187,7 @@ export const handleLiveActivityForRequest = async (request: any, lang: "ar" | "e
   const activeOrderId = await readStoredValue(ACTIVE_ORDER_KEY);
   const activeStatus = await readStoredValue(ACTIVE_STATUS_KEY);
 
-  if (status === "accepted") {
+  if (status === "assigned" || status === "assigned_to_technician" || status === "accepted") {
     if (activeOrderId && activeOrderId !== orderId) {
       console.log("[LiveActivity] Skipped start: another order active.");
       return;
@@ -236,7 +245,7 @@ export const handleLiveActivityFromPush = async (payload: {
   const activeOrderId = await readStoredValue(ACTIVE_ORDER_KEY);
   const activeStatus = await readStoredValue(ACTIVE_STATUS_KEY);
 
-  if (activityStatus === "accepted") {
+  if (activityStatus === "assigned") {
     if (activeOrderId && activeOrderId !== orderId) {
       console.log("[LiveActivity] Skipped start: another order active.");
       return;
