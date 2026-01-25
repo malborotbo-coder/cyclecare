@@ -384,7 +384,10 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
   const stageMap: Record<string, number> = {
     pending: 0,
     created: 0,
+    awaiting_payment: 0,
+    payment_completed: 0,
     assigned: 1,
+    assigned_to_technician: 1,
     accepted: 1,
     on_the_way: 2,
     arrived: 3,
@@ -672,6 +675,23 @@ const buildPushPayload = (notification: any) => {
   };
 };
 
+const isPaymentCompletedForRequest = async (serviceRequestId: string) => {
+  if (!serviceRequestId) return false;
+  try {
+    const { resp, data } = await pgFetch(
+      `/invoices?service_request_id=eq.${encodeURIComponent(serviceRequestId)}&status=eq.paid&limit=1`,
+    );
+    if (!resp.ok) {
+      console.warn("[PAYMENT][CHECK][FAILED]", { status: resp.status, body: data });
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (error) {
+    console.warn("[PAYMENT][CHECK][ERROR]", error);
+    return false;
+  }
+};
+
 const logDeliveryAttempt = async (payload: {
   notificationId: string;
   userId: string;
@@ -911,11 +931,16 @@ type SystemNotificationEvent =
 
 const SYSTEM_EVENT_BY_STATUS: Record<string, SystemNotificationEvent> = {
   pending: "ORDER_CREATED",
+  awaiting_payment: "ORDER_CREATED",
+  payment_completed: "ORDER_PAID",
   accepted: "TECHNICIAN_ACCEPTED",
+  assigned: "TECHNICIAN_ASSIGNED",
+  assigned_to_technician: "TECHNICIAN_ASSIGNED",
   on_the_way: "TECHNICIAN_ON_THE_WAY",
   working: "SERVICE_STARTED",
   in_progress: "SERVICE_STARTED",
   completed: "SERVICE_COMPLETED",
+  cancelled: "SERVICE_CANCELLED",
   rejected_by_technician: "SERVICE_CANCELLED",
 };
 
@@ -989,6 +1014,35 @@ const resolveSystemEvent = (eventOrStatus: string): SystemNotificationEvent | nu
   return SYSTEM_EVENT_BY_STATUS[eventOrStatus] || null;
 };
 
+const resolveLiveActivityState = (eventOrStatus: string, event: SystemNotificationEvent): string | null => {
+  const normalized = String(eventOrStatus || "").trim();
+  const directStates = new Set([
+    "accepted",
+    "on_the_way",
+    "working",
+    "in_progress",
+    "completed",
+    "cancelled",
+    "rejected_by_technician",
+  ]);
+  if (directStates.has(normalized)) return normalized;
+
+  switch (event) {
+    case "TECHNICIAN_ACCEPTED":
+      return "accepted";
+    case "TECHNICIAN_ON_THE_WAY":
+      return "on_the_way";
+    case "SERVICE_STARTED":
+      return "working";
+    case "SERVICE_COMPLETED":
+      return "completed";
+    case "SERVICE_CANCELLED":
+      return "cancelled";
+    default:
+      return null;
+  }
+};
+
 const triggerSystemNotification = async (
   eventOrStatus: string,
   context: { userId: string; orderId: string; technicianId?: string | null; extraData?: any },
@@ -999,6 +1053,7 @@ const triggerSystemNotification = async (
   const copy = SYSTEM_NOTIFICATION_COPY[event];
   const isArabic = lang === "ar";
   const text = isArabic ? copy.ar : copy.en;
+  const resolvedActivityState = resolveLiveActivityState(eventOrStatus, event);
   const created = await createNotification({
     userId: context.userId,
     role: "customer",
@@ -1010,7 +1065,7 @@ const triggerSystemNotification = async (
     entityId: context.orderId,
     activityType: "order_tracking",
     activityId: context.orderId,
-    activityState: copy.activityState ?? null,
+    activityState: resolvedActivityState ?? copy.activityState ?? null,
     liveActivityPayload: context.extraData?.liveActivityPayload ?? null,
     sendPush: false,
   });
@@ -4472,6 +4527,96 @@ export async function registerRoutes(app: Express): Promise<void> {
         await incrementDiscountUsage(appliedDiscount.raw);
       }
 
+      let updatedRequest = sr;
+      const paymentStatus = "payment_completed";
+      let shouldNotifyPayment = false;
+      if (serviceRequestId) {
+        const allowedPaymentStatuses = new Set([
+          "awaiting_payment",
+          "pending",
+          "assigned",
+          "assigned_to_technician",
+          "payment_completed",
+        ]);
+        const currentStatus = String(sr?.status || "");
+        if (!allowedPaymentStatuses.has(currentStatus)) {
+          console.log("[PAYMENT][GATE][STATUS_SKIP]", { serviceRequestId, currentStatus });
+        }
+        shouldNotifyPayment = allowedPaymentStatuses.has(currentStatus) && currentStatus !== "payment_completed";
+        if (allowedPaymentStatuses.has(currentStatus)) {
+          const createdAt = sr?.created_at ?? sr?.createdAt ?? new Date().toISOString();
+          const trackingSteps = normalizeTrackingSteps(
+            sr?.tracking_steps ?? sr?.trackingSteps,
+            paymentStatus,
+            createdAt,
+          );
+          const { resp: srUpdateResp, data: srUpdateData } = await pgFetch(
+            `/service_requests?id=eq.${encodeURIComponent(serviceRequestId)}`,
+            {
+              method: "PATCH",
+              body: {
+                status: paymentStatus,
+                technician_id: technicianId,
+                tracking_steps: trackingSteps,
+              },
+              headers: { Prefer: "return=representation" },
+            },
+          );
+          if (srUpdateResp.ok) {
+            updatedRequest = Array.isArray(srUpdateData) ? srUpdateData[0] : srUpdateData;
+          } else {
+            console.warn("[ORDERS][MOCK_CHECKOUT][REQUEST_UPDATE_FAILED]", {
+              status: srUpdateResp.status,
+              body: srUpdateData,
+            });
+          }
+        }
+      }
+
+      if (orderUserId && serviceRequestId && shouldNotifyPayment) {
+        await triggerSystemNotification(
+          "payment_completed",
+          { userId: orderUserId, orderId: serviceRequestId, extraData: { orderNumber: updatedRequest?.order_number ?? null } },
+          getRequestLang(req),
+        );
+      }
+
+      if (technicianId && orderUserId && serviceRequestId && shouldNotifyPayment) {
+        await triggerSystemNotification(
+          "TECHNICIAN_ASSIGNED",
+          { userId: orderUserId, orderId: serviceRequestId, technicianId, extraData: { orderNumber: updatedRequest?.order_number ?? null } },
+          getRequestLang(req),
+        );
+        const { resp: techResp, data: techData } = await pgFetch(
+          `/technicians?id=eq.${encodeURIComponent(technicianId)}&select=id,user_id`,
+        );
+        if (techResp.ok) {
+          const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
+          const techUserId = tech?.user_id ?? tech?.userId;
+          if (techUserId) {
+            const lang = getRequestLang(req);
+            const isArabic = lang === "ar";
+            const serviceLabel = sr?.service_type || sr?.serviceType || (isArabic ? "خدمة" : "service");
+            const locationLabel = sr?.location || (isArabic ? "موقع العميل" : "customer location");
+            await createNotification({
+              userId: techUserId,
+              role: "technician",
+              title: isArabic ? "طلب جديد" : "New request",
+              message: isArabic
+                ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
+                : `New ${serviceLabel} request at ${locationLabel}.`,
+              emoji: "🆕",
+              type: "technician_update",
+              entityType: "service_request",
+              entityId: serviceRequestId,
+              activityType: "technician_route",
+              activityId: serviceRequestId,
+              activityState: "assigned",
+            });
+          }
+        }
+      }
+
       res.status(201).json({ order, invoice, commissionRate, appCommissionAmount, technicianNetAmount });
     } catch (error) {
       const handled = handleRouteError(error, req, res);
@@ -5194,7 +5339,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!technician || !isApprovedStatus || technician.is_active !== true) {
         return res.json([]);
       }
-      const statusFilter = "assigned,pending,accepted,in_progress,created,on_the_way,working,completed";
+      const statusFilter = "payment_completed,assigned_to_technician,assigned,pending,accepted,in_progress,created,on_the_way,working,completed";
       console.log("[TECH][ORDERS][FETCH]", {
         technicianId: technician.id,
         statusFilter,
@@ -5312,6 +5457,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (request.status === "completed") {
           return res.status(409).json({ message: "Order already completed" });
         }
+        if (request.status === "awaiting_payment") {
+          return res.status(409).json({ message: "Payment required before accepting order" });
+        }
         const assignedTech = request.technician_id ?? request.technicianId;
         if (assignedTech && assignedTech !== technician.id) {
           return res.status(403).json({ message: "Order assigned to another technician" });
@@ -5386,6 +5534,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         const request = srData[0];
         if (request.status === "completed") {
           return res.status(409).json({ message: "Order already completed" });
+        }
+        if (request.status === "awaiting_payment") {
+          return res.status(409).json({ message: "Payment required before rejecting order" });
         }
         const assignedTech = request.technician_id ?? request.technicianId;
         if (assignedTech && assignedTech !== technician.id) {
@@ -5464,6 +5615,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (request.status === "completed") {
           return res.status(409).json({ message: "Order already completed" });
         }
+        if (["awaiting_payment", "payment_completed", "assigned", "assigned_to_technician"].includes(request.status)) {
+          return res.status(409).json({ message: "Order not yet started by technician" });
+        }
         const assignedTech = request.technician_id ?? request.technicianId;
         if (!assignedTech || assignedTech !== technician.id) {
           return res.status(403).json({ message: "Order not assigned to technician" });
@@ -5535,6 +5689,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         const request = srData[0];
         if (request.status === "completed") {
           return res.json(request);
+        }
+        if (["awaiting_payment", "payment_completed", "assigned", "assigned_to_technician"].includes(request.status)) {
+          return res.status(409).json({ message: "Order not ready to complete" });
         }
         const assignedTech = request.technician_id ?? request.technicianId;
         if (!assignedTech || assignedTech !== technician.id) {
@@ -5726,6 +5883,19 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       // Only pass known fields to schema to avoid validation errors
+      const isShopDelivery = body.serviceType === "delivery_installation";
+      const paymentCompleted =
+        isShopDelivery ||
+        body.paymentCompleted === true ||
+        body.payment_completed === true ||
+        body.paymentStatus === "completed" ||
+        body.payment_status === "completed";
+      if (!paymentCompleted) {
+        console.log("[PAYMENT][GATE][CREATE]", {
+          userId,
+          technicianId: requestedTechnicianId,
+        });
+      }
       const safePayload: any = {
         serviceType: body.serviceType || "maintenance",
         technicianId: requestedTechnicianId,
@@ -5733,7 +5903,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         latitude,
         longitude,
         location: body.location || "Riyadh",
-        status: body.status || "pending",
+        status: paymentCompleted ? (body.status || "pending") : "awaiting_payment",
       };
       if (resolvedBikeId) safePayload.bikeId = resolvedBikeId;
 
@@ -5759,9 +5929,12 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       // Technicians location update skipped here to keep service request creation fully local/non-blocking
+      const technicianForRequest = paymentCompleted
+        ? resolvedTechnicianId ?? requestData.technicianId ?? null
+        : null;
       const payload = {
         user_id: userId,
-        technician_id: resolvedTechnicianId ?? requestData.technicianId ?? null,
+        technician_id: technicianForRequest,
         service_type: requestData.serviceType,
         status: requestData.status,
         location: requestData.location,
@@ -5834,7 +6007,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (patchResp.ok) {
           const patched = Array.isArray(patchData) ? patchData[0] : patchData;
           const technicianIdForNotify = patched?.technician_id ?? patched?.technicianId;
-          if (technicianIdForNotify) {
+          if (paymentCompleted && technicianIdForNotify) {
             if (userId) {
               const orderId = patched?.id ?? created?.id ?? null;
               if (orderId) {
@@ -5884,7 +6057,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       const technicianIdForNotify = created?.technician_id ?? created?.technicianId;
-      if (technicianIdForNotify) {
+      if (paymentCompleted && technicianIdForNotify) {
         if (userId && created?.id) {
           await triggerSystemNotification("TECHNICIAN_ASSIGNED", {
             userId,
@@ -5984,6 +6157,13 @@ export async function registerRoutes(app: Express): Promise<void> {
             : typeof req.body?.technician_id === "string"
             ? req.body.technician_id
             : null;
+        if (nextStatus && ["accepted", "assigned", "assigned_to_technician"].includes(nextStatus)) {
+          const paymentCompleted = await isPaymentCompletedForRequest(req.params.id);
+          if (!paymentCompleted) {
+            console.log("[PAYMENT][GATE][STATUS_BLOCKED]", { orderId: req.params.id, nextStatus });
+            return res.status(409).json({ message: "Payment required before confirming the order" });
+          }
+        }
         const technicianChanged =
           nextTechnicianId && nextTechnicianId !== existingRequest.technicianId;
 
@@ -6006,6 +6186,11 @@ export async function registerRoutes(app: Express): Promise<void> {
         }
 
         if (technicianChanged) {
+          const paymentCompleted = await isPaymentCompletedForRequest(req.params.id);
+          if (!paymentCompleted) {
+            console.log("[PAYMENT][GATE][ASSIGN_BLOCKED]", { orderId: req.params.id });
+            return res.status(409).json({ message: "Payment required before assigning technician" });
+          }
           const { resp: techResp, data: techData } = await pgFetch(
             `/technicians?id=eq.${encodeURIComponent(nextTechnicianId)}&select=id,user_id`,
           );

@@ -373,7 +373,7 @@ export default function ServiceBooking() {
         latitude: location.lat,
         longitude: location.lng,
         location: locationText,
-        status: "pending",
+        status: "awaiting_payment",
         scheduledAt: new Date().toISOString(),
         bikeId: selectedBikeId || undefined,
       };

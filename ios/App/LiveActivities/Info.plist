@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>LiveActivities</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleDisplayName</key>
+	<string>Cycle Care</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>WidgetFamily</key>
+			<array>
+				<string>systemSmall</string>
+				<string>systemMedium</string>
+				<string>systemLarge</string>
+				<string>accessoryInline</string>
+				<string>accessoryCircular</string>
+				<string>accessoryRectangular</string>
+			</array>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).OrderLiveActivityWidgetBundle</string>
+	</dict>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+</dict>
+</plist>

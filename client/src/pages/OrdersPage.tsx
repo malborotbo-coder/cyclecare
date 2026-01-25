@@ -281,11 +281,19 @@ export default function OrdersPage() {
     if (!reassignTarget) return;
     const requestId = reassignTarget.serviceRequestId || reassignTarget.id;
     if (!requestId) return;
+    if (reassignTarget.invoiceStatus !== "paid") {
+      toast({
+        title: lang === "ar" ? "الدفع مطلوب" : "Payment required",
+        description: lang === "ar" ? "يرجى إتمام الدفع قبل إسناد الفني." : "Complete payment before assigning a technician.",
+        variant: "destructive",
+      });
+      return;
+    }
     setAssigningTechnicianId(technicianId);
     try {
       await apiRequest(`/api/service-requests/${requestId}`, "PATCH", {
         technicianId,
-        status: "pending",
+        status: "assigned_to_technician",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
@@ -414,7 +422,19 @@ export default function OrdersPage() {
         label: lang === "ar" ? "بانتظار الفني" : "Pending",
         className: "bg-slate-500/15 text-slate-700 border-slate-200",
       },
+      awaiting_payment: {
+        label: lang === "ar" ? "بانتظار الدفع" : "Awaiting payment",
+        className: "bg-amber-500/15 text-amber-700 border-amber-200",
+      },
+      payment_completed: {
+        label: lang === "ar" ? "تم الدفع" : "Payment received",
+        className: "bg-emerald-500/15 text-emerald-700 border-emerald-200",
+      },
       assigned: {
+        label: lang === "ar" ? "تم الإسناد" : "Assigned",
+        className: "bg-blue-500/15 text-blue-700 border-blue-200",
+      },
+      assigned_to_technician: {
         label: lang === "ar" ? "تم الإسناد" : "Assigned",
         className: "bg-blue-500/15 text-blue-700 border-blue-200",
       },

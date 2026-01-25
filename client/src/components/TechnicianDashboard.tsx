@@ -96,8 +96,11 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
     bike,
   } = props;
   const [completionFile, setCompletionFile] = useState<File | null>(null);
-  const isNewStatus = ['pending', 'assigned', 'created'].includes(status || '');
-  const isActiveStatus = ['accepted', 'on_the_way', 'working', 'in_progress'].includes(status || '');
+  const isNewStatus = ["pending", "assigned", "assigned_to_technician", "payment_completed", "created"].includes(
+    status || "",
+  );
+  const isActiveStatus = ["accepted", "on_the_way", "working", "in_progress"].includes(status || "");
+  const canAccept = isNewStatus;
   const formatCurrency = (value?: number | string | null) => {
     if (value === null || value === undefined || value === "") return null;
     const numeric = Number(value);
@@ -189,9 +192,12 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
 
   const getStatusLabel = () => {
     const labels = {
+      awaiting_payment: lang === "ar" ? "بانتظار الدفع" : "Awaiting payment",
+      payment_completed: lang === "ar" ? "تم الدفع" : "Payment received",
       pending: lang === 'ar' ? 'جديد' : 'New',
       accepted: lang === 'ar' ? 'تم استلام الطلب' : 'Accepted',
       assigned: lang === 'ar' ? 'تم الإسناد' : 'Assigned',
+      assigned_to_technician: lang === "ar" ? "تم الإسناد" : "Assigned",
       created: lang === 'ar' ? 'جديد' : 'New',
       on_the_way: lang === 'ar' ? 'الفني في الطريق' : 'On the way',
       working: lang === 'ar' ? 'جاري تنفيذ الصيانة' : 'Working',
@@ -202,8 +208,15 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
     return labels[status as keyof typeof labels] || status;
   };
 
+  const borderClass = isNewStatus
+    ? "border-r-primary"
+    : isActiveStatus
+    ? "border-r-blue-500"
+    : "border-r-green-500";
+  const badgeVariant = isNewStatus ? "default" : status === "accepted" ? "secondary" : "outline";
+
   return (
-    <Card className={`border-r-4 ${status === 'pending' ? 'border-r-primary' : status === 'accepted' || status === 'on_the_way' || status === 'working' || status === 'in_progress' ? 'border-r-blue-500' : 'border-r-green-500'}`}>
+    <Card className={`border-r-4 ${borderClass}`}>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -213,7 +226,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
             <p className="text-sm text-muted-foreground">{serviceType}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge variant={status === 'pending' ? 'default' : status === 'accepted' ? 'secondary' : 'outline'}>
+            <Badge variant={badgeVariant}>
               {getStatusLabel()}
             </Badge>
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right shadow-sm">
@@ -338,7 +351,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
           </div>
         )}
         
-        {status === 'pending' && (
+        {canAccept && (
           <div className="flex gap-2 pt-2">
             <Button 
               className="flex-1"
@@ -527,7 +540,10 @@ export default function TechnicianDashboard() {
     status: optimisticStatuses[request.id] ?? request.status,
   }));
   const pendingRequests = useMemo(
-    () => effectiveRequests.filter((r) => ['pending', 'assigned', 'created'].includes(r.status || '')),
+    () =>
+      effectiveRequests.filter((r) =>
+        ["pending", "assigned", "assigned_to_technician", "payment_completed", "created"].includes(r.status || ""),
+      ),
     [effectiveRequests],
   );
   const inProgressRequests = useMemo(
