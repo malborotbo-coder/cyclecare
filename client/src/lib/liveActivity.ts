@@ -27,7 +27,19 @@ type OrderLiveActivityPlugin = {
 const LiveActivity = registerPlugin<OrderLiveActivityPlugin>("OrderLiveActivity");
 const ACTIVE_ORDER_KEY = "live_activity_active_order";
 const ACTIVE_STATUS_KEY = "live_activity_active_status";
-const isSupported = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+const LIVE_ACTIVITY_FLAG_KEY = "feature_live_activities_enabled";
+const isLiveActivityFeatureEnabled = () => {
+  // TODO: Re-enable once Apple Live Activities entitlement is approved.
+  if (import.meta.env.VITE_ENABLE_LIVE_ACTIVITIES === "true") return true;
+  if (typeof localStorage !== "undefined") {
+    return localStorage.getItem(LIVE_ACTIVITY_FLAG_KEY) === "true";
+  }
+  return false;
+};
+const isSupported = () =>
+  Capacitor.isNativePlatform() &&
+  Capacitor.getPlatform() === "ios" &&
+  isLiveActivityFeatureEnabled();
 
 const getRequestTimestamp = (request: any) => {
   const raw = request?.updatedAt ?? request?.updated_at ?? request?.createdAt ?? request?.created_at ?? Date.now();
