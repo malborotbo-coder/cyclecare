@@ -874,12 +874,26 @@ const logDeliveryAttempt = async (payload: {
   }
 };
 
-const sendApnsPush = async (token: string, payload: { title: string; body: string; data: any }) => {
+const normalizeApnsEnv = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "production") return "production" as const;
+  if (raw === "development") return "development" as const;
+  if (raw === "sandbox") return "development" as const;
+  return null;
+};
+
+const sendApnsPush = async (
+  token: string,
+  payload: { title: string; body: string; data: any },
+  env?: "development" | "production" | null,
+) => {
   const result = await sendApns({
     token,
     title: payload.title,
     body: payload.body,
     data: payload.data ?? {},
+    env: env ?? undefined,
   });
   return {
     ok: result.ok,
@@ -929,9 +943,10 @@ const deliverNotificationPush = async (notification: any) => {
     if (!token) continue;
     const platform = tokenRow.platform ?? null;
     const tokenType = tokenRow.tokenType ?? (platform === "ios" ? "apns" : "fcm");
+    const tokenEnv = tokenType === "apns" ? normalizeApnsEnv(tokenRow.environment) : null;
     const response =
       tokenType === "apns"
-        ? await sendApnsPush(token, payload)
+        ? await sendApnsPush(token, payload, tokenEnv)
         : await sendFcmPush(token, payload);
     if (response.ok) {
       sent += 1;
@@ -6553,8 +6568,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
       const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
-      const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
-      const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+  const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+  const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+  const rawEnvironment = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
       const rawAppVersion = typeof req.body?.appVersion === "string" ? req.body.appVersion.trim() : "";
       const rawEnv = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
 
@@ -6776,11 +6792,12 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       const row = await registerDeviceToken({
         userId: userUuid,
-        token: rawToken,
-        tokenType,
-        platform: rawPlatform || null,
-        deviceId: rawDeviceId || null,
-      });
+      token: rawToken,
+      tokenType,
+      platform: rawPlatform || null,
+      deviceId: rawDeviceId || null,
+      environment: rawEnvironment || null,
+    });
 
       if (!row) {
         console.warn("[PUSH][REGISTER][FAILED]", { userId: userUuid });

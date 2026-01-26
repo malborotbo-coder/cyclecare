@@ -99,6 +99,7 @@ const sendRegisterRequest = async (payload: {
       tokenType: payload.tokenType,
       platform: payload.platform,
       deviceId: payload.deviceId ?? null,
+      environment,
     }),
   });
   if (!res.ok) {

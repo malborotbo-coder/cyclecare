@@ -7,6 +7,7 @@ type SendApnsInput = {
   title: string;
   body: string;
   data?: Record<string, any>;
+  env?: ApnsEnv;
 };
 
 type LiveActivityEvent = "update" | "end";
@@ -92,7 +93,7 @@ const getApnsProvider = (env: ApnsEnv) => {
 };
 
 export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> => {
-  const env = resolveApnsEnv();
+  const env = input.env || resolveApnsEnv();
   const topic = process.env.APNS_BUNDLE_ID || "";
   const provider = getApnsProvider(env);
 
