@@ -218,21 +218,6 @@ export default function OrdersPage() {
   }, [normalizedServiceOrders, shopOrders]);
 
   useEffect(() => {
-    if (!user || reviewTarget) return;
-    const ratedOrderIds = new Set(
-      reviews.map((review) => review.order_id ?? review.orderId).filter(Boolean),
-    );
-    const pending = serviceRequests.find(
-      (request) => request.status === "completed" && !ratedOrderIds.has(request.id),
-    );
-    if (pending) {
-      setReviewTarget(pending);
-      setReviewRating(5);
-      setReviewComment("");
-    }
-  }, [reviews, serviceRequests, reviewTarget, user]);
-
-  useEffect(() => {
     if (!reassignTarget) return;
     const lat = Number(reassignTarget.latitude ?? reassignTarget.location?.split(",")?.[0]);
     const lng = Number(reassignTarget.longitude ?? reassignTarget.location?.split(",")?.[1]);
@@ -502,42 +487,6 @@ export default function OrdersPage() {
 
   return (
     <>
-      <Dialog open={!!reviewTarget} onOpenChange={(open) => !open && setReviewTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{lang === "ar" ? "قيّم الفني" : "Rate the technician"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center justify-center gap-2">
-              {[1, 2, 3, 4, 5].map((value) => (
-                <Button
-                  key={value}
-                  type="button"
-                  variant={reviewRating >= value ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setReviewRating(value)}
-                >
-                  ★
-                </Button>
-              ))}
-            </div>
-            <Textarea
-              placeholder={lang === "ar" ? "ملاحظات إضافية (اختياري)" : "Optional comment"}
-              value={reviewComment}
-              onChange={(event) => setReviewComment(event.target.value)}
-            />
-            <Button className="w-full" onClick={submitReview} disabled={reviewSubmitting}>
-              {reviewSubmitting
-                ? lang === "ar"
-                  ? "جارٍ الإرسال..."
-                  : "Submitting..."
-                : lang === "ar"
-                ? "إرسال التقييم"
-                : "Submit"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={!!reassignTarget}
         onOpenChange={(open) => {
@@ -853,15 +802,72 @@ export default function OrdersPage() {
                       </div>
 
                       {canReview && (
-                        <Button
-                          variant="default"
-                          className="w-full gap-2"
-                          onClick={() => setReviewTarget(order as unknown as ServiceRequest)}
-                          data-testid={`button-rate-${order.id}`}
-                        >
-                          <Star className="w-4 h-4" />
-                          {lang === "ar" ? "قيّم الفني" : "Rate the technician"}
-                        </Button>
+                        <div className="space-y-3 rounded-lg border border-border/60 bg-muted/10 p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <Star className="w-4 h-4 text-primary" />
+                              {lang === "ar" ? "قيّم الفني" : "Rate the technician"}
+                            </div>
+                            {reviewTarget?.id !== order.id && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setReviewTarget(order as unknown as ServiceRequest);
+                                  setReviewRating(5);
+                                  setReviewComment("");
+                                }}
+                                data-testid={`button-rate-${order.id}`}
+                              >
+                                {lang === "ar" ? "بدء التقييم" : "Start rating"}
+                              </Button>
+                            )}
+                          </div>
+                          {reviewTarget?.id === order.id && (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-center gap-2">
+                                {[1, 2, 3, 4, 5].map((value) => (
+                                  <Button
+                                    key={value}
+                                    type="button"
+                                    variant={reviewRating >= value ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setReviewRating(value)}
+                                  >
+                                    ★
+                                  </Button>
+                                ))}
+                              </div>
+                              <Textarea
+                                placeholder={lang === "ar" ? "ملاحظات إضافية (اختياري)" : "Optional comment"}
+                                value={reviewComment}
+                                onChange={(event) => setReviewComment(event.target.value)}
+                              />
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  className="flex-1"
+                                  onClick={submitReview}
+                                  disabled={reviewSubmitting}
+                                >
+                                  {reviewSubmitting
+                                    ? lang === "ar"
+                                      ? "جارٍ الإرسال..."
+                                      : "Submitting..."
+                                    : lang === "ar"
+                                    ? "إرسال التقييم"
+                                    : "Submit"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setReviewTarget(null)}
+                                  disabled={reviewSubmitting}
+                                >
+                                  {lang === "ar" ? "إلغاء" : "Cancel"}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
 
                       <Button

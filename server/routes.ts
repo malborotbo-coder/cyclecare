@@ -5594,13 +5594,24 @@ export async function registerRoutes(app: Express): Promise<void> {
         const bike = bikeId ? bikeById.get(bikeId) : null;
         const rawNet = order?.technician_net_amount ?? order?.technicianNetAmount ?? null;
         const netNumeric = Number(rawNet);
+        const invoiceSubtotalRaw = invoice?.subtotal ?? invoice?.subtotal_amount ?? null;
+        const invoiceTaxRaw = invoice?.taxAmount ?? invoice?.tax_amount ?? null;
         const invoiceTotalRaw = invoice?.total;
+        const invoiceSubtotal = Number(invoiceSubtotalRaw);
+        const invoiceTax = Number(invoiceTaxRaw);
         const invoiceTotal = Number(invoiceTotalRaw);
         const commissionRate = Number(order?.commission_rate ?? order?.commissionRate ?? defaultCommissionRate);
+        const hasSubtotal = invoiceSubtotalRaw !== null && invoiceSubtotalRaw !== undefined && invoiceSubtotalRaw !== "";
         const hasInvoiceTotal = invoiceTotalRaw !== null && invoiceTotalRaw !== undefined && invoiceTotalRaw !== "";
+        const baseAmount =
+          hasSubtotal && Number.isFinite(invoiceSubtotal)
+            ? invoiceSubtotal
+            : hasInvoiceTotal && Number.isFinite(invoiceTotal) && Number.isFinite(invoiceTax)
+            ? Number((invoiceTotal - invoiceTax).toFixed(2))
+            : null;
         const fallbackNet =
-          hasInvoiceTotal && Number.isFinite(invoiceTotal) && Number.isFinite(commissionRate)
-            ? Number((invoiceTotal - (invoiceTotal * commissionRate) / 100).toFixed(2))
+          baseAmount !== null && Number.isFinite(baseAmount) && Number.isFinite(commissionRate)
+            ? Number((baseAmount * (1 - commissionRate / 100)).toFixed(2))
             : null;
         return {
           ...request,
@@ -5609,7 +5620,7 @@ export async function registerRoutes(app: Express): Promise<void> {
           invoiceNumber: invoice?.invoiceNumber ?? null,
           invoiceStatus: invoice?.status ?? null,
           invoiceTotal: invoice?.total ?? null,
-          technicianNetAmount: Number.isFinite(netNumeric) ? netNumeric : fallbackNet,
+          technicianNetAmount: Number.isFinite(netNumeric) && netNumeric > 0 ? netNumeric : fallbackNet,
           commissionRate: Number.isFinite(commissionRate) ? commissionRate : defaultCommissionRate,
           invoice,
         };
