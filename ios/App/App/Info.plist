@@ -46,8 +46,6 @@
 	<string>This lets Cycle Care save the photos you capture when adding or updating bikes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Cycle Care needs photo library access to pick images for bikes, profiles, and receipts.</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

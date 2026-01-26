@@ -5,6 +5,16 @@ use_frameworks!
 
 install! 'cocoapods', :disable_input_output_paths => true
 
+pre_install do |_installer|
+  project_path = File.join(__dir__, 'App.xcodeproj', 'project.pbxproj')
+  next unless File.exist?(project_path)
+  contents = File.read(project_path)
+  if contents.include?('objectVersion = 70;')
+    # Keep CocoaPods compatible with Xcode 16 project format.
+    File.write(project_path, contents.gsub('objectVersion = 70;', 'objectVersion = 60;'))
+  end
+end
+
 def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
