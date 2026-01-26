@@ -520,46 +520,74 @@ const normalizeUserRow = (row: any) => ({
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
 
-const normalizeOrderRow = (row: any) => ({
-  id: row.id,
-  userId: row.user_id ?? row.userId ?? null,
-  orderNumber: row.order_number ?? row.orderNumber ?? null,
-  subtotal: row.subtotal,
-  taxRate: row.tax_rate ?? row.taxRate,
-  taxAmount: row.tax_amount ?? row.taxAmount,
-  total: row.total,
-  deliveryType: row.delivery_type ?? row.deliveryType ?? null,
-  deliveryAddress: row.delivery_address ?? row.deliveryAddress ?? null,
-  deliveryOption: row.delivery_option ?? row.deliveryOption ?? null,
-  paymentMethod: row.payment_method ?? row.paymentMethod ?? null,
-  paymentStatus: row.payment_status ?? row.paymentStatus ?? null,
-  items: row.items ?? [],
-  trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
-  status: row.status,
-  notes: row.notes ?? null,
-  createdAt: row.created_at ?? row.createdAt ?? null,
-  updatedAt: row.updated_at ?? row.updatedAt ?? null,
-});
+const buildReferenceFromId = (prefix: string, id?: string | null, createdAt?: string | null) => {
+  if (!id) return null;
+  const cleaned = String(id).replace(/-/g, "").toUpperCase();
+  if (!cleaned) return null;
+  const suffix = cleaned.slice(0, 6);
+  let datePart = "";
+  if (createdAt) {
+    const date = new Date(createdAt);
+    if (!Number.isNaN(date.getTime())) {
+      datePart = date.toISOString().slice(2, 10).replace(/-/g, "");
+    }
+  }
+  if (datePart) {
+    return `${prefix}-${datePart}-${suffix}`;
+  }
+  return `${prefix}-${suffix}`;
+};
 
-const normalizeInvoiceRow = (row: any) => ({
-  id: row.id,
-  invoiceNumber: row.invoice_number ?? row.invoiceNumber ?? null,
-  userId: row.user_id ?? row.userId ?? null,
-  serviceRequestId: row.service_request_id ?? row.serviceRequestId ?? null,
-  orderId: row.order_id ?? row.orderId ?? null,
-  subtotal: row.subtotal,
-  taxRate: row.tax_rate ?? row.taxRate,
-  taxAmount: row.tax_amount ?? row.taxAmount,
-  total: row.total,
-  description: row.description ?? null,
-  items: row.items ?? [],
-  status: row.status,
-  issuedDate: row.issued_date ?? row.issuedDate ?? null,
-  dueDate: row.due_date ?? row.dueDate ?? null,
-  paidDate: row.paid_date ?? row.paidDate ?? null,
-  createdAt: row.created_at ?? row.createdAt ?? null,
-  updatedAt: row.updated_at ?? row.updatedAt ?? null,
-});
+const normalizeOrderRow = (row: any) => {
+  const createdAt = row.created_at ?? row.createdAt ?? null;
+  return {
+    id: row.id,
+    userId: row.user_id ?? row.userId ?? null,
+    orderNumber: row.order_number ?? row.orderNumber ?? buildReferenceFromId("ORD", row.id, createdAt),
+    subtotal: row.subtotal,
+    taxRate: row.tax_rate ?? row.taxRate,
+    taxAmount: row.tax_amount ?? row.taxAmount,
+    total: row.total,
+    deliveryType: row.delivery_type ?? row.deliveryType ?? null,
+    deliveryAddress: row.delivery_address ?? row.deliveryAddress ?? null,
+    deliveryOption: row.delivery_option ?? row.deliveryOption ?? null,
+    paymentMethod: row.payment_method ?? row.paymentMethod ?? null,
+    paymentStatus: row.payment_status ?? row.paymentStatus ?? null,
+    items: row.items ?? [],
+    trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
+    status: row.status,
+    notes: row.notes ?? null,
+    createdAt,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null,
+  };
+};
+
+const normalizeInvoiceRow = (row: any) => {
+  const issuedDate = row.issued_date ?? row.issuedDate ?? null;
+  const createdAt = row.created_at ?? row.createdAt ?? null;
+  return {
+    id: row.id,
+    invoiceNumber:
+      row.invoice_number ??
+      row.invoiceNumber ??
+      buildReferenceFromId("INV", row.id, issuedDate || createdAt),
+    userId: row.user_id ?? row.userId ?? null,
+    serviceRequestId: row.service_request_id ?? row.serviceRequestId ?? null,
+    orderId: row.order_id ?? row.orderId ?? null,
+    subtotal: row.subtotal,
+    taxRate: row.tax_rate ?? row.taxRate,
+    taxAmount: row.tax_amount ?? row.taxAmount,
+    total: row.total,
+    description: row.description ?? null,
+    items: row.items ?? [],
+    status: row.status,
+    issuedDate,
+    dueDate: row.due_date ?? row.dueDate ?? null,
+    paidDate: row.paid_date ?? row.paidDate ?? null,
+    createdAt,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null,
+  };
+};
 
 const normalizeBikeRow = (row: any) => ({
   id: row.id,
@@ -584,24 +612,27 @@ const normalizeSupportReplyRow = (row: any) => ({
   createdAt: row.created_at ?? row.createdAt ?? null,
 });
 
-const normalizeServiceRequestRow = (row: any) => ({
-  id: row.id,
-  userId: row.user_id ?? row.userId ?? null,
-  bikeId: row.bike_id ?? row.bikeId ?? null,
-  technicianId: row.technician_id ?? row.technicianId ?? null,
-  serviceType: row.service_type ?? row.serviceType ?? null,
-  status: row.status ?? null,
-  location: row.location ?? null,
-  latitude: row.latitude ?? null,
-  longitude: row.longitude ?? null,
-  notes: row.notes ?? null,
-  estimatedCost: row.estimated_cost ?? row.estimatedCost ?? null,
-  trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
-  route: row.route ?? row.route_data ?? row.routeData ?? null,
-  createdAt: row.created_at ?? row.createdAt ?? null,
-  updatedAt: row.updated_at ?? row.updatedAt ?? null,
-  orderNumber: row.order_number ?? row.orderNumber ?? null,
-});
+const normalizeServiceRequestRow = (row: any) => {
+  const createdAt = row.created_at ?? row.createdAt ?? null;
+  return {
+    id: row.id,
+    userId: row.user_id ?? row.userId ?? null,
+    bikeId: row.bike_id ?? row.bikeId ?? null,
+    technicianId: row.technician_id ?? row.technicianId ?? null,
+    serviceType: row.service_type ?? row.serviceType ?? null,
+    status: row.status ?? null,
+    location: row.location ?? null,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
+    notes: row.notes ?? null,
+    estimatedCost: row.estimated_cost ?? row.estimatedCost ?? null,
+    trackingSteps: row.tracking_steps ?? row.trackingSteps ?? [],
+    route: row.route ?? row.route_data ?? row.routeData ?? null,
+    createdAt,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null,
+    orderNumber: row.order_number ?? row.orderNumber ?? buildReferenceFromId("ORD", row.id, createdAt),
+  };
+};
 
 const normalizeNotificationRow = (row: any) => ({
   id: row.id,
@@ -7859,7 +7890,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             (isMockTechnician ? "Mock Technician" : null);
           return {
             ...request,
-            orderNumber: request.orderNumber || request.id,
+            orderNumber: request.orderNumber,
             orderType: "service",
             customerName: buildUserDisplayName(customer),
             customerEmail: customer?.email ?? null,
@@ -8673,7 +8704,38 @@ export async function registerRoutes(app: Express): Promise<void> {
         res.json(code);
       } catch (error) {
         console.error("Error updating discount code:", error);
-        res.status(500).json({ message: "Failed to update discount code" });
+        try {
+          const payload = req.body || {};
+          const normalizedCode = payload.code ? normalizeDiscountCodeInput(payload.code) : undefined;
+          const updatePayload: Record<string, any> = {
+            code: normalizedCode,
+            discount_type: payload.discountType ?? payload.discount_type,
+            discount_value: payload.discountValue ?? payload.discount_value,
+            max_uses: payload.maxUses ?? payload.max_uses,
+            expires_at: payload.expiresAt ?? payload.expires_at,
+            is_active: payload.isActive ?? payload.is_active,
+          };
+          Object.keys(updatePayload).forEach((key) => {
+            if (updatePayload[key] === undefined) delete updatePayload[key];
+          });
+          const { resp, data } = await pgFetch(
+            `/discount_codes?id=eq.${encodeURIComponent(req.params.id)}`,
+            {
+              method: "PATCH",
+              body: updatePayload,
+              headers: { Prefer: "return=representation" },
+            },
+          );
+          if (!resp.ok) {
+            console.log("[ADMIN][DISCOUNT][UPDATE][FAILED]", { status: resp.status, body: data });
+            return res.status(500).json({ message: "Failed to update discount code" });
+          }
+          const row = Array.isArray(data) ? data[0] : data;
+          return res.json(row ? normalizeDiscountCodeRow(row) : { success: true });
+        } catch (fallbackError) {
+          console.error("[ADMIN][DISCOUNT][UPDATE][FALLBACK_FAILED]", fallbackError);
+          res.status(500).json({ message: "Failed to update discount code" });
+        }
       }
     },
   );
@@ -8689,7 +8751,20 @@ export async function registerRoutes(app: Express): Promise<void> {
         res.status(204).send();
       } catch (error) {
         console.error("Error deleting discount code:", error);
-        res.status(500).json({ message: "Failed to delete discount code" });
+        try {
+          const { resp, data } = await pgFetch(
+            `/discount_codes?id=eq.${encodeURIComponent(req.params.id)}`,
+            { method: "DELETE" },
+          );
+          if (!resp.ok) {
+            console.log("[ADMIN][DISCOUNT][DELETE][FAILED]", { status: resp.status, body: data });
+            return res.status(500).json({ message: "Failed to delete discount code" });
+          }
+          res.status(204).send();
+        } catch (fallbackError) {
+          console.error("[ADMIN][DISCOUNT][DELETE][FALLBACK_FAILED]", fallbackError);
+          res.status(500).json({ message: "Failed to delete discount code" });
+        }
       }
     },
   );

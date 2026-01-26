@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, FileText, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare, FileSpreadsheet, MoreVertical } from "lucide-react";
+import { Users, Bike, Wrench, ClipboardList, Shield, UserCog, X, Eye, Download, Image, FileCheck, Upload, Loader2, Package, Trash2, Pencil, Check, Save, Headset, DollarSign, TrendingUp, BarChart3, MessageSquare, FileSpreadsheet, MoreVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { generateInvoicePDF } from "@/lib/generateInvoicePDF";
@@ -76,11 +76,6 @@ interface NotificationLogEntry {
   sentAt?: string | null;
   status?: string | null;
 }
-
-type InvoiceWithConvoy = Invoice & {
-  convoyId?: string;
-  convoyName?: string;
-};
 
 type LiveTechnicianLocation = {
   id: string;
@@ -171,6 +166,21 @@ export default function AdminDashboard() {
       return lang === "ar" ? "توصيل + تركيب" : "Delivery + Installation";
     }
     return lang === "ar" ? "استلام من المتجر" : "Store pickup";
+  };
+
+  const resolveDisplayRef = (value: any, id?: string | null, prefix = "ORD", dateSource?: string | null) => {
+    if (value) return String(value);
+    if (!id) return "-";
+    const cleaned = String(id).replace(/-/g, "").toUpperCase();
+    const suffix = cleaned.slice(0, 6);
+    let datePart = "";
+    if (dateSource) {
+      const date = new Date(dateSource);
+      if (!Number.isNaN(date.getTime())) {
+        datePart = date.toISOString().slice(2, 10).replace(/-/g, "");
+      }
+    }
+    return datePart ? `${prefix}-${datePart}-${suffix}` : `${prefix}-${suffix}`;
   };
 
   const fetchTechnicianDocuments = async (technicianId: string) => {
@@ -706,24 +716,11 @@ export default function AdminDashboard() {
     invoiceTypeShop: "متجر",
   } : translations['en'];
 
-  const convoys = [
-    { id: "convoy-riyadh", name: lang === "ar" ? "موكب الرياض" : "Riyadh Convoy" },
-    { id: "convoy-jeddah", name: lang === "ar" ? "موكب جدة" : "Jeddah Convoy" },
-    { id: "convoy-dammam", name: lang === "ar" ? "موكب الدمام" : "Dammam Convoy" },
-  ];
-
-  const convoyOptions = [
-    { id: "all", name: txt.allConvoys },
-    ...convoys,
-  ];
-
   const reportTypeOptions = [
     { id: "summary", label: txt.reportTypeSummary },
     { id: "services", label: txt.reportTypeServices },
     { id: "parts", label: txt.reportTypeParts },
   ];
-
-  const [selectedConvoy, setSelectedConvoy] = useState<string>(() => convoyOptions[1]?.id ?? "all");
 
   const { data: roleInfo, isLoading: rolesInfoLoading } = useQuery<{ isAdmin: boolean; roles: string[] }>({
     queryKey: ["/api/roles/me"],
@@ -741,7 +738,6 @@ export default function AdminDashboard() {
     requests: ["project_manager"],
     "shop-orders": ["sales"],
     "support-tickets": ["support"],
-    invoices: ["sales", "project_manager"],
     discounts: ["marketing", "sales"],
     parts: ["sales"],
     roles: ["admin"],
@@ -772,7 +768,6 @@ export default function AdminDashboard() {
     { id: "requests", label: txt.serviceRequests, icon: ClipboardList },
     { id: "shop-orders", label: txt.shopOrders, icon: Package },
     { id: "support-tickets", label: txt.supportTickets, icon: Headset },
-    { id: "invoices", label: txt.invoices, icon: FileText },
     { id: "discounts", label: txt.discounts, icon: Wrench },
     { id: "parts", label: txt.parts, icon: Package },
     { id: "roles", label: txt.userRoles, icon: UserCog },
@@ -1425,87 +1420,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const mockConvoyInvoices: InvoiceWithConvoy[] = [
-    {
-      id: "mock-invoice-1",
-      invoiceNumber: "INV-2024-1101",
-      userId: "mock-user-1",
-      serviceRequestId: null,
-      subtotal: "280.00",
-      taxRate: "15",
-      taxAmount: "42.00",
-      total: "322.00",
-      description: "Periodic maintenance",
-      items: [{ name: "Periodic maintenance", quantity: 1, unitPrice: 280, total: 280 }],
-      status: "paid",
-      issuedDate: new Date(),
-      dueDate: null,
-      paidDate: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      convoyId: convoys[0]?.id,
-      convoyName: convoys[0]?.name,
-    },
-    {
-      id: "mock-invoice-2",
-      invoiceNumber: "INV-2024-1102",
-      userId: "mock-user-2",
-      serviceRequestId: null,
-      subtotal: "190.00",
-      taxRate: "15",
-      taxAmount: "28.50",
-      total: "218.50",
-      description: "Emergency repair",
-      items: [{ name: "Emergency repair", quantity: 1, unitPrice: 190, total: 190 }],
-      status: "issued",
-      issuedDate: new Date(),
-      dueDate: null,
-      paidDate: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      convoyId: convoys[1]?.id,
-      convoyName: convoys[1]?.name,
-    },
-    {
-      id: "mock-invoice-3",
-      invoiceNumber: "INV-2024-1103",
-      userId: "mock-user-3",
-      serviceRequestId: null,
-      subtotal: "350.00",
-      taxRate: "15",
-      taxAmount: "52.50",
-      total: "402.50",
-      description: "Delivery + service",
-      items: [
-        { name: "Service", quantity: 1, unitPrice: 300, total: 300 },
-        { name: "Delivery", quantity: 1, unitPrice: 50, total: 50 },
-      ],
-      status: "paid",
-      issuedDate: new Date(),
-      dueDate: null,
-      paidDate: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      convoyId: convoys[2]?.id,
-      convoyName: convoys[2]?.name,
-    },
-  ];
-
-  const convoyInvoices: InvoiceWithConvoy[] = normalizedInvoices.length
-    ? normalizedInvoices.map((invoice: any, index) => {
-        const convoy = convoys[index % convoys.length];
-        return {
-          ...invoice,
-          convoyId: convoy?.id,
-          convoyName: convoy?.name,
-        };
-      })
-    : mockConvoyInvoices;
-
-  const filteredInvoices =
-    selectedConvoy === "all"
-      ? convoyInvoices
-      : convoyInvoices.filter((invoice) => invoice.convoyId === selectedConvoy);
   const safeParts = Array.isArray(parts as any) ? (parts as any) : [];
   const normalizedParts = safeParts.map((part: any) => ({
     ...part,
@@ -2859,8 +2773,13 @@ export default function AdminDashboard() {
                         </TableHeader>
                         <TableBody>
                           {safeServiceRequests.map((request: any) => {
-                            const orderNumber =
-                              request.orderNumber ?? request.order_number ?? request.id ?? "-";
+                            const createdAt = request.createdAt ?? request.created_at;
+                            const orderNumber = resolveDisplayRef(
+                              request.orderNumber ?? request.order_number,
+                              request.id,
+                              "ORD",
+                              createdAt,
+                            );
                             const customerName =
                               request.customerName ??
                               request.user_name ??
@@ -2869,9 +2788,12 @@ export default function AdminDashboard() {
                               "-";
                             const technicianName = request.technicianName ?? "-";
                             const isMockTechnician = request.isMockTechnician === true;
-                            const createdAt = request.createdAt ?? request.created_at;
-                            const invoiceNumber =
-                              request.invoiceNumber ?? request.invoice?.invoiceNumber ?? "-";
+                            const invoiceNumber = resolveDisplayRef(
+                              request.invoiceNumber ?? request.invoice?.invoiceNumber,
+                              request.invoiceId ?? request.invoice?.id,
+                              "INV",
+                              request.invoice?.issuedDate ?? request.invoice?.issued_date ?? createdAt,
+                            );
                             const invoiceStatus =
                               request.invoiceStatus ?? request.invoice?.status ?? "-";
                             const invoiceTotalRaw =
@@ -2986,17 +2908,25 @@ export default function AdminDashboard() {
                         </TableHeader>
                         <TableBody>
                           {safeShopOrders.map((order: any) => {
-                            const orderNumber =
-                              order.orderNumber ?? order.order_number ?? order.id ?? "-";
+                            const createdAt = order.createdAt ?? order.created_at;
+                            const orderNumber = resolveDisplayRef(
+                              order.orderNumber ?? order.order_number,
+                              order.id,
+                              "ORD",
+                              createdAt,
+                            );
                             const customerName =
                               order.customerName ??
                               order.user_name ??
                               order.userName ??
                               order.userId ??
                               "-";
-                            const createdAt = order.createdAt ?? order.created_at;
-                            const invoiceNumber =
-                              order.invoiceNumber ?? order.invoice?.invoiceNumber ?? "-";
+                            const invoiceNumber = resolveDisplayRef(
+                              order.invoiceNumber ?? order.invoice?.invoiceNumber,
+                              order.invoiceId ?? order.invoice?.id,
+                              "INV",
+                              order.invoice?.issuedDate ?? order.invoice?.issued_date ?? createdAt,
+                            );
                             const invoiceStatus =
                               order.invoiceStatus ?? order.invoice?.status ?? "-";
                             const invoiceTotalRaw =
@@ -3353,127 +3283,6 @@ export default function AdminDashboard() {
                     )}
                   </ScrollArea>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="invoices" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <CardTitle>{txt.invoices}</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">{txt.convoy}</span>
-                    <Select value={selectedConvoy} onValueChange={setSelectedConvoy}>
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {convoyOptions.map((convoy) => (
-                          <SelectItem key={convoy.id} value={convoy.id}>
-                            {convoy.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[500px]">
-                  {invoicesLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.loading}</div>
-                  ) : filteredInvoices.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">{txt.noData}</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {filteredInvoices.map((invoice) => {
-                        const user = safeUsers.find((u) => u.id === invoice.userId);
-                        const invoiceType = (invoice as any).orderId || (invoice as any).order_id
-                          ? txt.invoiceTypeShop
-                          : txt.invoiceTypeService;
-                        return (
-                          <div
-                            key={invoice.id}
-                            className="p-4 border rounded-lg hover-elevate space-y-3"
-                            data-testid={`invoice-item-${invoice.id}`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="space-y-1">
-                                <p className="font-semibold text-foreground" data-testid={`invoice-number-${invoice.id}`}>
-                                  {txt.invoiceNumber}: {invoice.invoiceNumber}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {txt.invoiceType}: {invoiceType}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                  {user ? `${user.firstName} ${user.lastName}` : 'Unknown User'}
-                                </p>
-                                {invoice.convoyName && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {txt.convoy}: {invoice.convoyName}
-                                  </p>
-                                )}
-                              </div>
-                              <Badge
-                                variant={
-                                  invoice.status === 'paid'
-                                    ? 'default'
-                                    : invoice.status === 'issued'
-                                    ? 'secondary'
-                                    : 'outline'
-                                }
-                                data-testid={`invoice-status-${invoice.id}`}
-                              >
-                                {invoice.status}
-                              </Badge>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div>
-                                <span className="font-medium">{txt.subtotal}: </span>
-                                <span className="text-muted-foreground">{invoice.subtotal} {lang === 'ar' ? 'ر.س' : 'SAR'}</span>
-                              </div>
-                              <div>
-                                <span className="font-medium">{txt.taxRate}: </span>
-                                <span className="text-muted-foreground">{invoice.taxRate}%</span>
-                              </div>
-                              <div>
-                                <span className="font-medium">{txt.taxAmount}: </span>
-                                <span className="text-muted-foreground">{invoice.taxAmount} {lang === 'ar' ? 'ر.س' : 'SAR'}</span>
-                              </div>
-                              <div>
-                                <span className="font-medium">{txt.total}: </span>
-                                <span className="text-foreground font-semibold">{invoice.total} {lang === 'ar' ? 'ر.س' : 'SAR'}</span>
-                              </div>
-                            </div>
-
-                            {invoice.issuedDate && (
-                              <div className="text-sm">
-                                <span className="font-medium">{txt.issuedDate}: </span>
-                                <span className="text-muted-foreground">
-                                  {new Date(invoice.issuedDate).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}
-                                </span>
-                              </div>
-                            )}
-
-                            <div className="flex justify-end pt-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => generateInvoicePDF(invoice, user, lang as 'ar' | 'en')}
-                                data-testid={`button-download-pdf-${invoice.id}`}
-                              >
-                                <FileText className="w-4 h-4 mr-2" />
-                                {txt.downloadPDF}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </ScrollArea>
               </CardContent>
             </Card>
           </TabsContent>
@@ -4036,6 +3845,101 @@ export default function AdminDashboard() {
                       <p className="mt-2 whitespace-pre-wrap">{selectedServiceRequest.notes}</p>
                     </div>
                   )}
+                  {(() => {
+                    const invoice = (selectedServiceRequest as any).invoice ?? null;
+                    const createdAt = (selectedServiceRequest as any).createdAt ?? (selectedServiceRequest as any).created_at ?? null;
+                    const invoiceNumber = resolveDisplayRef(
+                      (selectedServiceRequest as any).invoiceNumber ?? invoice?.invoiceNumber,
+                      (selectedServiceRequest as any).invoiceId ?? invoice?.id,
+                      "INV",
+                      invoice?.issuedDate ?? invoice?.issued_date ?? createdAt,
+                    );
+                    const issuedDate = invoice?.issuedDate ?? invoice?.issued_date ?? null;
+                    const subtotal = Number(invoice?.subtotal ?? (selectedServiceRequest as any).subtotal ?? 0);
+                    const taxRate = Number(invoice?.taxRate ?? invoice?.tax_rate ?? 15);
+                    const taxAmount = Number(invoice?.taxAmount ?? invoice?.tax_amount ?? 0);
+                    const total = Number(invoice?.total ?? (selectedServiceRequest as any).total ?? 0);
+                    const status = invoice?.status ?? (selectedServiceRequest as any).invoiceStatus ?? null;
+                    const items = invoice?.items ?? [];
+                    const payout = resolvePayoutBreakdown(selectedServiceRequest);
+                    const customer = safeUsers.find((user) => user.id === (selectedServiceRequest as any).userId);
+                    const canDownload = invoiceNumber !== "-";
+                    return (
+                      <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold">{txt.invoiceDetails}</h4>
+                          {canDownload && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                generateInvoicePDF(
+                                  {
+                                    invoiceNumber,
+                                    subtotal,
+                                    taxRate,
+                                    taxAmount,
+                                    total,
+                                    status,
+                                    issuedDate,
+                                    items,
+                                  },
+                                  customer,
+                                  lang as "ar" | "en",
+                                  { orderId: (selectedServiceRequest as any).orderNumber || (selectedServiceRequest as any).id || "" },
+                                )
+                              }
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              {txt.downloadPDF}
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-2 text-sm md:grid-cols-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.invoiceNumber}</span>
+                            <span>{invoiceNumber}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.status}</span>
+                            <span>{status || "-"}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.subtotal}</span>
+                            <span>{formatCurrency(subtotal)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.taxRate}</span>
+                            <span>{Number.isFinite(taxRate) ? `${taxRate}%` : "-"}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.taxAmount}</span>
+                            <span>{formatCurrency(taxAmount)}</span>
+                          </div>
+                          <div className="flex items-center justify-between font-semibold">
+                            <span className="text-muted-foreground">{txt.total}</span>
+                            <span>{formatCurrency(total)}</span>
+                          </div>
+                          {payout.techShare !== null && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">
+                                {lang === "ar" ? "حصة الفني" : "Tech share"}
+                              </span>
+                              <span>{formatCurrency(payout.techShare)}</span>
+                            </div>
+                          )}
+                          {payout.appShare !== null && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-muted-foreground">
+                                {lang === "ar" ? "حصة التطبيق" : "App share"}
+                              </span>
+                              <span>{formatCurrency(payout.appShare)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="rounded-lg border border-border/60 p-3">
                     <h4 className="font-semibold mb-2">{lang === "ar" ? "تتبع الطلب" : "Tracking"}</h4>
                     <OrderTrackingTimeline
@@ -4061,7 +3965,14 @@ export default function AdminDashboard() {
                   <div className="grid gap-3 md:grid-cols-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">{lang === "ar" ? "رقم الطلب" : "Order Number"}</span>
-                      <span>{selectedShopOrder.orderNumber || "-"}</span>
+                      <span>
+                        {resolveDisplayRef(
+                          (selectedShopOrder as any).orderNumber ?? (selectedShopOrder as any).order_number,
+                          (selectedShopOrder as any).id,
+                          "ORD",
+                          (selectedShopOrder as any).createdAt ?? (selectedShopOrder as any).created_at ?? null,
+                        )}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">{txt.status}</span>
@@ -4096,6 +4007,84 @@ export default function AdminDashboard() {
                       <span>{formatCurrency(Number(selectedShopOrder.total || 0))}</span>
                     </div>
                   </div>
+                  {(() => {
+                    const invoice = (selectedShopOrder as any).invoice ?? null;
+                    const createdAt = (selectedShopOrder as any).createdAt ?? (selectedShopOrder as any).created_at ?? null;
+                    const invoiceNumber = resolveDisplayRef(
+                      (selectedShopOrder as any).invoiceNumber ?? invoice?.invoiceNumber,
+                      (selectedShopOrder as any).invoiceId ?? invoice?.id,
+                      "INV",
+                      invoice?.issuedDate ?? invoice?.issued_date ?? createdAt,
+                    );
+                    const issuedDate = invoice?.issuedDate ?? invoice?.issued_date ?? null;
+                    const subtotal = Number(invoice?.subtotal ?? (selectedShopOrder as any).subtotal ?? 0);
+                    const taxRate = Number(invoice?.taxRate ?? invoice?.tax_rate ?? 15);
+                    const taxAmount = Number(invoice?.taxAmount ?? invoice?.tax_amount ?? 0);
+                    const total = Number(invoice?.total ?? (selectedShopOrder as any).total ?? 0);
+                    const status = invoice?.status ?? (selectedShopOrder as any).invoiceStatus ?? null;
+                    const items = invoice?.items ?? parseItems((selectedShopOrder as any).items ?? (selectedShopOrder as any).items_json ?? []);
+                    const customer = safeUsers.find((user) => user.id === (selectedShopOrder as any).userId);
+                    const canDownload = invoiceNumber !== "-";
+                    return (
+                      <div className="rounded-lg border border-border/60 p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold">{txt.invoiceDetails}</h4>
+                          {canDownload && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                generateInvoicePDF(
+                                  {
+                                    invoiceNumber,
+                                    subtotal,
+                                    taxRate,
+                                    taxAmount,
+                                    total,
+                                    status,
+                                    issuedDate,
+                                    items,
+                                  },
+                                  customer,
+                                  lang as "ar" | "en",
+                                  { orderId: (selectedShopOrder as any).orderNumber || (selectedShopOrder as any).id || "" },
+                                )
+                              }
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              {txt.downloadPDF}
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-2 text-sm md:grid-cols-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.invoiceNumber}</span>
+                            <span>{invoiceNumber}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.status}</span>
+                            <span>{status || "-"}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.subtotal}</span>
+                            <span>{formatCurrency(subtotal)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.taxRate}</span>
+                            <span>{Number.isFinite(taxRate) ? `${taxRate}%` : "-"}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">{txt.taxAmount}</span>
+                            <span>{formatCurrency(taxAmount)}</span>
+                          </div>
+                          <div className="flex items-center justify-between font-semibold">
+                            <span className="text-muted-foreground">{txt.total}</span>
+                            <span>{formatCurrency(total)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="rounded-lg border border-border/60 p-3">
                     <h4 className="font-semibold mb-2">{lang === "ar" ? "تتبع الطلب" : "Tracking"}</h4>
                     <OrderTrackingTimeline

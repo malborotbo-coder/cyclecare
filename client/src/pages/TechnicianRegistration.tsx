@@ -510,7 +510,11 @@ export default function TechnicianRegistration() {
                     {lang === "ar" ? "الحقول الناقصة:" : "Missing fields:"} {missingProfileFields.join("، ")}
                   </div>
                 )}
-                <Button type="button" onClick={() => navigate("/my-profile")} data-testid="button-go-profile">
+                <Button
+                  type="button"
+                  onClick={() => navigate("/my-profile?returnTo=/technician/register")}
+                  data-testid="button-go-profile"
+                >
                   {lang === "ar" ? "اذهب إلى بياناتي" : "Go to Profile"}
                 </Button>
               </CardContent>

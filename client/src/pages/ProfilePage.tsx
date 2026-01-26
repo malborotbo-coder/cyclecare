@@ -1,4 +1,4 @@
-import { useState, useEffect, ReactNode, useRef } from "react";
+import { useState, useEffect, ReactNode, useRef, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { auth } from "@/lib/firebase";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
+import { useLocation } from "wouter";
 
 type ProfileFormData = {
   firstName: string;
@@ -43,7 +44,8 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const nativeUser = useNativeUser();
   const nativeAuth = useNativeAuth();
-  const { user, isGuest, authReady } = useFirebaseAuth();
+  const { user, isGuest, authReady, logout } = useFirebaseAuth();
+  const [, setLocation] = useLocation();
   const isNative = Capacitor.isNativePlatform();
   const isSignedIn = Boolean(user || nativeUser);
   const [isLoading, setIsLoading] = useState(false);
@@ -61,6 +63,11 @@ export default function ProfilePage() {
     phone: "",
   });
   const initializedRef = useRef(false);
+  const returnTo = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const target = new URLSearchParams(window.location.search).get("returnTo") || "";
+    return target.startsWith("/") ? target : "";
+  }, []);
 
   const markInitialized = () => {
     if (!initializedRef.current) {
@@ -183,6 +190,9 @@ export default function ProfilePage() {
         title: lang === "ar" ? "تم الحفظ بنجاح" : "Saved successfully",
         description: lang === "ar" ? "تم تحديث بياناتك الشخصية" : "Your profile has been updated",
       });
+      if (returnTo) {
+        setLocation(returnTo);
+      }
     } catch (error: any) {
       const isUnauthorized = error?.code === "UNAUTHORIZED" || error?.status === 401;
       console.error("Failed to save profile:", error);
@@ -398,12 +408,26 @@ export default function ProfilePage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => {
-                          setPostLoginRedirect("/my-profile");
-                          window.location.href = "/auth";
+                        onClick={async () => {
+                          setPostLoginRedirect(returnTo || "/my-profile");
+                          await logout();
                         }}
                       >
                         {lang === "ar" ? "تسجيل دخول مرة أخرى" : "Sign in again"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {returnTo && (
+                  <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm font-semibold text-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {lang === "ar"
+                          ? "بعد حفظ البيانات يمكنك الرجوع لإكمال تسجيل الفني."
+                          : "After saving, you can return to complete technician registration."}
+                      </span>
+                      <Button size="sm" variant="outline" onClick={() => setLocation(returnTo)}>
+                        {lang === "ar" ? "العودة لتسجيل الفني" : "Back to Technician Registration"}
                       </Button>
                     </div>
                   </div>
