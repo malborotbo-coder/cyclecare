@@ -4,6 +4,7 @@ import { handleLiveActivityForRequest, handleLiveActivityFromPush } from "@/lib/
 
 type NotificationData = {
   type?: string | null;
+  role?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   activityType?: string | null;
@@ -39,6 +40,24 @@ const refreshServiceRequests = async () => {
     console.log("[LiveActivity] Failed to fetch service requests:", error);
     return [];
   }
+};
+
+const resolveNotificationTarget = (data?: NotificationData | null) => {
+  if (!data) return null;
+  if (data.role === "technician" || data.type === "technician_update" || data.activityType === "technician_route") {
+    return "/technician";
+  }
+  if (isOrderNotification(data)) {
+    return "/orders";
+  }
+  return null;
+};
+
+const navigateTo = (path: string) => {
+  if (typeof window === "undefined") return;
+  if (!path) return;
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 };
 
 let initialized = false;
@@ -85,5 +104,9 @@ export const initializeNotificationSyncOnce = () => {
       | NotificationData
       | undefined;
     void handleOrderUpdate(data, (action as any)?.notification?.title, (action as any)?.notification?.body);
+    const target = resolveNotificationTarget(data);
+    if (target) {
+      navigateTo(target);
+    }
   });
 };

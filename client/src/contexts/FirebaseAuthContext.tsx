@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
+import { unregisterPushToken } from "@/lib/pushManager";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
@@ -236,6 +237,9 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       // Call logout endpoint
       await fetch(buildApiUrl("/api/logout"), { method: "POST" });
 
+      // Disable push tokens for this device before clearing auth
+      await unregisterPushToken();
+
       // Clear tokens (native + web) and local state
       await clearAuthTokens();
       localStorage.removeItem("onboarding_completed");
@@ -245,6 +249,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     } catch (error) {
       console.error("[Auth] Logout error:", error);
       // Still redirect on error
+      await unregisterPushToken();
       await clearAuthTokens();
       exitGuestMode();
       window.location.href = "/";

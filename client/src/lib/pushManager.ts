@@ -8,13 +8,15 @@ import {
   type Token,
 } from "@capacitor/push-notifications";
 import { buildApiUrl } from "@/lib/apiConfig";
-import { getAuthToken } from "@/lib/authStorage";
+import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 
 const TOKEN_STORAGE_KEY = "push_device_token";
 const TOKEN_TYPE_STORAGE_KEY = "push_device_token_type";
 const PENDING_TOKEN_KEY = "push_pending_token";
 const PENDING_TOKEN_TYPE_KEY = "push_pending_token_type";
 const PERMISSION_FLAG_KEY = "push_permission_requested";
+const DEVICE_ID_KEY = "push_device_id";
+const ROLE_STORAGE_KEY = "push_device_role";
 
 const isNative = Capacitor.isNativePlatform();
 const platform = Capacitor.getPlatform();
@@ -25,11 +27,15 @@ let listenersAttached = false;
 let registerCalled = false;
 let registerInFlight = false;
 let cachedToken: string | null = null;
+let cachedDeviceId: string | null = null;
 let lastSentToken: string | null = null;
 let lastSentUserId: string | null = null;
+let lastSentRole: string | null = null;
 let authListenerAttached = false;
 let registrationAllowed = false;
 let currentUserId: string | null = null;
+let currentRole: string | null = null;
+let roleUserId: string | null = null;
 let cachedAppVersion: string | null = null;
 
 type ForegroundHandler = (notification: PushNotificationSchema) => void;
@@ -71,6 +77,49 @@ const ensureCachedToken = async () => {
   return cachedToken;
 };
 
+const ensureDeviceId = async () => {
+  if (cachedDeviceId) return cachedDeviceId;
+  const stored = await readStoredValue(DEVICE_ID_KEY);
+  if (stored) {
+    cachedDeviceId = stored;
+    return stored;
+  }
+  const generated =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `device_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  await writeStoredValue(DEVICE_ID_KEY, generated);
+  cachedDeviceId = generated;
+  return generated;
+};
+
+const resolveRoleForRegistration = async () => {
+  if (currentRole) return currentRole;
+  const stored = await readStoredValue(ROLE_STORAGE_KEY);
+  if (stored) {
+    currentRole = stored;
+    return stored;
+  }
+  try {
+    const res = await fetchWithFirebaseAuth(buildApiUrl("/api/roles/me"), { method: "GET" });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const roles = Array.isArray(data?.roles) ? data.roles : [];
+      const role = data?.isAdmin
+        ? "admin"
+        : roles.includes("technician")
+        ? "technician"
+        : "customer";
+      currentRole = role;
+      await writeStoredValue(ROLE_STORAGE_KEY, role);
+      return role;
+    }
+  } catch (error) {
+    console.log("[Push][Role] Failed to fetch roles:", error);
+  }
+  return null;
+};
+
 const persistPendingToken = async (token: string, tokenType: string) => {
   await writeStoredValue(PENDING_TOKEN_KEY, token);
   await writeStoredValue(PENDING_TOKEN_TYPE_KEY, tokenType);
@@ -86,20 +135,22 @@ const sendRegisterRequest = async (payload: {
   tokenType: string;
   platform: string;
   deviceId?: string | null;
-  authToken: string;
+  appVersion?: string | null;
+  role?: string | null;
 }) => {
-  const res = await fetch(buildApiUrl("/api/push/register"), {
+  const res = await fetchWithFirebaseAuth(buildApiUrl("/api/push/register"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${payload.authToken}`,
     },
     body: JSON.stringify({
       token: payload.token,
       tokenType: payload.tokenType,
       platform: payload.platform,
       deviceId: payload.deviceId ?? null,
+      appVersion: payload.appVersion ?? null,
       environment,
+      role: payload.role ?? null,
     }),
   });
   if (!res.ok) {
@@ -109,35 +160,33 @@ const sendRegisterRequest = async (payload: {
   return res.json().catch(() => ({}));
 };
 
-const registerDeviceToken = async (token: string, userId: string) => {
+const registerDeviceToken = async (token: string, userId: string, role?: string | null) => {
   if (
     !token ||
     !userId ||
     registerInFlight ||
-    (token === lastSentToken && userId === lastSentUserId)
+    (token === lastSentToken && userId === lastSentUserId && role === lastSentRole)
   )
     return;
-  const authToken = await getAuthToken();
-  if (!authToken) {
-    console.log("[Push] Skipped: no auth token yet");
-    await persistPendingToken(token, getTokenType());
-    return;
-  }
   registerInFlight = true;
   try {
     const info = cachedAppVersion
       ? { version: cachedAppVersion }
       : await App.getInfo().catch(() => ({ version: null }));
     cachedAppVersion = info?.version || cachedAppVersion;
+    const deviceId = await ensureDeviceId();
+    const resolvedRole = role || (await resolveRoleForRegistration());
     await sendRegisterRequest({
       token,
       tokenType: getTokenType(),
       platform,
-      deviceId: null,
-      authToken,
+      deviceId,
+      appVersion: cachedAppVersion || null,
+      role: resolvedRole,
     });
     lastSentToken = token;
     lastSentUserId = userId;
+    lastSentRole = resolvedRole || null;
     await writeStoredValue(TOKEN_STORAGE_KEY, token);
     await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
     await clearPendingToken();
@@ -154,15 +203,12 @@ const handleToken = async (tokenValue: string) => {
   console.log("[Push][Token] Received:", tokenValue);
   await writeStoredValue(TOKEN_STORAGE_KEY, tokenValue);
   await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
-  const authToken = await getAuthToken();
-  if (!authToken) {
-    console.log("[Push] Skipped: no auth token yet");
+  if (!registrationAllowed || !currentUserId) {
+    console.log("[Push] Skipped: no auth session yet");
     await persistPendingToken(tokenValue, getTokenType());
     return;
   }
-  if (registrationAllowed && currentUserId) {
-    await registerDeviceToken(tokenValue, currentUserId);
-  }
+  await registerDeviceToken(tokenValue, currentUserId, currentRole);
 };
 
 const attachListeners = () => {
@@ -256,16 +302,40 @@ export const onNotificationTap = (handler: TapHandler) => {
 export const syncPushRegistrationOnLogin = async (userId?: string | null) => {
   registrationAllowed = Boolean(userId);
   currentUserId = userId ?? null;
-  if (!registrationAllowed || !currentUserId) return;
-  const authToken = await getAuthToken();
-  if (!authToken) {
-    console.log("[Push] Skipped: no auth token yet");
-    return;
+  currentRole = null;
+  if (currentUserId && roleUserId && currentUserId !== roleUserId) {
+    await writeStoredValue(ROLE_STORAGE_KEY, "");
   }
+  roleUserId = currentUserId;
+  if (!registrationAllowed || !currentUserId) return;
   const pendingToken = await readStoredValue(PENDING_TOKEN_KEY);
   const token = await ensureCachedToken();
   const effectiveToken = pendingToken || token;
   if (effectiveToken) {
-    await registerDeviceToken(effectiveToken, currentUserId);
+    const role = await resolveRoleForRegistration();
+    await registerDeviceToken(effectiveToken, currentUserId, role);
+  }
+};
+
+export const unregisterPushToken = async () => {
+  const deviceId = await ensureDeviceId();
+  try {
+    await fetchWithFirebaseAuth(buildApiUrl("/api/push/unregister"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId,
+        platform,
+        tokenType: getTokenType(),
+      }),
+    });
+    lastSentToken = null;
+    lastSentUserId = null;
+    lastSentRole = null;
+    currentRole = null;
+    roleUserId = null;
+    await writeStoredValue(ROLE_STORAGE_KEY, "");
+  } catch (error) {
+    console.log("[Push][Unregister] Failed:", error);
   }
 };

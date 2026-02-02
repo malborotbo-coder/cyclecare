@@ -38,10 +38,25 @@ const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
 const MOCK_TECH_ID_PREFIX = "mock-";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
-const APPLE_BUNDLE_IDS = (process.env.APPLE_BUNDLE_ID || "com.mujtabanasr.cyclecare")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
+const APPLE_BUNDLE_IDS = Array.from(
+  new Set(
+    [
+      process.env.APPLE_BUNDLE_ID,
+      process.env.APPLE_SERVICE_ID,
+      process.env.APPLE_CLIENT_ID,
+      process.env.APNS_BUNDLE_ID,
+      process.env.IOS_BUNDLE_ID,
+      process.env.BUNDLE_ID,
+    ]
+      .filter(Boolean)
+      .flatMap((value) => String(value).split(","))
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ),
+);
+if (APPLE_BUNDLE_IDS.length === 0) {
+  APPLE_BUNDLE_IDS.push("com.mujtabanasr.cyclecare");
+}
 const PROFILE_IMAGE_BUCKET = process.env.PROFILE_IMAGE_BUCKET || "profile-images";
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
@@ -124,12 +139,36 @@ function buildMockTech(lat: number, lng: number) {
 const isMockTechnicianId = (value: unknown) =>
   typeof value === "string" && value.trim().startsWith(MOCK_TECH_ID_PREFIX);
 
+const decodeJwtClaims = (token: string) => {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    return payload || null;
+  } catch {
+    return null;
+  }
+};
+
 async function verifyAppleIdentityToken(identityToken: string) {
-  const { payload } = await jwtVerify(identityToken, appleJwks, {
-    issuer: "https://appleid.apple.com",
-    audience: APPLE_BUNDLE_IDS,
-  });
-  return payload;
+  try {
+    const { payload } = await jwtVerify(identityToken, appleJwks, {
+      issuer: "https://appleid.apple.com",
+      audience: APPLE_BUNDLE_IDS,
+    });
+    return payload;
+  } catch (error: any) {
+    const decoded = decodeJwtClaims(identityToken);
+    console.error("[APPLE][VERIFY][FAILED]", {
+      message: error?.message,
+      aud: decoded?.aud,
+      iss: decoded?.iss,
+      sub: decoded?.sub,
+      exp: decoded?.exp,
+      expectedAud: APPLE_BUNDLE_IDS,
+    });
+    throw error;
+  }
 }
 
 async function upsertTechnicianLocation(technicianId: string, lat?: number, lng?: number) {
@@ -658,6 +697,7 @@ const normalizePushTokenRow = (row: any) => ({
   userId: row.user_id ?? row.userId ?? null,
   token: row.token ?? null,
   tokenType: row.token_type ?? row.tokenType ?? null,
+  role: row.role ?? null,
   platform: row.platform ?? null,
   deviceId: row.device_id ?? row.deviceId ?? null,
   appVersion: row.app_version ?? row.appVersion ?? null,
@@ -690,9 +730,11 @@ const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
 const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
 
 const buildPushPayload = (notification: any) => {
+  const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
   const data = {
     notificationId: notification.id ?? null,
     type: notification.type ?? null,
+    role: resolvedRole,
     entityId: notification.entityId ?? null,
     activityType: notification.activityType ?? null,
     activityId: notification.activityId ?? null,
@@ -924,8 +966,10 @@ const sendFcmPush = async (token: string, payload: { title: string; body: string
 
 const deliverNotificationPush = async (notification: any) => {
   if (!notification?.id || !notification?.userId) return { sent: 0, failed: 0 };
+  const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
+  const roleFilter = resolvedRole ? `&role=eq.${encodeURIComponent(resolvedRole)}` : "";
   const { resp, data } = await pgFetch(
-    `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true`,
+    `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true${roleFilter}`,
   );
   if (!resp.ok) {
     console.warn("[NOTIFICATIONS][PUSH][TOKENS_FAILED]", { status: resp.status, body: data });
@@ -933,6 +977,13 @@ const deliverNotificationPush = async (notification: any) => {
   }
   const tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
   if (tokens.length === 0) return { sent: 0, failed: 0 };
+  console.log("[NOTIFICATIONS][PUSH][TOKENS]", {
+    notificationId: notification.id,
+    userId: notification.userId,
+    role: resolvedRole,
+    count: tokens.length,
+    deviceIds: tokens.map((t) => t.deviceId).filter(Boolean),
+  });
 
   const payload = buildPushPayload(notification);
   let sent = 0;
@@ -991,16 +1042,94 @@ const sendNotificationPush = async (notification: any) => {
   return delivery;
 };
 
+function normalizePushRole(value?: string | null) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "rider") return "customer";
+  if (raw === "technician" || raw === "customer" || raw === "admin") return raw;
+  return null;
+}
+
+const resolvePushRole = async (payload: {
+  userId: string;
+  auth?: AuthContext | null;
+  requestedRole?: string | null;
+}) => {
+  const normalized = normalizePushRole(payload.requestedRole);
+  if (normalized) return normalized;
+  if (payload.auth?.isAdmin) return "admin";
+  try {
+    const hasTechnicianRole = await userHasRole(payload.userId, "technician");
+    if (hasTechnicianRole) return "technician";
+  } catch (error) {
+    console.warn("[PUSH][ROLE] Failed to resolve roles:", error);
+  }
+  try {
+    const { resp, data } = await pgFetch(
+      `/users?id=eq.${encodeURIComponent(payload.userId)}&select=is_technician`,
+    );
+    if (resp.ok) {
+      const row = Array.isArray(data) ? data[0] : data?.[0];
+      if (row?.is_technician === true) return "technician";
+    }
+  } catch (error) {
+    console.warn("[PUSH][ROLE] Failed to check user flag:", error);
+  }
+  return "customer";
+};
+
+const buildPushTokenFilter = (payload: {
+  token: string;
+  tokenType: string;
+  platform?: string | null;
+  deviceId?: string | null;
+}) => {
+  const base = [
+    `token=eq.${encodeURIComponent(payload.token)}`,
+    `token_type=eq.${encodeURIComponent(payload.tokenType)}`,
+  ];
+  if (payload.platform) {
+    base.push(`platform=eq.${encodeURIComponent(payload.platform)}`);
+  }
+  if (payload.deviceId) {
+    base.push(`device_id=eq.${encodeURIComponent(payload.deviceId)}`);
+  }
+  return `/push_tokens?${base.join("&")}`;
+};
+
 const registerDeviceToken = async (payload: {
   userId: string;
   token: string;
   tokenType: "apns" | "fcm";
+  role?: string | null;
   platform?: string | null;
   deviceId?: string | null;
   appVersion?: string | null;
   environment?: string | null;
 }) => {
   const now = new Date().toISOString();
+  const tokenFilter = buildPushTokenFilter({
+    token: payload.token,
+    tokenType: payload.tokenType,
+    platform: payload.platform || null,
+    deviceId: payload.deviceId || null,
+  });
+
+  await pgFetch(`${tokenFilter}&user_id=neq.${encodeURIComponent(payload.userId)}`, {
+    method: "PATCH",
+    body: { is_active: false, updated_at: now },
+  }).catch(() => {});
+
+  if (payload.deviceId && payload.platform) {
+    await pgFetch(
+      `/push_tokens?device_id=eq.${encodeURIComponent(payload.deviceId)}&platform=eq.${encodeURIComponent(payload.platform)}&token_type=eq.${encodeURIComponent(payload.tokenType)}&token=neq.${encodeURIComponent(payload.token)}`,
+      {
+        method: "PATCH",
+        body: { is_active: false, updated_at: now },
+      },
+    ).catch(() => {});
+  }
+
   const { resp, data } = await pgFetch("/push_tokens?on_conflict=user_id,token,token_type", {
     method: "POST",
     body: [
@@ -1008,6 +1137,7 @@ const registerDeviceToken = async (payload: {
         user_id: payload.userId,
         token: payload.token,
         token_type: payload.tokenType,
+        role: payload.role || null,
         platform: payload.platform || null,
         device_id: payload.deviceId || null,
         app_version: payload.appVersion || null,
@@ -2237,7 +2367,9 @@ const resolvePushRegisterAuth = async (
 async function ensureUserUuid(auth: AuthContext): Promise<string> {
   const uuidRegex = /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{4}-[0-9a-fA-F-]{12}$/;
   const providerId = auth.userId;
-  const providerHint = auth.phoneNumber
+  const providerHint = auth.userId?.startsWith("apple_")
+    ? "apple"
+    : auth.phoneNumber
     ? "phone"
     : auth.email
     ? "firebase"
@@ -2529,6 +2661,13 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ message: "IDENTITY_TOKEN_REQUIRED" });
       }
 
+      console.log("[APPLE][AUTH][REQUEST]", {
+        hasIdentityToken: true,
+        emailProvided: Boolean(email),
+        hasFullName: Boolean(fullName?.firstName || fullName?.lastName),
+        expectedAudiences: APPLE_BUNDLE_IDS,
+      });
+
       const payload = await verifyAppleIdentityToken(identityToken);
       const sub = payload.sub as string | undefined;
       if (!sub) {
@@ -2557,7 +2696,11 @@ export async function registerRoutes(app: Express): Promise<void> {
         },
       });
     } catch (error: any) {
-      console.error("[APPLE][AUTH][ERROR]", error);
+      console.error("[APPLE][AUTH][ERROR]", {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack,
+      });
       return res
         .status(400)
         .json({ message: "APPLE_AUTH_FAILED", detail: error?.message || "Invalid Apple identity token" });
@@ -6568,11 +6711,11 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
       const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
-  const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
-  const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
-  const rawEnvironment = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
+      const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+      const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
       const rawAppVersion = typeof req.body?.appVersion === "string" ? req.body.appVersion.trim() : "";
       const rawEnv = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
+      const rawRole = typeof req.body?.role === "string" ? req.body.role.trim() : "";
 
       if (!rawToken || !rawType) {
         return res.status(400).json({ message: "token and tokenType are required" });
@@ -6583,10 +6726,12 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
       }
 
+      const role = await resolvePushRole({ userId: userUuid, auth, requestedRole: rawRole });
       const row = await registerDeviceToken({
         userId: userUuid,
         token: rawToken,
         tokenType,
+        role,
         platform: rawPlatform || null,
         deviceId: rawDeviceId || null,
         appVersion: rawAppVersion || null,
@@ -6597,6 +6742,14 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(500).json({ message: "Failed to register device" });
       }
 
+      console.log("[DEVICES][REGISTER][SUCCESS]", {
+        userId: userUuid,
+        tokenType,
+        role,
+        platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
+        environment: rawEnv || null,
+      });
       res.json(row);
     } catch (error) {
       console.error("[DEVICES][REGISTER] Error:", error);
@@ -6780,6 +6933,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       const rawType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
       const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
       const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+      const rawAppVersion = typeof req.body?.appVersion === "string" ? req.body.appVersion.trim() : "";
+      const rawEnv = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
+      const rawRole = typeof req.body?.role === "string" ? req.body.role.trim() : "";
 
       if (!rawToken || !rawType) {
         return res.status(400).json({ message: "token and tokenType are required" });
@@ -6790,14 +6946,17 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
       }
 
+      const role = await resolvePushRole({ userId: userUuid, auth: resolved.auth, requestedRole: rawRole });
       const row = await registerDeviceToken({
         userId: userUuid,
-      token: rawToken,
-      tokenType,
-      platform: rawPlatform || null,
-      deviceId: rawDeviceId || null,
-      environment: rawEnvironment || null,
-    });
+        token: rawToken,
+        tokenType,
+        role,
+        platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
+        appVersion: rawAppVersion || null,
+        environment: rawEnv || null,
+      });
 
       if (!row) {
         console.warn("[PUSH][REGISTER][FAILED]", { userId: userUuid });
@@ -6807,13 +6966,64 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.log("[PUSH][REGISTER][SUCCESS]", {
         userId: userUuid,
         tokenType,
+        role,
         platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
+        environment: rawEnv || null,
         bundleId: process.env.APNS_BUNDLE_ID || null,
       });
       res.json(row);
     } catch (error) {
       console.error("[PUSH][REGISTER] Error:", error);
       res.status(500).json({ message: "Failed to register push token" });
+    }
+  });
+
+  app.post("/api/push/unregister", async (req: any, res) => {
+    try {
+      const resolved = await resolvePushRegisterAuth(req);
+      if (!resolved || !("auth" in resolved) || !resolved.auth) {
+        const reason = (resolved as any)?.reason || "unauthorized";
+        const hasToken = Boolean((resolved as any)?.hasToken);
+        console.log("[PUSH][UNREGISTER][AUTH] Unauthorized", { reason, hasToken });
+        return res.status(401).json({ message: "Unauthorized", reason });
+      }
+      const userUuid = await ensureUserUuid(resolved.auth);
+      const rawDeviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+      const rawPlatform = typeof req.body?.platform === "string" ? req.body.platform.trim() : "";
+      const rawTokenType = typeof req.body?.tokenType === "string" ? req.body.tokenType.trim() : "";
+      const rawToken = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+      if (!rawDeviceId && !rawToken) {
+        return res.status(400).json({ message: "deviceId or token is required" });
+      }
+
+      const filters = [
+        `user_id=eq.${encodeURIComponent(userUuid)}`,
+        rawDeviceId ? `device_id=eq.${encodeURIComponent(rawDeviceId)}` : null,
+        rawPlatform ? `platform=eq.${encodeURIComponent(rawPlatform)}` : null,
+        rawTokenType ? `token_type=eq.${encodeURIComponent(rawTokenType)}` : null,
+        rawToken ? `token=eq.${encodeURIComponent(rawToken)}` : null,
+      ].filter(Boolean);
+
+      const { resp, data } = await pgFetch(`/push_tokens?${filters.join("&")}`, {
+        method: "PATCH",
+        body: { is_active: false, updated_at: new Date().toISOString() },
+        headers: { Prefer: "return=representation" },
+      });
+      if (!resp.ok) {
+        console.log("[PUSH][UNREGISTER][FAILED]", { status: resp.status, body: data });
+        return res.status(500).json({ message: "Failed to unregister push token" });
+      }
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      console.log("[PUSH][UNREGISTER][SUCCESS]", {
+        userId: userUuid,
+        count: rows.length,
+        deviceId: rawDeviceId || null,
+      });
+      res.json({ success: true, count: rows.length });
+    } catch (error) {
+      console.error("[PUSH][UNREGISTER] Error:", error);
+      res.status(500).json({ message: "Failed to unregister push token" });
     }
   });
 
@@ -7073,7 +7283,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       });
 
       const resolvedRole =
-        target === "technicians" ? "technician" : target === "riders" ? "rider" : null;
+        target === "technicians" ? "technician" : target === "riders" ? "customer" : null;
       let sent = 0;
 
       for (const userId of userIds) {

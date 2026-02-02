@@ -47,6 +47,11 @@ export async function signInWithApple(): Promise<GoogleAuthUser | null> {
     if (!identityToken) {
       throw new Error("تعذّر الحصول على رمز التحقق من أبل");
     }
+    console.log("[AppleAuth] Native response", {
+      hasIdentityToken: Boolean(identityToken),
+      email: (response as any)?.email || null,
+      user: (response as any)?.user || null,
+    });
 
     const fullName = {
       firstName: (response as any)?.givenName || (response as any)?.fullName?.givenName || undefined,
@@ -72,7 +77,11 @@ export async function signInWithApple(): Promise<GoogleAuthUser | null> {
 
     throw new Error("Apple Sign-In failed");
   } catch (error: any) {
-    console.error('[AppleAuth] Sign-in error:', error);
+    console.error("[AppleAuth] Sign-in error:", {
+      message: error?.message,
+      code: error?.code,
+      details: error,
+    });
     throw new Error(error.message || 'Apple Sign-In failed');
   }
 }

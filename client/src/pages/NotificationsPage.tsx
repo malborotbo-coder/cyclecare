@@ -16,6 +16,7 @@ type NotificationItem = {
   message: string;
   emoji?: string | null;
   type?: string | null;
+  role?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   readAt?: string | null;
@@ -89,7 +90,10 @@ export default function NotificationsPage() {
       markOneMutation.mutate(notification.id);
     }
     if (notification.entityType === "service_request") {
-      const target = notification.type === "service_request" ? "/technician" : "/orders";
+      const isTechnician =
+        notification.role === "technician" ||
+        notification.type === "technician_update";
+      const target = isTechnician ? "/technician" : "/orders";
       setLocation(target);
     }
   };
