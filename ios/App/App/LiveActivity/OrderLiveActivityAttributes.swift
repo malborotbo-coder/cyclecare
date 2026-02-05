@@ -19,4 +19,5 @@ struct OrderLiveActivityAttributes: ActivityAttributes {
   var orderId: String
   var orderNumber: String
   var bikeName: String?
+  var role: String?
 }

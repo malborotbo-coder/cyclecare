@@ -16,6 +16,7 @@ type LiveActivityPayload = {
   locale?: string;
   bikeName?: string | null;
   userId?: string | null;
+  role?: string | null;
 };
 
 type OrderLiveActivityPlugin = {
@@ -28,8 +29,8 @@ const LiveActivity = registerPlugin<OrderLiveActivityPlugin>("OrderLiveActivity"
 const ACTIVE_ORDER_KEY = "live_activity_active_order";
 const ACTIVE_STATUS_KEY = "live_activity_active_status";
 const LIVE_ACTIVITY_FLAG_KEY = "feature_live_activities_enabled";
+const ROLE_STORAGE_KEY = "push_device_role";
 const isLiveActivityFeatureEnabled = () => {
-  // TODO: Re-enable once Apple Live Activities entitlement is approved.
   if (import.meta.env.VITE_ENABLE_LIVE_ACTIVITIES === "true") return true;
   if (typeof localStorage !== "undefined") {
     return localStorage.getItem(LIVE_ACTIVITY_FLAG_KEY) === "true";
@@ -113,6 +114,12 @@ const buildPayload = (request: any, lang: "ar" | "en"): LiveActivityPayload => {
   const orderNumber =
     request?.orderNumber ?? request?.order_number ?? request?.id ?? request?.serviceRequestId ?? "—";
   const { title, subtitle, progress, stageIndex } = mapStatusToState(status, lang);
+  const bikeName =
+    request?.bikeName ??
+    request?.bike?.name ??
+    request?.bike?.nickname ??
+    null;
+  const userId = request?.userId ?? request?.user_id ?? null;
   return {
     orderId: getRequestId(request) || "unknown",
     orderNumber: String(orderNumber),
@@ -124,6 +131,8 @@ const buildPayload = (request: any, lang: "ar" | "en"): LiveActivityPayload => {
     totalStages: 4,
     timestamp: Math.floor(Date.now() / 1000),
     locale: lang,
+    bikeName,
+    userId,
   };
 };
 
@@ -173,6 +182,13 @@ const readStoredValue = async (key: string) => {
   }
 };
 
+const isCustomerContext = async () => {
+  const stored = await readStoredValue(ROLE_STORAGE_KEY);
+  const role = String(stored || "").trim().toLowerCase();
+  if (!role) return true;
+  return role !== "technician" && role !== "admin";
+};
+
 const writeStoredValue = async (key: string, value: string) => {
   try {
     await Preferences.set({ key, value });
@@ -191,11 +207,16 @@ const clearStoredValue = async (key: string) => {
 
 export const handleLiveActivityForRequest = async (request: any, lang: "ar" | "en") => {
   if (!isSupported()) return;
+  if (!(await isCustomerContext())) return;
   const orderId = getRequestId(request);
   if (!orderId) return;
 
   const status = String(request?.status || "");
   const payload = buildPayload(request, lang);
+  const storedRole = await readStoredValue(ROLE_STORAGE_KEY);
+  if (storedRole) {
+    payload.role = storedRole;
+  }
   const activeOrderId = await readStoredValue(ACTIVE_ORDER_KEY);
   const activeStatus = await readStoredValue(ACTIVE_STATUS_KEY);
 
@@ -239,6 +260,7 @@ export const handleLiveActivityFromPush = async (payload: {
   lang: "ar" | "en";
 }) => {
   if (!isSupported()) return;
+  if (!(await isCustomerContext())) return;
   const orderId = payload.orderId ? String(payload.orderId) : "";
   if (!orderId) return;
   const normalizedState = normalizeActivityState(payload.activityState);
@@ -253,6 +275,10 @@ export const handleLiveActivityFromPush = async (payload: {
     subtitle: payload.body || null,
     lang: payload.lang,
   });
+  const storedRole = await readStoredValue(ROLE_STORAGE_KEY);
+  if (storedRole) {
+    livePayload.role = storedRole;
+  }
 
   const activeOrderId = await readStoredValue(ACTIVE_ORDER_KEY);
   const activeStatus = await readStoredValue(ACTIVE_STATUS_KEY);
@@ -290,6 +316,7 @@ export const handleLiveActivityFromPush = async (payload: {
 
 export const syncLiveActivityFromRequests = async (requests: any[], lang: "ar" | "en") => {
   if (!isSupported()) return;
+  if (!(await isCustomerContext())) return;
   if (!Array.isArray(requests)) return;
 
   const liveStatuses = new Set(["accepted", "on_the_way", "working", "in_progress"]);

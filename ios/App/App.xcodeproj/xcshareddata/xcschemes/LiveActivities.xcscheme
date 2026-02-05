@@ -16,7 +16,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "92D8A9AF91E7863C55AB0EA2"
+               BlueprintIdentifier = "D60A04A3A81C4D57AB9D4690"
                BuildableName = "LiveActivities.appex"
                BlueprintName = "LiveActivities"
                ReferencedContainer = "container:App.xcodeproj">

@@ -25,6 +25,7 @@ public class OrderLiveActivityPlugin: CAPPlugin {
     let etaMinutes = call.getInt("etaMinutes")
     let locale = call.getString("locale") ?? Locale.current.languageCode ?? "en"
     let bikeName = call.getString("bikeName")
+    let role = call.getString("role")
     let userId = call.getString("userId")
 
     let state = OrderLiveActivityAttributes.ContentState(
@@ -44,6 +45,7 @@ public class OrderLiveActivityPlugin: CAPPlugin {
       orderId: orderId,
       orderNumber: orderNumber,
       bikeName: bikeName,
+      role: role,
       userId: userId,
       state: state
     )

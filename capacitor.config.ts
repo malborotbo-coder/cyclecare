@@ -13,6 +13,9 @@ const config: CapacitorConfig = {
       presentationStyle: 'fullScreen',
       saveToGallery: true,
     },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
     SplashScreen: {
       launchShowDuration: 0,
       backgroundColor: '#000000',

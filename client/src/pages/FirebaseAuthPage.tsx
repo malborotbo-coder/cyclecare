@@ -26,7 +26,7 @@ import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
-import { type BiometricStatus } from "@/lib/biometricAuth";
+import { getBiometricStatus, restoreBiometricSession } from "@/lib/biometricSession";
 import { sendPhoneOtp, confirmPhoneOtp } from "@/lib/phoneAuth";
 import type { ConfirmationResult } from "firebase/auth";
 import { persistAuthTokens } from "@/lib/authStorage";
@@ -53,10 +53,14 @@ export default function FirebaseAuthPage() {
   const isSignUp = mode === "signup";
   const [phoneStep, setPhoneStep] = useState<"input" | "verify">("input");
   const [error, setError] = useState("");
-  const [biometricStatus, setBiometricStatus] = useState<BiometricStatus | null>(null);
+  const [biometricStatus, setBiometricStatus] = useState<{
+    isAvailable: boolean;
+    biometryType: "face" | "fingerprint" | "none";
+    isEnabled: boolean;
+  } | null>(null);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null); // Backup: keeps legacy API fallback untouched
   const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
-  const ENABLE_BIOMETRIC = false; // Fully disable biometric auth on web/mobile
+  const ENABLE_BIOMETRIC = isNative;
   const isNative = Capacitor.isNativePlatform();
   const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -72,15 +76,20 @@ export default function FirebaseAuthPage() {
 
   useEffect(() => {
     if (!ENABLE_BIOMETRIC) return;
-    if (isNative) {
-      // Biometric disabled; no-op
-      setBiometricStatus({ isAvailable: false, biometryType: 'none', hasCredentials: false });
-    }
-  }, [isNative]);
+    void getBiometricStatus().then(setBiometricStatus);
+  }, [ENABLE_BIOMETRIC]);
 
   const handleBiometricSignIn = async () => {
-    // Biometric disabled
-    return;
+    if (!ENABLE_BIOMETRIC) return;
+    setIsLoading(true);
+    setError("");
+    const ok = await restoreBiometricSession();
+    setIsLoading(false);
+    if (ok) {
+      window.location.href = consumePostLoginRedirect("/");
+      return;
+    }
+    setError(isArabic ? "تعذّر التحقق بالبصمة. حاول مرة أخرى." : "Biometric authentication failed.");
   };
 
   const handleAuthCallback = useCallback(async (params: URLSearchParams) => {
@@ -853,7 +862,7 @@ export default function FirebaseAuthPage() {
           {!showPhoneForm && !showEmailForm && (
             <>
               {/* Biometric Sign-in - Face ID / Touch ID */}
-              {ENABLE_BIOMETRIC && biometricStatus?.isAvailable && biometricStatus?.hasCredentials && (
+              {ENABLE_BIOMETRIC && biometricStatus?.isAvailable && biometricStatus?.isEnabled && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}

@@ -30,6 +30,9 @@ type SendApnsLiveActivityInput = {
   event: LiveActivityEvent;
   contentState: LiveActivityContentState;
   timestamp?: number;
+  env?: ApnsEnv;
+  relevanceScore?: number;
+  staleDate?: number;
 };
 
 type SendApnsResult = {
@@ -69,6 +72,12 @@ const normalizeApnsKey = () => {
 
 let apnsProvider: { provider: apn.Provider; env: ApnsEnv; keyId: string; teamId: string } | null = null;
 
+const maskToken = (token?: string | null) => {
+  const raw = token || "";
+  if (raw.length <= 10) return raw || null;
+  return `${raw.slice(0, 6)}...${raw.slice(-6)}`;
+};
+
 const getApnsProvider = (env: ApnsEnv) => {
   const keyId = process.env.APNS_KEY_ID || "";
   const teamId = process.env.APNS_TEAM_ID || "";
@@ -101,7 +110,7 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
     console.log("[APNS][SEND][FAILED]", {
       status: 500,
       reason: "apns_config_missing",
-      token: input.token,
+      token: maskToken(input.token),
       env,
     });
     return { ok: false, status: 500, reason: "apns_config_missing", env };
@@ -132,7 +141,7 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
     console.log("[APNS][SEND][FAILED]", {
       status,
       reason,
-      token: input.token,
+      token: maskToken(input.token),
       env,
       failed: response.failed,
     });
@@ -151,7 +160,7 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
   console.log("[APNS][SEND][SUCCESS]", {
     status: 200,
     reason: null,
-    token: input.token,
+    token: maskToken(input.token),
     env,
   });
   return {
@@ -168,7 +177,7 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
 export const sendApnsLiveActivity = async (
   input: SendApnsLiveActivityInput,
 ): Promise<SendApnsResult> => {
-  const env = resolveApnsEnv();
+  const env = input.env || resolveApnsEnv();
   const bundleId = process.env.APNS_BUNDLE_ID || "";
   const provider = getApnsProvider(env);
 
@@ -176,11 +185,15 @@ export const sendApnsLiveActivity = async (
     console.log("[APNS][LIVE_ACTIVITY][FAILED]", {
       status: 500,
       reason: "apns_config_missing",
-      token: input.token,
+      token: maskToken(input.token),
       env,
     });
     return { ok: false, status: 500, reason: "apns_config_missing", env };
   }
+
+  const timestamp = input.timestamp ?? Math.floor(Date.now() / 1000);
+  const relevanceScore = Number.isFinite(input.relevanceScore) ? input.relevanceScore! : input.event === "end" ? 0.1 : 0.6;
+  const staleDate = Number.isFinite(input.staleDate) ? input.staleDate! : timestamp + 60 * 60;
 
   const notification = new apn.Notification();
   notification.topic = `${bundleId}.push-type.liveactivity`;
@@ -189,8 +202,10 @@ export const sendApnsLiveActivity = async (
   notification.expiry = Math.floor(Date.now() / 1000) + 3600;
   notification.payload = {
     aps: {
-      timestamp: input.timestamp ?? Math.floor(Date.now() / 1000),
+      timestamp,
       event: input.event,
+      "relevance-score": relevanceScore,
+      "stale-date": staleDate,
       "content-state": {
         ...input.contentState,
       },
@@ -209,7 +224,7 @@ export const sendApnsLiveActivity = async (
     console.log("[APNS][LIVE_ACTIVITY][FAILED]", {
       status,
       reason,
-      token: input.token,
+      token: maskToken(input.token),
       env,
       failed: response.failed,
     });
@@ -228,7 +243,7 @@ export const sendApnsLiveActivity = async (
   console.log("[APNS][LIVE_ACTIVITY][SUCCESS]", {
     status: 200,
     reason: null,
-    token: input.token,
+    token: maskToken(input.token),
     env,
   });
   return {

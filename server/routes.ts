@@ -728,6 +728,8 @@ const NOTIFICATION_COOLDOWN_MS = 1000 * 60 * 60 * 24 * 7;
 
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
 const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
+const LIVE_ACTIVITIES_ENABLED =
+  String(process.env.LIVE_ACTIVITIES_ENABLED || "true").toLowerCase() !== "false";
 
 const buildPushPayload = (notification: any) => {
   const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
@@ -775,8 +777,11 @@ const normalizeLiveActivityStatus = (status?: string | null) => {
 const buildLiveActivityContentState = (params: {
   status: string;
   title?: string | null;
+  subtitle?: string | null;
   message?: string | null;
   lang: Language;
+  technicianName?: string | null;
+  etaMinutes?: number | null;
 }) => {
   const normalized = normalizeLiveActivityStatus(params.status);
   if (!normalized) return null;
@@ -791,14 +796,17 @@ const buildLiveActivityContentState = (params: {
   const stage = stageMap[normalized];
   if (!stage) return null;
   const fallbackTitle = params.lang === "ar" ? "تحديث الطلب" : "Order update";
+  const resolvedSubtitle = params.subtitle || params.message || params.title || fallbackTitle;
   return {
     status: normalized,
     title: params.title || fallbackTitle,
-    subtitle: params.message || params.title || fallbackTitle,
+    subtitle: resolvedSubtitle,
     progress: stage.progress,
     stageIndex: stage.stageIndex,
     totalStages: stage.totalStages,
     timestamp: Math.floor(Date.now() / 1000),
+    technicianName: params.technicianName ?? null,
+    etaMinutes: Number.isFinite(params.etaMinutes) ? Number(params.etaMinutes) : null,
     locale: params.lang,
   };
 };
@@ -807,13 +815,28 @@ const sendLiveActivityUpdate = async (payload: {
   orderId: string;
   status: string;
   title?: string | null;
+  subtitle?: string | null;
   message?: string | null;
   lang: Language;
+  technicianName?: string | null;
+  etaMinutes?: number | null;
+  relevanceScore?: number | null;
+  staleDate?: number | null;
 }): Promise<{ sent: number; failed: number }> => {
+  if (!LIVE_ACTIVITIES_ENABLED) {
+    console.log("[LIVE_ACTIVITY][SKIPPED][DISABLED]", {
+      orderId: payload.orderId,
+      status: payload.status,
+    });
+    return { sent: 0, failed: 0 };
+  }
   const state = buildLiveActivityContentState({
     status: payload.status,
     title: payload.title,
     message: payload.message,
+    subtitle: payload.subtitle,
+    technicianName: payload.technicianName,
+    etaMinutes: payload.etaMinutes,
     lang: payload.lang,
   });
   if (!state) return { sent: 0, failed: 0 };
@@ -839,11 +862,15 @@ const sendLiveActivityUpdate = async (payload: {
   for (const row of tokens) {
     const token = row?.token;
     if (!token) continue;
+    const tokenEnv = normalizeApnsEnv(row?.environment ?? null) ?? undefined;
     const response = await sendApnsLiveActivity({
       token,
       event,
       contentState: state,
       timestamp: state.timestamp,
+      env: tokenEnv,
+      relevanceScore: Number.isFinite(payload.relevanceScore) ? payload.relevanceScore! : undefined,
+      staleDate: Number.isFinite(payload.staleDate) ? payload.staleDate! : undefined,
     });
     if (response.ok) {
       sent += 1;
@@ -859,6 +886,12 @@ const sendLiveActivityUpdate = async (payload: {
           }).catch(() => {});
         }
       }
+    }
+    if (event === "end" && row?.id) {
+      await pgFetch(`/live_activity_tokens?id=eq.${encodeURIComponent(row.id)}`, {
+        method: "PATCH",
+        body: { is_active: false, updated_at: new Date().toISOString() },
+      }).catch(() => {});
     }
   }
 
@@ -964,10 +997,25 @@ const sendFcmPush = async (token: string, payload: { title: string; body: string
   return { ok: res.ok, status: res.status, body };
 };
 
+const resolveNotificationRole = (notification: any) => {
+  const direct = normalizePushRole(notification?.role) ?? notification?.role ?? null;
+  if (direct) return direct;
+  const type = String(notification?.type || "").toLowerCase();
+  const activityType = String(notification?.activityType || "").toLowerCase();
+  const entityType = String(notification?.entityType || "").toLowerCase();
+  if (type === "admin" && entityType === "broadcast") return null;
+  if (type.includes("technician") || activityType === "technician_route") return "technician";
+  return "customer";
+};
+
 const deliverNotificationPush = async (notification: any) => {
   if (!notification?.id || !notification?.userId) return { sent: 0, failed: 0 };
-  const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
-  const roleFilter = resolvedRole ? `&role=eq.${encodeURIComponent(resolvedRole)}` : "";
+  const resolvedRole = resolveNotificationRole(notification);
+  const roleFilter = resolvedRole
+    ? resolvedRole === "customer"
+      ? `&or=(role.eq.${encodeURIComponent(resolvedRole)},role.is.null)`
+      : `&role=eq.${encodeURIComponent(resolvedRole)}`
+    : "";
   const { resp, data } = await pgFetch(
     `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true${roleFilter}`,
   );
@@ -982,6 +1030,8 @@ const deliverNotificationPush = async (notification: any) => {
     userId: notification.userId,
     role: resolvedRole,
     count: tokens.length,
+    tokenIds: tokens.map((t) => t.id).filter(Boolean),
+    tokenRoles: tokens.map((t) => t.role).filter(Boolean),
     deviceIds: tokens.map((t) => t.deviceId).filter(Boolean),
   });
 
@@ -989,7 +1039,69 @@ const deliverNotificationPush = async (notification: any) => {
   let sent = 0;
   let failed = 0;
 
+  let allowNullCustomerRole: boolean | null = null;
   for (const tokenRow of tokens) {
+    if (tokenRow.userId && tokenRow.userId !== notification.userId) {
+      console.warn("[NOTIFICATIONS][PUSH][SKIP][USER_MISMATCH]", {
+        notificationId: notification.id,
+        tokenId: tokenRow.id,
+        tokenUserId: tokenRow.userId,
+        targetUserId: notification.userId,
+        deviceId: tokenRow.deviceId,
+      });
+      if (tokenRow.id) {
+        await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
+          method: "PATCH",
+          body: { is_active: false, updated_at: new Date().toISOString() },
+        }).catch(() => {});
+      }
+      continue;
+    }
+    const tokenRole = normalizePushRole(tokenRow.role);
+    if (resolvedRole && tokenRole && tokenRole !== resolvedRole) {
+      console.warn("[NOTIFICATIONS][PUSH][SKIP][ROLE_MISMATCH]", {
+        notificationId: notification.id,
+        tokenId: tokenRow.id,
+        tokenRole,
+        targetRole: resolvedRole,
+        deviceId: tokenRow.deviceId,
+      });
+      if (tokenRow.id) {
+        await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
+          method: "PATCH",
+          body: { is_active: false, updated_at: new Date().toISOString() },
+        }).catch(() => {});
+      }
+      continue;
+    }
+    if (resolvedRole && !tokenRole && tokenRow.id) {
+      if (resolvedRole === "customer") {
+        if (allowNullCustomerRole === null) {
+          try {
+            allowNullCustomerRole = !(await userHasRole(notification.userId, "technician"));
+          } catch (error) {
+            console.warn("[NOTIFICATIONS][PUSH][ROLE_CHECK_FAILED]", error);
+            allowNullCustomerRole = true;
+          }
+        }
+        if (!allowNullCustomerRole) {
+          console.warn("[NOTIFICATIONS][PUSH][SKIP][LEGACY_ROLE_NULL]", {
+            notificationId: notification.id,
+            tokenId: tokenRow.id,
+            deviceId: tokenRow.deviceId,
+          });
+          await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
+            method: "PATCH",
+            body: { is_active: false, updated_at: new Date().toISOString() },
+          }).catch(() => {});
+          continue;
+        }
+      }
+      await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
+        method: "PATCH",
+        body: { role: resolvedRole, updated_at: new Date().toISOString() },
+      }).catch(() => {});
+    }
     const token = tokenRow.token;
     if (!token) continue;
     const platform = tokenRow.platform ?? null;
@@ -1108,11 +1220,12 @@ const registerDeviceToken = async (payload: {
   environment?: string | null;
 }) => {
   const now = new Date().toISOString();
+  const resolvedRole = normalizePushRole(payload.role) ?? payload.role ?? null;
   const tokenFilter = buildPushTokenFilter({
     token: payload.token,
     tokenType: payload.tokenType,
-    platform: payload.platform || null,
-    deviceId: payload.deviceId || null,
+    platform: null,
+    deviceId: null,
   });
 
   await pgFetch(`${tokenFilter}&user_id=neq.${encodeURIComponent(payload.userId)}`, {
@@ -1120,14 +1233,19 @@ const registerDeviceToken = async (payload: {
     body: { is_active: false, updated_at: now },
   }).catch(() => {});
 
-  if (payload.deviceId && payload.platform) {
-    await pgFetch(
-      `/push_tokens?device_id=eq.${encodeURIComponent(payload.deviceId)}&platform=eq.${encodeURIComponent(payload.platform)}&token_type=eq.${encodeURIComponent(payload.tokenType)}&token=neq.${encodeURIComponent(payload.token)}`,
-      {
-        method: "PATCH",
-        body: { is_active: false, updated_at: now },
-      },
-    ).catch(() => {});
+  if (payload.deviceId) {
+    const baseFilters = [
+      `device_id=eq.${encodeURIComponent(payload.deviceId)}`,
+      `token_type=eq.${encodeURIComponent(payload.tokenType)}`,
+      `token=neq.${encodeURIComponent(payload.token)}`,
+    ];
+    if (payload.platform) {
+      baseFilters.push(`platform=eq.${encodeURIComponent(payload.platform)}`);
+    }
+    await pgFetch(`/push_tokens?${baseFilters.join("&")}`, {
+      method: "PATCH",
+      body: { is_active: false, updated_at: now },
+    }).catch(() => {});
   }
 
   const { resp, data } = await pgFetch("/push_tokens?on_conflict=user_id,token,token_type", {
@@ -1137,7 +1255,7 @@ const registerDeviceToken = async (payload: {
         user_id: payload.userId,
         token: payload.token,
         token_type: payload.tokenType,
-        role: payload.role || null,
+        role: resolvedRole,
         platform: payload.platform || null,
         device_id: payload.deviceId || null,
         app_version: payload.appVersion || null,
@@ -1162,6 +1280,8 @@ const registerLiveActivityToken = async (payload: {
   orderId: string;
   orderNumber?: string | null;
   token: string;
+  activityId?: string | null;
+  environment?: string | null;
 }) => {
   const now = new Date().toISOString();
   await pgFetch(
@@ -1180,6 +1300,8 @@ const registerLiveActivityToken = async (payload: {
         user_id: payload.userId,
         order_number: payload.orderNumber || null,
         token: payload.token,
+        activity_id: payload.activityId || null,
+        environment: payload.environment || null,
         is_active: true,
         created_at: now,
         updated_at: now,
@@ -6802,6 +6924,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/live-activities/register", async (req: any, res) => {
     try {
+      if (!LIVE_ACTIVITIES_ENABLED) {
+        return res.status(503).json({ message: "Live Activities disabled" });
+      }
       const resolved = await resolvePushRegisterAuth(req);
       if (!resolved || !("auth" in resolved) || !resolved.auth) {
         const reason = (resolved as any)?.reason || "unauthorized";
@@ -6810,9 +6935,15 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(401).json({ message: "Unauthorized", reason });
       }
       const userUuid = await ensureUserUuid(resolved.auth);
-      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const orderId = typeof req.body?.orderId === "string"
+        ? req.body.orderId.trim()
+        : typeof req.body?.requestId === "string"
+        ? req.body.requestId.trim()
+        : "";
       const orderNumber = typeof req.body?.orderNumber === "string" ? req.body.orderNumber.trim() : "";
       const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+      const activityId = typeof req.body?.activityId === "string" ? req.body.activityId.trim() : "";
+      const environment = typeof req.body?.environment === "string" ? req.body.environment.trim() : "";
       if (!orderId || !token) {
         return res.status(400).json({ message: "orderId and token are required" });
       }
@@ -6822,6 +6953,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         orderId,
         orderNumber: orderNumber || null,
         token,
+        activityId: activityId || null,
+        environment: environment || null,
       });
 
       if (!row) {
@@ -6831,6 +6964,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.log("[LIVE_ACTIVITY][REGISTER][SUCCESS]", {
         userId: userUuid,
         orderId,
+        activityId: activityId || null,
+        environment: environment || null,
       });
       res.json(row);
     } catch (error) {
@@ -6841,6 +6976,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/live-activities/update", isAuthenticated, async (req: any, res) => {
     try {
+      if (!LIVE_ACTIVITIES_ENABLED) {
+        return res.status(503).json({ message: "Live Activities disabled" });
+      }
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const isInternal = INTERNAL_NOTIFICATION_KEY
@@ -6850,23 +6988,36 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const orderId = typeof req.body?.orderId === "string"
+        ? req.body.orderId.trim()
+        : typeof req.body?.requestId === "string"
+        ? req.body.requestId.trim()
+        : "";
       const status = typeof req.body?.status === "string" ? req.body.status.trim() : "";
       if (!orderId || !status) {
         return res.status(400).json({ message: "orderId and status are required" });
       }
 
       const title = typeof req.body?.title === "string" ? req.body.title : null;
+      const subtitle = typeof req.body?.subtitle === "string" ? req.body.subtitle : null;
       const message = typeof req.body?.message === "string"
         ? req.body.message
         : typeof req.body?.body === "string"
         ? req.body.body
+        : null;
+      const technicianName =
+        typeof req.body?.technicianName === "string" ? req.body.technicianName : null;
+      const etaMinutes = Number.isFinite(req.body?.etaMinutes)
+        ? Number(req.body?.etaMinutes)
         : null;
       const result = await sendLiveActivityUpdate({
         orderId,
         status,
         title,
         message,
+        subtitle,
+        technicianName,
+        etaMinutes,
         lang: getRequestLang(req),
       });
       res.json(result);
@@ -6878,6 +7029,9 @@ export async function registerRoutes(app: Express): Promise<void> {
 
   app.post("/api/live-activities/end", isAuthenticated, async (req: any, res) => {
     try {
+      if (!LIVE_ACTIVITIES_ENABLED) {
+        return res.status(503).json({ message: "Live Activities disabled" });
+      }
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const isInternal = INTERNAL_NOTIFICATION_KEY
@@ -6887,23 +7041,36 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+      const orderId = typeof req.body?.orderId === "string"
+        ? req.body.orderId.trim()
+        : typeof req.body?.requestId === "string"
+        ? req.body.requestId.trim()
+        : "";
       const status = typeof req.body?.status === "string" ? req.body.status.trim() : "completed";
       if (!orderId) {
         return res.status(400).json({ message: "orderId is required" });
       }
 
       const title = typeof req.body?.title === "string" ? req.body.title : null;
+      const subtitle = typeof req.body?.subtitle === "string" ? req.body.subtitle : null;
       const message = typeof req.body?.message === "string"
         ? req.body.message
         : typeof req.body?.body === "string"
         ? req.body.body
+        : null;
+      const technicianName =
+        typeof req.body?.technicianName === "string" ? req.body.technicianName : null;
+      const etaMinutes = Number.isFinite(req.body?.etaMinutes)
+        ? Number(req.body?.etaMinutes)
         : null;
       const result = await sendLiveActivityUpdate({
         orderId,
         status,
         title,
         message,
+        subtitle,
+        technicianName,
+        etaMinutes,
         lang: getRequestLang(req),
       });
       res.json(result);

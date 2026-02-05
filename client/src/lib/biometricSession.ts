@@ -1,11 +1,58 @@
 import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { persistAuthTokens } from "./authStorage";
 
 const BIOMETRIC_SERVICE = "cyclecare_biometric";
 const BIOMETRIC_ACCOUNT = "auth_session";
+const BIOMETRIC_OPT_IN_KEY = "biometric_opt_in";
+
+export type BiometryType = "face" | "fingerprint" | "none";
+
+export type BiometricStatus = {
+  isAvailable: boolean;
+  biometryType: BiometryType;
+  isEnabled: boolean;
+};
 
 const isNative = () => Capacitor.isNativePlatform();
+
+const readOptIn = async (): Promise<boolean> => {
+  if (isNative()) {
+    try {
+      const { value } = await Preferences.get({ key: BIOMETRIC_OPT_IN_KEY });
+      if (value != null) return value === "true";
+    } catch {
+      // Ignore preference read errors.
+    }
+  }
+  if (typeof localStorage !== "undefined") {
+    const value = localStorage.getItem(BIOMETRIC_OPT_IN_KEY);
+    if (value != null) return value === "true";
+  }
+  return false;
+};
+
+const writeOptIn = async (enabled: boolean) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(BIOMETRIC_OPT_IN_KEY, enabled ? "true" : "false");
+  }
+  if (isNative()) {
+    try {
+      await Preferences.set({ key: BIOMETRIC_OPT_IN_KEY, value: enabled ? "true" : "false" });
+    } catch {
+      // Ignore preference write errors.
+    }
+  }
+};
+
+export async function getBiometricOptIn(): Promise<boolean> {
+  return readOptIn();
+}
+
+export async function setBiometricOptIn(enabled: boolean): Promise<void> {
+  await writeOptIn(enabled);
+}
 
 export async function isBiometricAvailable(): Promise<boolean> {
   if (!isNative()) return false;
@@ -15,6 +62,26 @@ export async function isBiometricAvailable(): Promise<boolean> {
   } catch (err) {
     console.warn("[Biometric] Availability check failed", err);
     return false;
+  }
+}
+
+export async function getBiometricStatus(): Promise<BiometricStatus> {
+  if (!isNative()) {
+    return { isAvailable: false, biometryType: "none", isEnabled: false };
+  }
+  try {
+    const { isAvailable, biometryType } = await NativeBiometric.isAvailable();
+    const normalized: BiometryType =
+      biometryType === "face" || biometryType === "fingerprint" ? biometryType : "none";
+    const enabled = await isBiometricEnabled();
+    return {
+      isAvailable: Boolean(isAvailable) && normalized !== "none",
+      biometryType: normalized,
+      isEnabled: enabled,
+    };
+  } catch (err) {
+    console.warn("[Biometric] Status check failed", err);
+    return { isAvailable: false, biometryType: "none", isEnabled: false };
   }
 }
 
@@ -46,6 +113,7 @@ export async function enableBiometricSession(token: string): Promise<boolean> {
       password: token,
       server: BIOMETRIC_SERVICE,
     });
+    await setBiometricOptIn(true);
     console.log("[Biometric] Credentials stored");
     return true;
   } catch (err) {
@@ -68,6 +136,7 @@ export async function disableBiometricSession(): Promise<void> {
       });
       console.log("[Biometric] Credentials deleted");
     }
+    await setBiometricOptIn(false);
   } catch (err) {
     console.warn("[Biometric] Disable failed", err);
   }
@@ -118,6 +187,8 @@ export async function restoreBiometricSession(): Promise<boolean> {
 
 export async function promptBiometricEnrollment(token: string, isArabic?: boolean) {
   if (!isNative()) return;
+  const optedIn = await getBiometricOptIn();
+  if (!optedIn) return;
   const available = await isBiometricAvailable();
   const enabled = await isBiometricEnabled();
   if (!available || enabled) return;

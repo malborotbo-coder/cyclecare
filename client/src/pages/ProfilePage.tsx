@@ -10,7 +10,8 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { Save, User, Mail, Phone, Loader2, Camera } from "lucide-react";
 import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient";
 import { Capacitor } from "@capacitor/core";
-import { disableBiometricSession, isBiometricEnabled } from "@/lib/biometricSession";
+import { disableBiometricSession, enableBiometricSession, isBiometricAvailable, isBiometricEnabled } from "@/lib/biometricSession";
+import { getBestAuthToken } from "@/lib/authStorage";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
 import { auth } from "@/lib/firebase";
@@ -51,6 +52,7 @@ export default function ProfilePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -75,13 +77,48 @@ export default function ProfilePage() {
     }
   };
 
+  const handleEnableBiometric = async () => {
+    if (!biometricAvailable) {
+      toast({
+        title: lang === "ar" ? "غير متاح" : "Unavailable",
+        description: lang === "ar" ? "البصمة غير متاحة على هذا الجهاز" : "Biometrics are not available on this device.",
+      });
+      return;
+    }
+    const token = await getBestAuthToken();
+    if (!token) {
+      toast({
+        title: lang === "ar" ? "تعذّر التفعيل" : "Enable failed",
+        description: lang === "ar" ? "سجّل الدخول أولاً لتفعيل البصمة" : "Please sign in before enabling biometrics.",
+      });
+      return;
+    }
+    const ok = await enableBiometricSession(token);
+    if (ok) {
+      setBiometricEnabled(true);
+      toast({
+        title: lang === "ar" ? "تم التفعيل" : "Enabled",
+        description: lang === "ar" ? "تم تفعيل الدخول بالبصمة" : "Biometric unlock enabled.",
+      });
+    } else {
+      toast({
+        title: lang === "ar" ? "تعذّر التفعيل" : "Enable failed",
+        description: lang === "ar" ? "لم يتم حفظ البصمة" : "Failed to store biometric credentials.",
+      });
+    }
+  };
+
   useEffect(() => {
     if (!authReady || initializedRef.current || !isSignedIn) return;
     const loadUserData = async () => {
       setIsLoading(true);
       if (isNative) {
-        const enabled = await isBiometricEnabled();
+        const [enabled, available] = await Promise.all([
+          isBiometricEnabled(),
+          isBiometricAvailable(),
+        ]);
         setBiometricEnabled(enabled);
+        setBiometricAvailable(available);
       }
       try {
         const response = await apiRequest("/api/user/profile", "GET");
@@ -526,25 +563,43 @@ export default function ProfilePage() {
                     <div>
                       <p className="font-semibold text-sm">{lang === "ar" ? "البصمة / Face ID" : "Biometrics"}</p>
                       <p className="text-xs text-muted-foreground">
-                        {biometricEnabled
-                          ? lang === "ar" ? "مفعّل حالياً. يمكنك إيقافه هنا." : "Enabled. You can disable it here."
-                          : lang === "ar" ? "غير مفعّل حالياً." : "Not enabled currently."}
+                        {!biometricAvailable
+                          ? lang === "ar"
+                            ? "غير متاح على هذا الجهاز."
+                            : "Not available on this device."
+                          : biometricEnabled
+                          ? lang === "ar"
+                            ? "مفعّل حالياً. يمكنك إيقافه هنا."
+                            : "Enabled. You can disable it here."
+                          : lang === "ar"
+                          ? "غير مفعّل حالياً."
+                          : "Not enabled currently."}
                       </p>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={async () => {
-                        await disableBiometricSession();
-                        setBiometricEnabled(false);
-                        toast({
-                          title: lang === "ar" ? "تم الإيقاف" : "Disabled",
-                          description: lang === "ar" ? "تم إيقاف الدخول بالبصمة" : "Biometric unlock disabled",
-                        });
+                        if (biometricEnabled) {
+                          await disableBiometricSession();
+                          setBiometricEnabled(false);
+                          toast({
+                            title: lang === "ar" ? "تم الإيقاف" : "Disabled",
+                            description: lang === "ar" ? "تم إيقاف الدخول بالبصمة" : "Biometric unlock disabled",
+                          });
+                          return;
+                        }
+                        await handleEnableBiometric();
                       }}
-                      disabled={!biometricEnabled}
+                      disabled={!biometricAvailable && !biometricEnabled}
                     >
-                      {biometricEnabled ? (lang === "ar" ? "إيقاف" : "Disable") : (lang === "ar" ? "غير مفعّل" : "Disabled")}
+                      {biometricEnabled
+                        ? lang === "ar"
+                          ? "إيقاف"
+                          : "Disable"
+                        : lang === "ar"
+                        ? "تفعيل"
+                        : "Enable"}
                     </Button>
                   </div>
                 )}

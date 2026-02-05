@@ -41,7 +41,7 @@ import { CartProvider } from "@/contexts/CartContext";
 import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
-import { initializePushManagerOnce, syncPushRegistrationOnLogin, unregisterPushToken } from "@/lib/pushManager";
+import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLogin, unregisterPushToken } from "@/lib/pushManager";
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
@@ -394,15 +394,28 @@ function App() {
 
 function PushGate() {
   const { user } = useFirebaseAuth();
+  const [location] = useLocation();
 
   useEffect(() => {
     if (!user?.id) {
       void unregisterPushToken();
       void syncPushRegistrationOnLogin(null);
+      void setPushRoleContext(null);
       return;
     }
     void syncPushRegistrationOnLogin(user.id);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const path = String(location || "").toLowerCase();
+    const role = path.startsWith("/technician")
+      ? "technician"
+      : path.startsWith("/admin")
+      ? "admin"
+      : "customer";
+    void setPushRoleContext(role);
+  }, [location, user?.id]);
 
   return null;
 }

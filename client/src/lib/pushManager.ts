@@ -46,6 +46,14 @@ const tapHandlers = new Set<TapHandler>();
 
 const getTokenType = () => (platform === "ios" ? "apns" : "fcm");
 
+const normalizeRole = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "rider") return "customer";
+  if (raw === "customer" || raw === "technician" || raw === "admin") return raw;
+  return null;
+};
+
 const readStoredValue = async (key: string) => {
   try {
     const { value } = await Preferences.get({ key });
@@ -97,8 +105,11 @@ const resolveRoleForRegistration = async () => {
   if (currentRole) return currentRole;
   const stored = await readStoredValue(ROLE_STORAGE_KEY);
   if (stored) {
-    currentRole = stored;
-    return stored;
+    const normalized = normalizeRole(stored);
+    if (normalized) {
+      currentRole = normalized;
+      return normalized;
+    }
   }
   try {
     const res = await fetchWithFirebaseAuth(buildApiUrl("/api/roles/me"), { method: "GET" });
@@ -110,9 +121,12 @@ const resolveRoleForRegistration = async () => {
         : roles.includes("technician")
         ? "technician"
         : "customer";
-      currentRole = role;
-      await writeStoredValue(ROLE_STORAGE_KEY, role);
-      return role;
+      const normalized = normalizeRole(role);
+      currentRole = normalized;
+      if (normalized) {
+        await writeStoredValue(ROLE_STORAGE_KEY, normalized);
+      }
+      return normalized;
     }
   } catch (error) {
     console.log("[Push][Role] Failed to fetch roles:", error);
@@ -314,6 +328,23 @@ export const syncPushRegistrationOnLogin = async (userId?: string | null) => {
   if (effectiveToken) {
     const role = await resolveRoleForRegistration();
     await registerDeviceToken(effectiveToken, currentUserId, role);
+  }
+};
+
+export const setPushRoleContext = async (role?: string | null) => {
+  const normalized = normalizeRole(role);
+  if (normalized === currentRole) return;
+  currentRole = normalized;
+  if (currentUserId) {
+    roleUserId = currentUserId;
+  }
+  await writeStoredValue(ROLE_STORAGE_KEY, normalized ?? "");
+  if (!registrationAllowed || !currentUserId) return;
+  const pendingToken = await readStoredValue(PENDING_TOKEN_KEY);
+  const token = await ensureCachedToken();
+  const effectiveToken = pendingToken || token;
+  if (effectiveToken) {
+    await registerDeviceToken(effectiveToken, currentUserId, normalized);
   }
 };
 

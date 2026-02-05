@@ -7,6 +7,13 @@ final class OrderLiveActivityManager {
 
   private let apiBase = "https://cyclecaretec.com/api"
   private let storagePrefix = "CapacitorStorage."
+  private let apnsEnvironment: String = {
+#if DEBUG
+    return "development"
+#else
+    return "production"
+#endif
+  }()
 
   private func readStoredValue(_ key: String) -> String? {
     let fullKey = storagePrefix + key
@@ -27,6 +34,7 @@ final class OrderLiveActivityManager {
   func start(orderId: String,
              orderNumber: String,
              bikeName: String?,
+             role: String?,
              userId: String?,
              state: OrderLiveActivityAttributes.ContentState) {
     if let existing = findActivity(orderId: orderId) {
@@ -34,7 +42,12 @@ final class OrderLiveActivityManager {
       return
     }
 
-    let attributes = OrderLiveActivityAttributes(orderId: orderId, orderNumber: orderNumber, bikeName: bikeName)
+    let attributes = OrderLiveActivityAttributes(
+      orderId: orderId,
+      orderNumber: orderNumber,
+      bikeName: bikeName,
+      role: role
+    )
 
     do {
       let activity = try Activity.request(
@@ -42,7 +55,13 @@ final class OrderLiveActivityManager {
         contentState: state,
         pushType: .token
       )
-      observePushTokenUpdates(activity: activity, orderId: orderId, orderNumber: orderNumber, userId: userId)
+      observePushTokenUpdates(
+        activity: activity,
+        orderId: orderId,
+        orderNumber: orderNumber,
+        userId: userId,
+        activityId: activity.id
+      )
     } catch {
       print("[LiveActivity] Failed to start activity:", error)
     }
@@ -65,11 +84,18 @@ final class OrderLiveActivityManager {
   private func observePushTokenUpdates(activity: Activity<OrderLiveActivityAttributes>,
                                        orderId: String,
                                        orderNumber: String,
-                                       userId: String?) {
+                                       userId: String?,
+                                       activityId: String) {
     Task.detached {
       for await tokenData in activity.pushTokenUpdates {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
-        await self.registerLiveActivityToken(orderId: orderId, orderNumber: orderNumber, userId: userId, token: token)
+        await self.registerLiveActivityToken(
+          orderId: orderId,
+          orderNumber: orderNumber,
+          userId: userId,
+          token: token,
+          activityId: activityId
+        )
       }
     }
   }
@@ -77,7 +103,8 @@ final class OrderLiveActivityManager {
   private func registerLiveActivityToken(orderId: String,
                                          orderNumber: String,
                                          userId: String?,
-                                         token: String) async {
+                                         token: String,
+                                         activityId: String) async {
     guard let authToken = readAuthToken() else {
       print("[LiveActivity] Skipped: no auth token yet")
       return
@@ -96,6 +123,8 @@ final class OrderLiveActivityManager {
       "orderId": orderId,
       "orderNumber": orderNumber,
       "token": token,
+      "activityId": activityId,
+      "environment": apnsEnvironment,
     ]
     if let userId, !userId.isEmpty {
       payload["userId"] = userId
