@@ -12,18 +12,18 @@ export default function AuthCallback() {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
+    const isSafeClientRedirect = (value: string) => value.startsWith("/") && !value.startsWith("//");
+
     const processAuth = async () => {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token");
       const storedRedirect = consumePostLoginRedirect("");
       const redirectToRaw = storedRedirect || params.get("redirectTo") || "/";
-      // Prevent redirect loops back to the callback page
-      const redirectTo =
+      const normalizedRedirect =
         redirectToRaw === "/auth/callback" || redirectToRaw === "auth/callback"
           ? "/"
           : redirectToRaw;
-
-      console.log("[AuthCallback] token:", token);
+      const redirectTo = isSafeClientRedirect(normalizedRedirect) ? normalizedRedirect : "/";
 
       // ❌ لا توكن
       if (!token) {
@@ -34,8 +34,6 @@ export default function AuthCallback() {
 
       // ✅ خزّن التوكن فوراً
       await persistAuthTokens({ authToken: token });
-
-      console.log("[AuthCallback] Token saved to localStorage");
 
       await promptBiometricEnrollment(token);
 

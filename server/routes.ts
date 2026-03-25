@@ -33,8 +33,10 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { randomUUID, createHmac } from "crypto";
 import { sendApns, sendApnsLiveActivity } from "./push/apns";
 
-const ENABLE_MOCK_TECHNICIAN = true; // TEMP: toggle off in production when real techs are ready
+const ENABLE_MOCK_TECHNICIAN = process.env.ENABLE_MOCK_TECHNICIAN === "true";
 const ALLOW_ALL_BOOKINGS = process.env.ALLOW_ALL_BOOKINGS === "true";
+const ALLOW_MOCK_CHECKOUT_BYPASS = process.env.ALLOW_MOCK_CHECKOUT_BYPASS === "true";
+const ALLOW_LEGACY_PHONE_TOKENS = process.env.ALLOW_LEGACY_PHONE_TOKENS === "true";
 const MOCK_TECH_ID_PREFIX = "mock-";
 const DEFAULT_LAT = 24.7136;
 const DEFAULT_LNG = 46.6753;
@@ -346,7 +348,7 @@ async function resolveAuthFromToken(token: string): Promise<AuthContext | null> 
     }
   }
 
-  if (token.startsWith("phone_")) {
+  if (ALLOW_LEGACY_PHONE_TOKENS && token.startsWith("phone_")) {
     return {
       userId: token,
       isAdmin: false,
@@ -2672,9 +2674,33 @@ export async function registerRoutes(app: Express): Promise<void> {
           folder: string
         ): Promise<string | undefined> => {
           if (!file) return undefined;
-          
+
+          const allowedMimeTypes = new Set([
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif",
+            "application/pdf",
+          ]);
+          const maxFileSize = 5 * 1024 * 1024;
+          if (!allowedMimeTypes.has(file.mimetype)) {
+            throw new AppError({
+              code: "VALIDATION_ERROR",
+              status: 400,
+              message: `Unsupported file type: ${file.mimetype}`,
+            });
+          }
+          if (file.size > maxFileSize) {
+            throw new AppError({
+              code: "VALIDATION_ERROR",
+              status: 400,
+              message: "File too large (max 5MB)",
+            });
+          }
+
           const timestamp = Date.now();
-          const fileName = `${folder}/${timestamp}-${file.originalname}`;
+          const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const fileName = `${folder}/${timestamp}-${safeName}`;
           const publicUrl = await uploadBufferToStorage({
             file,
             path: fileName,
@@ -4791,7 +4817,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const srUserId = sr.user_id || sr.userId;
       const isOwner = srUserId && (srUserId === userUuid || (auth && srUserId === auth.userId));
       const isAdmin = auth?.isAdmin === true;
-      const allowMockBypass = true;
+      const allowMockBypass = ALLOW_MOCK_CHECKOUT_BYPASS;
       if (!allowMockBypass && !ALLOW_ALL_BOOKINGS && !isOwner && !isAdmin) {
         return res.status(403).json({ message: "Forbidden" });
       }

@@ -4,12 +4,7 @@
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
-
-    /* 🚨 أهم تعديل — إزالة noEmit */
-    /* "noEmit": true, */
-
-    /* 🚀 خروج ملفات السيرفر إلى dist */
-    "outDir": "./dist",
+    "noEmit": true,
 
     "module": "ESNext",
     "strict": true,
@@ -26,7 +21,6 @@
       "@shared/*": ["./shared/*"]
     },
 
-    /* إضافات لضمان عدم حدوث أخطاء أثناء build */
     "emitDecoratorMetadata": false,
     "experimentalDecorators": false
   }

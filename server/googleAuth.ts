@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import axios from "axios";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { signJWT, verifyJWT } from "./jwt";
 
 // --------------------------------------------------
@@ -14,19 +15,104 @@ export function setupGoogleAuth(app: Express) {
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
   const CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL!;
+  const STATE_TTL_MS = 10 * 60 * 1000;
+  const STATE_SECRET = process.env.SESSION_SECRET;
+
+  if (!STATE_SECRET || STATE_SECRET.length < 32) {
+    throw new Error("SESSION_SECRET must be set for OAuth state signing");
+  }
+
+  const allowedRedirectHosts = (process.env.ALLOWED_OAUTH_REDIRECT_HOSTS ||
+    "cyclecaretec.com,www.cyclecaretec.com,localhost,127.0.0.1")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const allowedDeepLinkSchemes = new Set(
+    (process.env.ALLOWED_OAUTH_DEEP_LINK_SCHEMES || "cyclecare")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const isAllowedRedirectHost = (hostname: string) => {
+    const normalized = hostname.toLowerCase();
+    return allowedRedirectHosts.some(
+      (allowed) => normalized === allowed || normalized.endsWith(`.${allowed}`),
+    );
+  };
+
+  const sanitizeRedirectTarget = (value: unknown): string => {
+    if (typeof value !== "string") return "/";
+    const trimmed = value.trim();
+    if (!trimmed) return "/";
+
+    if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+      return trimmed;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      const scheme = parsed.protocol.replace(":", "").toLowerCase();
+
+      if (
+        (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+        isAllowedRedirectHost(parsed.hostname)
+      ) {
+        return parsed.toString();
+      }
+
+      if (allowedDeepLinkSchemes.has(scheme)) {
+        return parsed.toString();
+      }
+    } catch {
+      return "/";
+    }
+
+    return "/";
+  };
+
+  const buildOAuthState = (redirectTo: string) => {
+    const payload = {
+      redirectTo,
+      ts: Date.now(),
+      nonce: randomBytes(12).toString("hex"),
+    };
+    const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const signature = createHmac("sha256", STATE_SECRET).update(encoded).digest("base64url");
+    return `${encoded}.${signature}`;
+  };
+
+  const parseOAuthState = (state: string): { redirectTo: string } | null => {
+    const [encoded, signature] = state.split(".");
+    if (!encoded || !signature) return null;
+    const expectedSignature = createHmac("sha256", STATE_SECRET).update(encoded).digest("base64url");
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+      const ts = Number(parsed?.ts);
+      if (!Number.isFinite(ts)) return null;
+      if (Date.now() - ts > STATE_TTL_MS) return null;
+      return { redirectTo: sanitizeRedirectTarget(parsed?.redirectTo) };
+    } catch {
+      return null;
+    }
+  };
 
   // --------------------------------------------------
   // STEP 1: Redirect user to Google
   // --------------------------------------------------
   app.get("/api/auth/google", (req, res) => {
-    const redirectTo = (req.query.redirectTo as string) || "/";
-
-    const state = Buffer.from(
-      JSON.stringify({
-        redirectTo,
-        ts: Date.now(),
-      }),
-    ).toString("base64url");
+    const redirectTo = sanitizeRedirectTarget((req.query.redirectTo as string) || "/");
+    const state = buildOAuthState(redirectTo);
 
     const url =
       `${GOOGLE_AUTH_URL}?` +
@@ -56,9 +142,10 @@ export function setupGoogleAuth(app: Express) {
         return res.redirect("/auth?error=missing_code");
       }
 
-      const parsedState = JSON.parse(
-        Buffer.from(state, "base64url").toString("utf8"),
-      );
+      const parsedState = parseOAuthState(state);
+      if (!parsedState?.redirectTo) {
+        return res.redirect("/auth?error=invalid_state");
+      }
 
       // ------------------------------------------
       // Exchange code for access token

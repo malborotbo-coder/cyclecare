@@ -1,11 +1,17 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import admin from "firebase-admin";
 import twilio from "twilio";
+import { randomBytes } from "crypto";
 import { storage } from "./storage";
 import { signJWT, verifyJWT } from "./jwt";
 import { pgFetch } from "./postgrest";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const ALLOW_LEGACY_PHONE_TOKENS = process.env.ALLOW_LEGACY_PHONE_TOKENS === "true";
+const OTP_SEND_WINDOW_MS = 10 * 60 * 1000;
+const OTP_VERIFY_WINDOW_MS = 10 * 60 * 1000;
+const OTP_SEND_MAX = 5;
+const OTP_VERIFY_MAX = 10;
 
 // Initialize Twilio
 const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
@@ -33,7 +39,7 @@ const isAdminPhoneNumber = (phone: string | undefined | null): boolean => {
 };
 
 const createSessionToken = () =>
-  `session_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`;
+  `session_${Date.now()}_${randomBytes(24).toString("hex")}`;
 
 const APP_JWT_ISSUER = "cyclecare-app";
 const APP_JWT_AUDIENCE = "cyclecare-users";
@@ -50,6 +56,53 @@ const decodeJwtPayload = (token: string) => {
   } catch {
     return null;
   }
+};
+
+type RateBucket = {
+  count: number;
+  resetAt: number;
+};
+
+const otpRateBuckets = new Map<string, RateBucket>();
+
+const getClientIp = (req: Request): string => {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0].split(",")[0].trim();
+  }
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || "unknown";
+};
+
+const enforceOtpRateLimit = (
+  req: Request,
+  res: Response,
+  keyPrefix: "send" | "verify",
+  max: number,
+  windowMs: number,
+) => {
+  const now = Date.now();
+  const phone = typeof req.body?.phoneNumber === "string" ? normalizePhone(req.body.phoneNumber) : "";
+  const key = `${keyPrefix}:${getClientIp(req)}:${phone || "no-phone"}`;
+  const current = otpRateBuckets.get(key);
+
+  if (!current || current.resetAt <= now) {
+    otpRateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+
+  if (current.count >= max) {
+    const retryAfterSeconds = Math.max(Math.ceil((current.resetAt - now) / 1000), 1);
+    res.setHeader("Retry-After", String(retryAfterSeconds));
+    res.status(429).json({ error: "too_many_requests", retryAfterSeconds });
+    return false;
+  }
+
+  current.count += 1;
+  otpRateBuckets.set(key, current);
+  return true;
 };
 
 // Initialize Firebase Admin SDK
@@ -168,6 +221,10 @@ export async function setupFirebaseAuth(app: Express) {
       
       // Check if it's a legacy phone token (phone_XXXXXXXXX format)
       if (token.startsWith('phone_')) {
+        if (!ALLOW_LEGACY_PHONE_TOKENS) {
+          req.authError = { code: "invalid_token", message: "legacy_phone_token_disabled" };
+          return next();
+        }
         const phoneDigits = token.replace('phone_', '');
         const adminPhone = process.env.ADMIN_PHONE_NUMBER;
         const tokenPhoneNormalized = normalizePhone(phoneDigits);
@@ -200,10 +257,8 @@ export async function setupFirebaseAuth(app: Express) {
         req.userId = decodedToken.uid;
         console.log(`[Firebase Auth] User: ${decodedToken.email || decodedToken.uid}, isAdmin: ${isAdminEmail}`);
       } else {
-        // Fallback to mock auth if Firebase not initialized
-        const decoded = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
-        req.firebaseUser = decoded;
-        req.userId = decoded.uid;
+        req.authError = { code: "firebase_not_configured", message: "firebase_admin_not_configured" };
+        return next();
       }
     } catch (error: any) {
       const errorCode = String(error?.code || "");
@@ -213,8 +268,6 @@ export async function setupFirebaseAuth(app: Express) {
         message: error?.message,
         name: error?.name,
         stack: error?.stack,
-        tokenPrefix: token?.slice(0, 12),
-        tokenLength: token?.length,
       });
     }
 
@@ -242,15 +295,20 @@ export async function setupFirebaseAuth(app: Express) {
         .split(",")
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean);
-      const isAdminEmail = decoded.email && adminEmails.includes(decoded.email.toLowerCase());
-      const isAdminUser = decoded.admin === true || isAdminEmail;
+      const isAdminEmail =
+        typeof decoded.email === "string" && adminEmails.includes(decoded.email.toLowerCase());
+      const isAdminUser = decoded.admin === true || isAdminEmail === true;
+      const emailValue = decoded.email ?? null;
+      const firstNameValue = decoded.name || (decoded as any).given_name || null;
+      const lastNameValue = (decoded as any).family_name || null;
+      const profileImageUrlValue = decoded.picture ?? null;
 
       const jwt = signJWT({
         sub: decoded.uid,
-        email: decoded.email,
-        firstName: decoded.name || (decoded as any).given_name || null,
-        lastName: (decoded as any).family_name || null,
-        profileImageUrl: decoded.picture,
+        email: emailValue,
+        firstName: firstNameValue,
+        lastName: lastNameValue,
+        profileImageUrl: profileImageUrlValue,
         isAdmin: isAdminUser,
       });
 
@@ -277,6 +335,9 @@ export async function setupFirebaseAuth(app: Express) {
   // Send OTP endpoint with Twilio Verify
   app.post("/api/auth/send-otp", async (req: Request, res: Response) => {
     try {
+      if (!enforceOtpRateLimit(req, res, "send", OTP_SEND_MAX, OTP_SEND_WINDOW_MS)) {
+        return;
+      }
       const { phoneNumber } = req.body;
 
       if (!phoneNumber) {
@@ -313,6 +374,9 @@ export async function setupFirebaseAuth(app: Express) {
   // Verify OTP endpoint using Twilio Verify
   app.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
     try {
+      if (!enforceOtpRateLimit(req, res, "verify", OTP_VERIFY_MAX, OTP_VERIFY_WINDOW_MS)) {
+        return;
+      }
       const { phoneNumber, code } = req.body;
 
       if (!phoneNumber || !code) {
@@ -444,11 +508,13 @@ CREATE INDEX IF NOT EXISTS idx_phone_session_expires ON phone_sessions (expires_
     }
   });
 
-  // Logout endpoint
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
+  // Logout endpoints (both paths kept for backward compatibility)
+  const handleLogout = (_req: Request, res: Response) => {
     res.clearCookie("session");
     res.json({ message: "Logged out successfully" });
-  });
+  };
+  app.post("/api/auth/logout", handleLogout);
+  app.post("/api/logout", handleLogout);
 }
 
 export const isAuthenticated = (

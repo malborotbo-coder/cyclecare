@@ -2,7 +2,6 @@ import express from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { setupGoogleAuth } from "./googleAuth";
 import { errorHandler, getRequestLang, normalizeErrorBody } from "./errors";
 
 // Wrap entire initialization in try-catch for Autoscale deployments
@@ -22,25 +21,49 @@ async function startServer() {
       "https://cyclecaretec.com",
       "https://www.cyclecaretec.com",
     ]);
+
+    const allowedHostSuffixes = [".cyclecaretec.com"];
+    const isAllowedOrigin = (origin: string) => {
+      try {
+        const parsed = new URL(origin);
+        const protocolAllowed =
+          parsed.protocol === "https:" ||
+          parsed.protocol === "http:" ||
+          parsed.protocol === "capacitor:";
+        if (!protocolAllowed) return false;
+        if (allowedOrigins.has(origin)) return true;
+        return allowedHostSuffixes.some(
+          (suffix) => parsed.hostname === suffix.slice(1) || parsed.hostname.endsWith(suffix),
+        );
+      } catch {
+        return false;
+      }
+    };
+
     app.use((req, res, next) => {
       const origin = req.headers.origin;
-      if (origin) {
-        try {
-          const hostname = new URL(origin).hostname;
-          if (allowedOrigins.has(origin) || hostname.endsWith("cyclecaretec.com")) {
-            res.setHeader("Access-Control-Allow-Origin", origin);
-            res.setHeader("Vary", "Origin");
-          }
-        } catch {
-          // Ignore malformed Origin headers
-        }
+      const allowed = typeof origin === "string" ? isAllowedOrigin(origin) : false;
+
+      if (allowed && origin) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Credentials", "true");
       }
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Lang, Accept-Language");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
       if (req.method === "OPTIONS") {
+        if (origin && !allowed) {
+          return res.sendStatus(403);
+        }
         return res.sendStatus(204);
       }
+      next();
+    });
+
+    app.use((_req, res, next) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
       next();
     });
 
@@ -74,20 +97,10 @@ async function startServer() {
       const start = Date.now();
       const path = req.path;
 
-      const originalResJson = res.json;
-      let captured: any;
-
-      res.json = function (body, ...args) {
-        captured = body;
-        return originalResJson.apply(res, [body, ...args]);
-      };
-
       res.on("finish", () => {
         if (path.startsWith("/api")) {
           const duration = Date.now() - start;
-          let line = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-          if (captured) line += ` :: ${JSON.stringify(captured)}`;
-          log(line);
+          log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
         }
       });
 
@@ -98,17 +111,6 @@ async function startServer() {
     app.get("/health", (_req, res) => {
       res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
     });
-
-    // ===========================
-    // 🔥 الأهم: GoogleAuth هنا
-    // ===========================
-    try {
-      await setupGoogleAuth(app);
-      log("Google Auth setup completed");
-    } catch (authError: any) {
-      console.error("[Server] Google Auth setup error:", authError.message);
-      // Continue without Google Auth in case of error
-    }
 
     // TEST
     app.get("/api/test", (_req, res) => {
