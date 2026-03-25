@@ -6,6 +6,14 @@ const PHONE_SESSION_KEY = "phone_session";
 const PHONE_USER_ID_KEY = "phone_user_id";
 const PHONE_NUMBER_KEY = "phone_number";
 const FIREBASE_TOKEN_KEY = "firebase_token";
+const AUTH_TOKEN_UPDATED_EVENT = "auth-token-updated";
+
+type AuthTokenUpdateAction = "persisted" | "cleared";
+
+const dispatchAuthTokenUpdated = (action: AuthTokenUpdateAction) => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(AUTH_TOKEN_UPDATED_EVENT, { detail: { action } }));
+};
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
@@ -72,10 +80,10 @@ export async function persistAuthTokens(options: {
     await setPreference(FIREBASE_TOKEN_KEY, firebaseToken);
   }
 
-  window.dispatchEvent(new CustomEvent("auth-token-updated"));
+  dispatchAuthTokenUpdated("persisted");
 }
 
-export async function clearAuthTokens() {
+export async function clearAuthTokens(options?: { emitEvent?: boolean }) {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(PHONE_SESSION_KEY);
   localStorage.removeItem(PHONE_USER_ID_KEY);
@@ -88,7 +96,9 @@ export async function clearAuthTokens() {
   await removePreference(PHONE_NUMBER_KEY);
   await removePreference(FIREBASE_TOKEN_KEY);
 
-  window.dispatchEvent(new CustomEvent("auth-token-updated"));
+  if (options?.emitEvent !== false) {
+    dispatchAuthTokenUpdated("cleared");
+  }
 }
 
 export async function syncAuthTokensFromPreferences() {

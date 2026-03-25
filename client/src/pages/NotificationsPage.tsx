@@ -9,6 +9,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { parseTimestamp } from "@/lib/date";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 type NotificationItem = {
   id: string;
@@ -54,10 +56,14 @@ export default function NotificationsPage() {
   const { lang } = useLanguage();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { user, isGuest, authReady } = useFirebaseAuth();
+  const canCallProtectedEndpoints =
+    authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
 
   const { data: notifications, isLoading } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications"],
     queryFn: () => apiRequest("/api/notifications", "GET"),
+    enabled: canCallProtectedEndpoints,
   });
 
   const unreadCount = useMemo(
@@ -66,7 +72,10 @@ export default function NotificationsPage() {
   );
 
   const markAllMutation = useMutation({
-    mutationFn: async () => apiRequest("/api/notifications/mark-read", "POST"),
+    mutationFn: async () => {
+      if (!canCallProtectedEndpoints) return null;
+      return apiRequest("/api/notifications/mark-read", "POST");
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
@@ -79,13 +88,17 @@ export default function NotificationsPage() {
   });
 
   const markOneMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest(`/api/notifications/${id}/read`, "PATCH"),
+    mutationFn: async (id: string) => {
+      if (!canCallProtectedEndpoints) return null;
+      return apiRequest(`/api/notifications/${id}/read`, "PATCH");
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
   });
 
   const handleOpen = (notification: NotificationItem) => {
+    if (!canCallProtectedEndpoints) return;
     if (!notification.readAt) {
       markOneMutation.mutate(notification.id);
     }
@@ -121,7 +134,7 @@ export default function NotificationsPage() {
               variant="outline"
               size="sm"
               onClick={() => markAllMutation.mutate()}
-              disabled={markAllMutation.isPending || unreadCount === 0}
+              disabled={!canCallProtectedEndpoints || markAllMutation.isPending || unreadCount === 0}
             >
               {lang === "ar" ? "تعليم الكل كمقروء" : "Mark all read"}
             </Button>

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { buildApiUrl } from "@/lib/apiConfig";
 import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
 import { unregisterPushToken } from "@/lib/pushManager";
+import { AUTH_INVALIDATED_EVENT, invalidateAuthState } from "@/lib/authSession";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
@@ -82,6 +83,18 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     setIsGuest(false);
   }, []);
 
+  const applyLoggedOutState = useCallback((preserveGuest = false) => {
+    setUser(null);
+    setIsLoading(false);
+    setAuthReady(true);
+    if (preserveGuest) {
+      setIsGuest(readGuestFlag());
+    } else {
+      exitGuestMode();
+      setIsGuest(false);
+    }
+  }, [exitGuestMode]);
+
   const checkSession = useCallback(async () => {
     setAuthReady(false);
     setIsLoading(true);
@@ -96,8 +109,6 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       
       // Check for phone session
       const phoneSession = localStorage.getItem("phone_session");
-      const phoneUserId = localStorage.getItem("phone_user_id");
-      const phoneNumber = localStorage.getItem("phone_number");
       
       // Build headers with Authorization - prefer app JWT, then Firebase, then phone
       const headers = new Headers();
@@ -110,22 +121,11 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         : "none";
       if (authToken) {
         headers.set("Authorization", `Bearer ${authToken}`);
-        console.log("[Auth] Using JWT token for session check");
       } else if (firebaseToken) {
         headers.set("Authorization", `Bearer ${firebaseToken}`);
-        console.log("[Auth] Using Firebase token for session check");
       } else if (phoneSession) {
         headers.set("Authorization", `Bearer ${phoneSession}`);
-        console.log("[Auth] Using phone session for session check");
-      } else {
-        console.log("[Auth] No token found for session check");
       }
-      console.log("[Auth] Session check - tokens present:", {
-        authToken: !!authToken,
-        firebaseToken: !!firebaseToken,
-        phoneSession: !!phoneSession,
-        method: authMethod,
-      });
       
       const response = await fetch(buildApiUrl("/api/auth/session"), { headers });
       
@@ -137,8 +137,9 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
           const data = await response.json();
+          const isAuthenticated = data?.authenticated === true || Boolean(data?.user?.id || data?.id);
           const userData = data.user || data;
-          if (userData && userData.id) {
+          if (isAuthenticated && userData && userData.id) {
             console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
             setUser(userData);
             exitGuestMode();
@@ -154,77 +155,38 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      // If we have a JWT/Firebase token but the session endpoint didn’t return, trust the token to keep user authenticated
-      if (authMethod === "jwt" || authMethod === "firebase") {
-        console.warn("[Auth] Token present but session not resolved; treating as authenticated");
-        setUser({
-          id: authToken || firebaseToken || "firebase_user",
-          email: null,
-          firstName: null,
-          lastName: null,
-          phone: null,
-          isAdmin: false,
-          source: "firebase_auth",
+      if (authMethod !== "none") {
+        await invalidateAuthState({
+          reason: "unauthenticated",
+          status: 401,
+          source: "session_check",
+          url: "/api/auth/session",
         });
-        exitGuestMode();
-        return;
+      } else {
+        await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
       }
 
-      // Fallback to localStorage phone session only when phoneSession exists
-      if (authMethod === "phone" && phoneSession && phoneUserId) {
-        console.log("[Auth] Using local phone session:", phoneNumber);
-        setUser({
-          id: phoneUserId,
-          email: null,
-          firstName: null,
-          lastName: null,
-          phone: phoneNumber,
-          isAdmin: false,
-          source: "firebase_auth"
-        });
-        exitGuestMode();
-        return;
-      }
-      
-      console.log("[Auth] No active session (method:", authMethod, ")");
-      setUser(null);
-      setIsGuest(readGuestFlag());
+      console.warn("[Auth] No active session", { method: authMethod });
+      applyLoggedOutState(true);
     } catch (error) {
       console.error("[Auth] Error checking session:", error);
-      
-      // Try to use local phone session as fallback
-      const phoneSession = localStorage.getItem("phone_session");
-      const phoneUserId = localStorage.getItem("phone_user_id");
-      const phoneNumber = localStorage.getItem("phone_number");
-      
-      if (phoneSession && phoneUserId) {
-        console.log("[Auth] Using fallback phone session");
-        setUser({
-          id: phoneUserId,
-          email: null,
-          firstName: null,
-          lastName: null,
-          phone: phoneNumber,
-          isAdmin: false,
-          source: "firebase_auth"
-        });
-        exitGuestMode();
-      } else {
-        setUser(null);
-        setIsGuest(readGuestFlag());
-      }
+      await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
+      applyLoggedOutState(true);
     } finally {
       setIsLoading(false);
       setAuthReady(true);
     }
-  }, []);
+  }, [applyLoggedOutState, exitGuestMode]);
 
   useEffect(() => {
     checkSession();
     
     // Listen for token updates from AuthCallback
-    const handleTokenUpdate = () => {
-      console.log("[Auth] Token updated, rechecking session");
+    const handleTokenUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ action?: string }>).detail;
+      if (detail?.action === "cleared") {
+        return;
+      }
       checkSession();
     };
     
@@ -232,13 +194,21 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener("auth-token-updated", handleTokenUpdate);
   }, [checkSession]);
 
+  useEffect(() => {
+    const handleAuthInvalidated = () => {
+      applyLoggedOutState(false);
+    };
+    window.addEventListener(AUTH_INVALIDATED_EVENT, handleAuthInvalidated);
+    return () => window.removeEventListener(AUTH_INVALIDATED_EVENT, handleAuthInvalidated);
+  }, [applyLoggedOutState]);
+
   const logout = async () => {
     try {
       // Call logout endpoint
       await fetch(buildApiUrl("/api/logout"), { method: "POST" });
 
       // Disable push tokens for this device before clearing auth
-      await unregisterPushToken();
+      await unregisterPushToken(user?.id);
 
       // Clear tokens (native + web) and local state
       await clearAuthTokens();
@@ -249,7 +219,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     } catch (error) {
       console.error("[Auth] Logout error:", error);
       // Still redirect on error
-      await unregisterPushToken();
+      await unregisterPushToken(user?.id);
       await clearAuthTokens();
       exitGuestMode();
       window.location.href = "/";

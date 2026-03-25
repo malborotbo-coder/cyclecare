@@ -1,6 +1,7 @@
 import { queryClient } from "@/lib/queryClient";
 import { onForegroundNotification, onNotificationTap } from "@/lib/pushManager";
 import { handleLiveActivityForRequest, handleLiveActivityFromPush } from "@/lib/liveActivity";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 type NotificationData = {
   type?: string | null;
@@ -28,10 +29,12 @@ const isOrderNotification = (data?: NotificationData | null) => {
 };
 
 const refreshNotifications = () => {
+  if (!hasStoredAuthTokenSync()) return;
   queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
 };
 
 const refreshServiceRequests = async () => {
+  if (!hasStoredAuthTokenSync()) return [];
   queryClient.invalidateQueries({ queryKey: ["/api/service-requests?mine=true"] });
   try {
     const data = await queryClient.fetchQuery({ queryKey: ["/api/service-requests?mine=true"] });

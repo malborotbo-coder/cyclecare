@@ -9,6 +9,8 @@ import {
 } from "@capacitor/push-notifications";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
+import { getBestAuthToken } from "@/lib/authStorage";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 const TOKEN_STORAGE_KEY = "push_device_token";
 const TOKEN_TYPE_STORAGE_KEY = "push_device_token_type";
@@ -103,6 +105,7 @@ const ensureDeviceId = async () => {
 
 const resolveRoleForRegistration = async () => {
   if (currentRole) return currentRole;
+  if (!hasStoredAuthTokenSync()) return null;
   const stored = await readStoredValue(ROLE_STORAGE_KEY);
   if (stored) {
     const normalized = normalizeRole(stored);
@@ -178,6 +181,7 @@ const registerDeviceToken = async (token: string, userId: string, role?: string 
   if (
     !token ||
     !userId ||
+    !hasStoredAuthTokenSync() ||
     registerInFlight ||
     (token === lastSentToken && userId === lastSentUserId && role === lastSentRole)
   )
@@ -294,7 +298,9 @@ export const initializePushManagerOnce = async () => {
   attachListeners();
   if (!authListenerAttached && typeof window !== "undefined") {
     authListenerAttached = true;
-    window.addEventListener("auth-token-updated", () => {
+    window.addEventListener("auth-token-updated", (event: Event) => {
+      const detail = (event as CustomEvent<{ action?: string }>).detail;
+      if (detail?.action === "cleared") return;
       if (currentUserId) {
         void syncPushRegistrationOnLogin(currentUserId);
       }
@@ -321,7 +327,7 @@ export const syncPushRegistrationOnLogin = async (userId?: string | null) => {
     await writeStoredValue(ROLE_STORAGE_KEY, "");
   }
   roleUserId = currentUserId;
-  if (!registrationAllowed || !currentUserId) return;
+  if (!registrationAllowed || !currentUserId || !hasStoredAuthTokenSync()) return;
   const pendingToken = await readStoredValue(PENDING_TOKEN_KEY);
   const token = await ensureCachedToken();
   const effectiveToken = pendingToken || token;
@@ -348,12 +354,27 @@ export const setPushRoleContext = async (role?: string | null) => {
   }
 };
 
-export const unregisterPushToken = async () => {
+export const unregisterPushToken = async (userId?: string | null) => {
+  const effectiveUserId = userId || currentUserId;
+  if (!effectiveUserId) {
+    console.log("[Push][Unregister] Skipped: no authenticated user.");
+    return;
+  }
+
+  const token = await getBestAuthToken();
+  if (!token) {
+    console.log("[Push][Unregister] Skipped: missing auth token.");
+    return;
+  }
+
   const deviceId = await ensureDeviceId();
   try {
     await fetchWithFirebaseAuth(buildApiUrl("/api/push/unregister"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         deviceId,
         platform,

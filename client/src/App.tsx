@@ -8,7 +8,7 @@ import FirebaseAuthPage from "@/pages/FirebaseAuthPage";
 import AuthCallback from "@/pages/AuthCallback";
 import Onboarding from "@/pages/Onboarding";
 import Splash from "@/pages/Splash";
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense, useRef } from "react";
 import HomePage from "@/components/HomePage";
 import ServiceBooking from "@/components/ServiceBooking";
 import BikeProfile from "@/components/BikeProfile";
@@ -41,7 +41,7 @@ import { CartProvider } from "@/contexts/CartContext";
 import Cart from "@/components/Cart";
 import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
-import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLogin, unregisterPushToken } from "@/lib/pushManager";
+import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLogin } from "@/lib/pushManager";
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
@@ -395,15 +395,19 @@ function App() {
 function PushGate() {
   const { user } = useFirebaseAuth();
   const [location] = useLocation();
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!user?.id) {
-      void unregisterPushToken();
+    const nextUserId = user?.id ?? null;
+    if (lastUserIdRef.current === nextUserId) return;
+    lastUserIdRef.current = nextUserId;
+
+    if (!nextUserId) {
       void syncPushRegistrationOnLogin(null);
       void setPushRoleContext(null);
       return;
     }
-    void syncPushRegistrationOnLogin(user.id);
+    void syncPushRegistrationOnLogin(nextUserId);
   }, [user?.id]);
 
   useEffect(() => {

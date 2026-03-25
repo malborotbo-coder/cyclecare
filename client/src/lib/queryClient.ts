@@ -4,6 +4,7 @@ import { buildApiUrl, getApiBaseUrl } from "@/lib/apiConfig";
 import { type Language } from "@/lib/i18n";
 import { Capacitor } from "@capacitor/core";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
+import { hasStoredAuthTokenSync, invalidateAuthState } from "@/lib/authSession";
 
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
@@ -26,6 +27,47 @@ function getLanguagePreference(): Language {
     if (saved === "en" || saved === "ar") return saved;
   }
   return "ar";
+}
+
+const isPublicApiPath = (path: string, method: string) => {
+  const normalizedPath = path.split("?")[0];
+  const normalizedMethod = method.toUpperCase();
+
+  if (normalizedPath.startsWith("/api/auth/")) return true;
+  if (normalizedPath.startsWith("/api/public/")) return true;
+  if (normalizedPath === "/api/logout") return true;
+  if (normalizedPath === "/api/test") return true;
+  if (normalizedPath === "/health") return true;
+  if (normalizedPath === "/api/parts" && normalizedMethod === "GET") return true;
+  if (normalizedPath === "/api/technicians" && normalizedMethod === "GET") return true;
+  if (normalizedPath === "/api/technicians/nearby" && normalizedMethod === "GET") return true;
+  if (normalizedPath === "/api/pricing/quote" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/discount-codes/validate" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/technicians/apply" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/service-requests" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/orders/mock-checkout" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/shop/mock-checkout" && normalizedMethod === "POST") return true;
+  if (normalizedPath === "/api/strava/connect") return true;
+  if (normalizedPath === "/api/strava/callback") return true;
+  return false;
+};
+
+async function guardProtectedApiRequest(path: string, method: string, source: string, lang: Language) {
+  if (!path.startsWith("/api/")) return;
+  if (isPublicApiPath(path, method)) return;
+  if (hasStoredAuthTokenSync()) return;
+
+  await invalidateAuthState({
+    reason: "missing_token",
+    status: 401,
+    source,
+    url: path,
+  });
+  throw buildApiError(
+    { code: "UNAUTHORIZED", message: "Unauthorized", reason: "missing_token" } as any,
+    401,
+    lang,
+  );
 }
 
 // Build headers with auth token if available (async version)
@@ -63,6 +105,7 @@ export async function apiRequest(
   const lang = getLanguagePreference();
   const isFormData =
     typeof FormData !== "undefined" && data instanceof FormData;
+  await guardProtectedApiRequest(url, method, "api_request_guard", lang);
   const headers = await getAuthHeadersAsync(!isFormData && !!data, lang);
   const targetUrl = buildApiUrl(url);
   if (debugApi && !seenDebugTargets.has(targetUrl)) {
@@ -118,6 +161,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const path = queryKey.join("/") as string;
     const lang = getLanguagePreference();
+    await guardProtectedApiRequest(path, "GET", "query_guard", lang);
     
     // iOS development: Return mock data for technicians
     if (path === "/api/technicians" && typeof window !== "undefined" && (window as any).Capacitor) {
@@ -175,3 +219,7 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+if (typeof window !== "undefined") {
+  (window as any).__cyclecareQueryClient = queryClient;
+}

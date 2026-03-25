@@ -15,6 +15,7 @@ import { buildApiUrl } from "@/lib/apiConfig";
 import { auth } from "@/lib/firebase";
 import { getBestAuthToken } from "@/lib/authStorage";
 import { fetchWithFirebaseAuth } from "@/lib/apiClient";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 import type { StoredOrder } from "@/lib/mockOrders";
 
 type SupportOption = {
@@ -88,9 +89,11 @@ const formatTicketTime = (value?: string) => {
 
 export default function SupportPage() {
   const { lang } = useLanguage();
-  const { user } = useFirebaseAuth();
+  const { user, isGuest, authReady } = useFirebaseAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const canUseProtectedSupport =
+    authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
 
   const labels = {
     ar: {
@@ -277,6 +280,9 @@ export default function SupportPage() {
   }, []);
 
   useEffect(() => {
+    if (!canUseProtectedSupport) {
+      return;
+    }
     let isActive = true;
     const loadTickets = async () => {
       try {
@@ -326,7 +332,7 @@ export default function SupportPage() {
       isActive = false;
       clearInterval(interval);
     };
-  }, [lang]);
+  }, [canUseProtectedSupport, lang]);
 
   useEffect(() => {
     if (!selectedCategory) {
@@ -519,6 +525,7 @@ export default function SupportPage() {
   }
 
   const handleReplySubmit = async () => {
+    if (!canUseProtectedSupport) return;
     if (!lastTicket?.id || replyDraft.trim().length === 0 || isReplying) return;
     setIsReplying(true);
     try {
@@ -867,7 +874,7 @@ export default function SupportPage() {
                       />
                       <Button
                         onClick={handleReplySubmit}
-                        disabled={isReplying || replyDraft.trim().length === 0}
+                        disabled={!canUseProtectedSupport || isReplying || replyDraft.trim().length === 0}
                       >
                         {labels.replySend}
                       </Button>

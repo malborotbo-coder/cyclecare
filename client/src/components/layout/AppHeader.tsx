@@ -12,6 +12,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 type NotificationItem = {
   id: string;
@@ -28,12 +29,14 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const [, setLocation] = useLocation();
   const isNative = Capacitor.isNativePlatform();
   const { itemCount } = useCart();
-  const { user, isGuest } = useFirebaseAuth();
+  const { user, isGuest, authReady } = useFirebaseAuth();
+  const canLoadNotifications =
+    authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
 
   const { data: notifications } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications"],
     queryFn: () => apiRequest("/api/notifications", "GET"),
-    enabled: Boolean(user) && !isGuest,
+    enabled: canLoadNotifications,
     refetchOnWindowFocus: true,
   });
 

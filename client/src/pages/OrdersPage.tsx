@@ -25,6 +25,7 @@ import type { Order, ServiceRequest } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { parseTimestamp } from "@/lib/date";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 type ServiceOrderItem = {
   name: string;
@@ -80,25 +81,28 @@ const formatCurrency = (value: number) => `${Number(value).toFixed(2)} ر.س`;
 
 export default function OrdersPage() {
   const { toast } = useToast();
-  const { user } = useFirebaseAuth();
+  const { user, isGuest, authReady } = useFirebaseAuth();
   const { lang } = useLanguage();
+  const canCallProtectedEndpoints =
+    authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
   const { data: serviceOrdersData, isLoading: serviceOrdersLoading } = useQuery<ServiceOrderSummary[]>({
     queryKey: ["/api/orders"],
-    enabled: !!user,
+    enabled: canCallProtectedEndpoints,
   });
   const rawServiceOrders = Array.isArray(serviceOrdersData) ? serviceOrdersData : [];
   const { data: shopOrdersData, isLoading: shopOrdersLoading } = useQuery<Order[]>({
     queryKey: ["/api/shop/orders"],
+    enabled: canCallProtectedEndpoints,
   });
   const shopOrders = Array.isArray(shopOrdersData) ? shopOrdersData : [];
   const { data: serviceRequestsData } = useQuery<ServiceRequest[]>({
     queryKey: ["/api/service-requests"],
-    enabled: !!user,
+    enabled: canCallProtectedEndpoints,
   });
   const serviceRequests = Array.isArray(serviceRequestsData) ? serviceRequestsData : [];
   const { data: reviewsData, refetch: refetchReviews } = useQuery<any[]>({
     queryKey: ["/api/technician-reviews"],
-    enabled: !!user,
+    enabled: canCallProtectedEndpoints,
   });
   const reviews = Array.isArray(reviewsData) ? reviewsData : [];
   const reviewedOrderIds = useMemo(
@@ -242,6 +246,7 @@ export default function OrdersPage() {
   }, [lang, reassignTarget]);
 
   const submitReview = async () => {
+    if (!canCallProtectedEndpoints) return;
     if (!reviewTarget) return;
     setReviewSubmitting(true);
     try {
@@ -263,6 +268,7 @@ export default function OrdersPage() {
   };
 
   const handleReassign = async (technicianId: string) => {
+    if (!canCallProtectedEndpoints) return;
     if (!reassignTarget) return;
     const requestId = reassignTarget.serviceRequestId || reassignTarget.id;
     if (!requestId) return;

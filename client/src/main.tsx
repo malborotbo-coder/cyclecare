@@ -27,7 +27,9 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 };
 
 // Keep native token cache in sync when auth token updates
-window.addEventListener("auth-token-updated", () => {
+window.addEventListener("auth-token-updated", (event: Event) => {
+  const detail = (event as CustomEvent<{ action?: string }>).detail;
+  if (detail?.action === "cleared") return;
   syncAuthTokensFromPreferences();
 });
 
