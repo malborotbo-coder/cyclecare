@@ -197,10 +197,16 @@ export function setupGoogleAuth(app: Express) {
         profileImageUrl: claims.picture,
         isAdmin,
       });
+      const tokenPreview = `${jwt.slice(0, 12)}...`;
 
       const redirectTarget = parsedState.redirectTo || "/";
       const tokenParam = `token=${encodeURIComponent(jwt)}`;
       const redirectParam = `redirectTo=${encodeURIComponent(redirectTarget)}`;
+      console.info("[GoogleAuth] Callback token generated", {
+        email: claims.email || null,
+        redirectTarget,
+        tokenPreview,
+      });
 
       // If redirect target is an absolute/deep-link URL, send the token directly there
       if (
@@ -209,10 +215,12 @@ export function setupGoogleAuth(app: Express) {
         redirectTarget.includes("://")
       ) {
         const separator = redirectTarget.includes("?") ? "&" : "?";
+        console.info("[GoogleAuth] Callback redirecting to absolute target", { redirectTarget });
         return res.redirect(`${redirectTarget}${separator}${tokenParam}`);
       }
 
       // Default: send back to SPA callback with token
+      console.info("[GoogleAuth] Callback redirecting to SPA", { redirectTarget });
       return res.redirect(`/auth/callback?${tokenParam}&${redirectParam}`);
     } catch (err: any) {
       console.error("[GoogleAuth] Callback error", {

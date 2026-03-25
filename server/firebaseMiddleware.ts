@@ -477,6 +477,11 @@ CREATE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number);
         profileImageUrl: null,
         isAdmin,
       });
+      console.info("[OTP Verify] Auth token generated", {
+        userId,
+        phoneNumber,
+        tokenPreview: `${authToken.slice(0, 12)}...`,
+      });
 
       // Best-effort session persistence
       try {

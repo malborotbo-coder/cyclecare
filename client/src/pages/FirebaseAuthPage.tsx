@@ -93,8 +93,10 @@ export default function FirebaseAuthPage() {
   };
 
   const handleAuthCallback = useCallback(async (params: URLSearchParams) => {
-    const sessionToken = params.get('session') || params.get('token');
-    if (sessionToken) {
+    const tokenFromCallback = params.get("token")?.trim() || "";
+    const legacySession = params.get("session")?.trim() || "";
+    const effectiveToken = tokenFromCallback || legacySession;
+    if (effectiveToken) {
       if (googleTimeoutRef.current) {
         clearTimeout(googleTimeoutRef.current);
         googleTimeoutRef.current = null;
@@ -106,7 +108,15 @@ export default function FirebaseAuthPage() {
           // Ignore close errors
         }
       }
-      await persistAuthTokens({ authToken: sessionToken, phoneSession: sessionToken });
+      if (tokenFromCallback) {
+        await persistAuthTokens({ authToken: tokenFromCallback });
+      } else {
+        await persistAuthTokens({ authToken: effectiveToken, phoneSession: effectiveToken });
+      }
+      console.info("[Auth][DeepLink] Token persisted from callback", {
+        hasToken: true,
+        source: tokenFromCallback ? "oauth_token" : "legacy_session",
+      });
       setIsLoading(false);
       window.location.href = consumePostLoginRedirect('/');
     }
