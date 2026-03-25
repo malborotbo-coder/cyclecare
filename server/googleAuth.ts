@@ -234,6 +234,7 @@ export function setupGoogleAuth(app: Express) {
       const token = authHeader.slice(7);
       const payload = verifyJWT(token);
       if (payload) {
+        const isPhoneSession = Boolean(payload.phone);
         return res.status(200).json({
           authenticated: true,
           user: {
@@ -241,9 +242,10 @@ export function setupGoogleAuth(app: Express) {
             email: payload.email || null,
             firstName: payload.firstName || null,
             lastName: payload.lastName || null,
+            phone: payload.phone || null,
             profileImageUrl: payload.profileImageUrl || null,
             isAdmin: payload.isAdmin === true,
-            source: "google_auth" as const,
+            source: isPhoneSession ? ("firebase_auth" as const) : ("google_auth" as const),
           },
         });
       }

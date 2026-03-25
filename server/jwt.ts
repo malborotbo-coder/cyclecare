@@ -16,6 +16,7 @@ const JWT_AUDIENCE = "cyclecare-users";
 export interface JWTPayload {
   sub: string;
   email: string | null;
+  phone?: string | null;
   firstName: string | null;
   lastName: string | null;
   profileImageUrl: string | null;

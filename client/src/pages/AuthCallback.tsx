@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
@@ -6,17 +6,19 @@ import { persistAuthTokens } from "@/lib/authStorage";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
 import { consumePostLoginRedirect } from "@/lib/authRedirect";
 
-const AUTH_TOKEN_KEY = "auth_token";
-
 export default function AuthCallback() {
   const [, setLocation] = useLocation();
+  const processedRef = useRef(false);
 
   useEffect(() => {
+    if (processedRef.current) return;
+    processedRef.current = true;
+
     const isSafeClientRedirect = (value: string) => value.startsWith("/") && !value.startsWith("//");
 
     const processAuth = async () => {
       const params = new URLSearchParams(window.location.search);
-      const token = params.get("token");
+      const token = params.get("token")?.trim() || "";
       const storedRedirect = consumePostLoginRedirect("");
       const redirectToRaw = storedRedirect || params.get("redirectTo") || "/";
       const normalizedRedirect =
@@ -25,19 +27,24 @@ export default function AuthCallback() {
           : redirectToRaw;
       const redirectTo = isSafeClientRedirect(normalizedRedirect) ? normalizedRedirect : "/";
 
-      // ❌ لا توكن
       if (!token) {
         console.error("[AuthCallback] No token found");
-        setLocation("/auth?error=no_token");
+        setLocation("/?auth_error=no_token");
         return;
       }
 
-      // ✅ خزّن التوكن فوراً
+      console.info("[AuthCallback] Token received from callback", {
+        hasToken: true,
+        tokenPreview: `${token.slice(0, 10)}...`,
+      });
+
       await persistAuthTokens({ authToken: token });
+      console.info("[AuthCallback] Token stored", {
+        hasAuthToken: Boolean(localStorage.getItem("auth_token")),
+      });
 
       await promptBiometricEnrollment(token);
 
-      // ✅ اغلق المتصفح المدمج في الهاتف بعد العودة
       if (Capacitor.isNativePlatform()) {
         try {
           await Browser.close();
@@ -46,8 +53,9 @@ export default function AuthCallback() {
         }
       }
 
-      // ✅ تحويل مباشر بدون تحقق
-      setLocation(redirectTo);
+      const callbackPath = `${window.location.origin}/auth/callback`;
+      window.history.replaceState({}, document.title, callbackPath);
+      window.location.replace(redirectTo);
     };
 
     processAuth();

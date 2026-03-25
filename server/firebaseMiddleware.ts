@@ -464,6 +464,19 @@ CREATE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number);
       }
 
       const sessionToken = createSessionToken();
+      const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+      const sessionPhoneNormalized = normalizePhone(phoneNumber);
+      const adminPhoneNormalized = normalizePhone(adminPhone || "");
+      const isAdmin = adminPhoneNormalized.length === 9 && sessionPhoneNormalized === adminPhoneNormalized;
+      const authToken = signJWT({
+        sub: userId,
+        email: null,
+        phone: phoneNumber,
+        firstName: null,
+        lastName: null,
+        profileImageUrl: null,
+        isAdmin,
+      });
 
       // Best-effort session persistence
       try {
@@ -494,12 +507,15 @@ CREATE INDEX IF NOT EXISTS idx_phone_session_expires ON phone_sessions (expires_
       const user = {
         id: userId,
         phoneNumber,
+        isAdmin,
       };
 
       return res.json({
         success: true,
         authenticated: true,
-        authToken: sessionToken,
+        authToken,
+        token: authToken,
+        sessionToken,
         user,
       });
     } catch (error: any) {

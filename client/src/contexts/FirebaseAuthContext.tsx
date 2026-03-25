@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
 import { unregisterPushToken } from "@/lib/pushManager";
@@ -54,6 +54,8 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [isLoading, setIsLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
+  const sessionCheckIdRef = useRef(0);
+  const bootstrapDebugLoggedRef = useRef(false);
   const GUEST_MODE_KEY = "guest_mode";
   const GUEST_TOKEN_KEY = "guest_token";
 
@@ -95,13 +97,17 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     }
   }, [exitGuestMode]);
 
-  const checkSession = useCallback(async () => {
-    console.info("[Bootstrap] Auth session check start");
+  const checkSession = useCallback(async (source: "startup" | "token_update" | "manual" = "manual") => {
+    const checkId = ++sessionCheckIdRef.current;
+    const isLatestCheck = () => sessionCheckIdRef.current === checkId;
+
+    console.info("[Bootstrap] Auth session check start", { source, checkId });
     setAuthReady(false);
     setIsLoading(true);
     try {
       // Ensure native-stored tokens are available in localStorage for API calls
       await syncAuthTokensFromPreferences();
+      if (!isLatestCheck()) return;
       // Check for JWT token first (Google Auth)
       const authToken = getAuthToken();
       
@@ -110,6 +116,17 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       
       // Check for phone session
       const phoneSession = localStorage.getItem("phone_session");
+
+      if (!bootstrapDebugLoggedRef.current) {
+        bootstrapDebugLoggedRef.current = true;
+        console.info("[Auth][CycleDebug] Bootstrap token snapshot", {
+          source,
+          checkId,
+          hasAuthToken: Boolean(authToken),
+          hasFirebaseToken: Boolean(firebaseToken),
+          hasPhoneSession: Boolean(phoneSession),
+        });
+      }
       
       // Build headers with Authorization - prefer app JWT, then Firebase, then phone
       const headers = new Headers();
@@ -129,6 +146,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       }
       
       const response = await fetch(buildApiUrl("/api/auth/session"), { headers });
+      if (!isLatestCheck()) return;
       
       let sessionResolved = false;
 
@@ -138,10 +156,11 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
           const data = await response.json();
+          if (!isLatestCheck()) return;
           const isAuthenticated = data?.authenticated === true || Boolean(data?.user?.id || data?.id);
           const userData = data.user || data;
           if (isAuthenticated && userData && userData.id) {
-            console.info("[Bootstrap] Auth session check resolved", { authenticated: true });
+            console.info("[Bootstrap] Auth session check resolved", { authenticated: true, source, checkId });
             setUser(userData);
             exitGuestMode();
             sessionResolved = true;
@@ -164,24 +183,30 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           url: "/api/auth/session",
         });
       } else {
-        await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
+        // Only clear if there are still no tokens at resolution time.
+        if (!localStorage.getItem("auth_token") && !localStorage.getItem("firebase_token") && !localStorage.getItem("phone_session")) {
+          await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
+        }
       }
 
+      if (!isLatestCheck()) return;
       console.warn("[Auth] No active session", { method: authMethod });
       applyLoggedOutState(true);
     } catch (error) {
+      if (!isLatestCheck()) return;
       console.error("[Auth] Error checking session:", error);
       await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
       applyLoggedOutState(true);
     } finally {
+      if (!isLatestCheck()) return;
       setIsLoading(false);
       setAuthReady(true);
-      console.info("[Bootstrap] Auth session check end");
+      console.info("[Bootstrap] Auth session check end", { source, checkId });
     }
   }, [applyLoggedOutState, exitGuestMode]);
 
   useEffect(() => {
-    checkSession();
+    checkSession("startup");
     
     // Listen for token updates from AuthCallback
     const handleTokenUpdate = (event: Event) => {
@@ -189,7 +214,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       if (detail?.action === "cleared") {
         return;
       }
-      checkSession();
+      checkSession("token_update");
     };
     
     window.addEventListener("auth-token-updated", handleTokenUpdate);

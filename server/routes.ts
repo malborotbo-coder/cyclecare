@@ -2386,7 +2386,7 @@ function getAuthContext(req: any): AuthContext | null {
       userId: jwtUser.sub,
       isAdmin: jwtUser.isAdmin === true,
       email: jwtUser.email || undefined,
-      phoneNumber: undefined,
+      phoneNumber: jwtUser.phone || undefined,
     };
   }
 
