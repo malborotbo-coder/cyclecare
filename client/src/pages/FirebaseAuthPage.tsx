@@ -60,8 +60,8 @@ export default function FirebaseAuthPage() {
   } | null>(null);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null); // Backup: keeps legacy API fallback untouched
   const USE_TWILIO_ONLY = true; // Flag to disable Firebase Phone Auth on web
-  const ENABLE_BIOMETRIC = isNative;
   const isNative = Capacitor.isNativePlatform();
+  const ENABLE_BIOMETRIC = isNative;
   const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
