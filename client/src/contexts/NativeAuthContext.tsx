@@ -22,6 +22,15 @@ interface NativeAuthContextType {
 
 const NativeUserContext = createContext<NativeAuthContextType | null>(null);
 
+const noopAsync = async () => {};
+const noopUpdate = () => {};
+const FALLBACK_NATIVE_AUTH: NativeAuthContextType = {
+  user: null,
+  setUser: noopUpdate,
+  updateUser: noopUpdate,
+  logout: noopAsync,
+};
+
 export const useNativeUser = () => {
   const context = useContext(NativeUserContext);
   const platform = Capacitor.getPlatform();
@@ -35,10 +44,7 @@ export const useNativeUser = () => {
 
 export const useNativeAuth = () => {
   const context = useContext(NativeUserContext);
-  if (!context) {
-    throw new Error("useNativeAuth must be used within NativeAuthProvider");
-  }
-  return context;
+  return context || FALLBACK_NATIVE_AUTH;
 };
 
 interface NativeAuthProviderProps {
@@ -53,9 +59,11 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
+    console.info('[Bootstrap] Native auth init start', { isNative });
     // Initialize native auth
     if (!isNative) {
       setIsInitialized(true);
+      console.info('[Bootstrap] Native auth init done', { mode: 'web' });
       return;
     }
 
@@ -68,6 +76,7 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
       localStorage.removeItem('nativeAuthUser');
       setUserState(null);
       setIsInitialized(true);
+      console.info('[Bootstrap] Native auth init done', { mode: 'native', source: 'logout-flag' });
       return;
     }
 
@@ -79,6 +88,7 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
         console.log('[NativeAuthProvider] ✅ User logged in from localStorage:', parsedUser.email);
         setUserState(parsedUser);
         setIsInitialized(true);
+        console.info('[Bootstrap] Native auth init done', { mode: 'native', source: 'stored-user' });
         return;
       }
     } catch (error) {
@@ -89,6 +99,7 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
     console.log('[NativeAuthProvider] ✅ No user found - will show login page');
     setUserState(null);
     setIsInitialized(true);
+    console.info('[Bootstrap] Native auth init done', { mode: 'native', source: 'no-user' });
   }, [isNative]);
 
   const setUser = (newUser: NativeUser | null) => {
@@ -130,7 +141,7 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
 
   if (!isInitialized) {
     return (
-      <NativeUserContext.Provider value={null}>
+      <NativeUserContext.Provider value={FALLBACK_NATIVE_AUTH}>
         {children}
       </NativeUserContext.Provider>
     );

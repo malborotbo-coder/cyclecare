@@ -46,6 +46,42 @@ import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
+const safeStorageGet = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeStorageSet = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage write errors during bootstrap.
+  }
+};
+
+function BootFailureScreen({ message }: { message?: string }) {
+  return (
+    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+      <div className="max-w-lg w-full rounded-xl border border-red-500/40 bg-slate-900/80 p-6">
+        <h1 className="text-xl font-semibold">App failed to load</h1>
+        <p className="mt-2 text-sm text-slate-300">
+          {message || "Startup took too long. Please refresh and try again."}
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-4 rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-400"
+        >
+          Reload
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RedirectToMyProfile() {
   const [, setLocation] = useLocation();
   useEffect(() => {
@@ -57,6 +93,19 @@ function RedirectToMyProfile() {
 function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authReady, isGuest } = useFirebaseAuth();
   const [, setLocation] = useLocation();
+  const [bootTimeout, setBootTimeout] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && authReady) {
+      setBootTimeout(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      console.error("[Bootstrap] Auth bootstrap timeout");
+      setBootTimeout(true);
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [isLoading, authReady]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -132,17 +181,21 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     };
   }, [setLocation]);
 
-  const showOnboarding = !localStorage.getItem("onboarding_completed");
+  const showOnboarding = !safeStorageGet("onboarding_completed");
 
   if (showOnboarding) {
     return (
       <Onboarding
         onComplete={() => {
-          localStorage.setItem("onboarding_completed", "true");
+          safeStorageSet("onboarding_completed", "true");
           window.location.reload();
         }}
       />
     );
+  }
+
+  if (bootTimeout) {
+    return <BootFailureScreen message="Authentication bootstrap timed out." />;
   }
 
   if (isLoading || !authReady) {
@@ -198,6 +251,10 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 
 
 function Router() {
+  useEffect(() => {
+    console.info("[Bootstrap] Router mounted");
+  }, []);
+
   return (
     <Switch>
       {/* Public routes - no authentication required */}
@@ -349,12 +406,13 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
+    console.info("[Bootstrap] App mount");
     // Show splash screen on first load
-    if (localStorage.getItem("splash_shown")) {
+    if (safeStorageGet("splash_shown")) {
       setShowSplash(false);
     } else {
       const timer = setTimeout(() => {
-        localStorage.setItem("splash_shown", "true");
+        safeStorageSet("splash_shown", "true");
         setShowSplash(false);
       }, 2500);
       return () => clearTimeout(timer);
@@ -362,8 +420,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void initializePushManagerOnce();
-    initializeNotificationSyncOnce();
+    console.info("[Bootstrap] Push init start");
+    void initializePushManagerOnce()
+      .then(() => {
+        console.info("[Bootstrap] Push manager init done");
+      })
+      .catch((error) => {
+        console.error("[Bootstrap] Push manager init failed", error);
+      });
+
+    try {
+      initializeNotificationSyncOnce();
+      console.info("[Bootstrap] Notification sync init done");
+    } catch (error) {
+      console.error("[Bootstrap] Notification sync init failed", error);
+    }
   }, []);
 
   return (

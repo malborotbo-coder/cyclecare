@@ -4,6 +4,9 @@ import "./index.css";
 import { syncAuthTokensFromPreferences } from "./lib/authStorage";
 import { restoreBiometricSession } from "./lib/biometricSession";
 import { fetchWithFirebaseAuth } from "./lib/apiClient";
+import { AppBootErrorBoundary } from "@/components/AppBootErrorBoundary";
+
+console.info("[Bootstrap] main.tsx start");
 
 // Best-effort native token restore (biometric + preferences)
 Promise.all([restoreBiometricSession(), syncAuthTokensFromPreferences()]).catch(() => null);
@@ -33,7 +36,26 @@ window.addEventListener("auth-token-updated", (event: Event) => {
   syncAuthTokensFromPreferences();
 });
 
-createRoot(document.getElementById("root")!).render(<App />);
+window.addEventListener("error", (event) => {
+  console.error("[Bootstrap] window error", event.error || event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("[Bootstrap] unhandled rejection", event.reason);
+});
+
+const rootNode = document.getElementById("root");
+if (!rootNode) {
+  throw new Error("Root node '#root' was not found.");
+}
+
+console.info("[Bootstrap] root render start");
+createRoot(rootNode).render(
+  <AppBootErrorBoundary>
+    <App />
+  </AppBootErrorBoundary>,
+);
+console.info("[Bootstrap] root render mounted");
 
 // Disable service worker registration to avoid HTML MIME errors for now
 if ("serviceWorker" in navigator) {

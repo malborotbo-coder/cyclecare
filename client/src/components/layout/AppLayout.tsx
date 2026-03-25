@@ -42,6 +42,10 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
   };
 
   useEffect(() => {
+    console.info("[Bootstrap] AppLayout mounted", { location });
+  }, []);
+
+  useEffect(() => {
     if (location.startsWith("/admin")) return;
     loadMockOrders();
   }, [location]);

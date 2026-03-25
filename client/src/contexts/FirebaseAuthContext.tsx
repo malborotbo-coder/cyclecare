@@ -96,6 +96,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   }, [exitGuestMode]);
 
   const checkSession = useCallback(async () => {
+    console.info("[Bootstrap] Auth session check start");
     setAuthReady(false);
     setIsLoading(true);
     try {
@@ -140,7 +141,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           const isAuthenticated = data?.authenticated === true || Boolean(data?.user?.id || data?.id);
           const userData = data.user || data;
           if (isAuthenticated && userData && userData.id) {
-            console.log("[Auth] Session found:", userData.email || userData.phone || userData.id, "isAdmin:", userData.isAdmin);
+            console.info("[Bootstrap] Auth session check resolved", { authenticated: true });
             setUser(userData);
             exitGuestMode();
             sessionResolved = true;
@@ -175,6 +176,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     } finally {
       setIsLoading(false);
       setAuthReady(true);
+      console.info("[Bootstrap] Auth session check end");
     }
   }, [applyLoggedOutState, exitGuestMode]);
 
