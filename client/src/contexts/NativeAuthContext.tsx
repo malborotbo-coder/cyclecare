@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, ReactNode, useState, useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { clearAuthTokens } from "@/lib/authStorage";
+import { auth as firebaseAuth } from "@/lib/firebase";
 
 interface NativeUser {
   id: string;
@@ -127,6 +128,9 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
   const logout = async () => {
     // Clear all auth data (works for both web and native)
     sessionStorage.setItem('nativeAuthLogout', 'true');
+    if (firebaseAuth.currentUser) {
+      await firebaseAuth.signOut().catch(() => undefined);
+    }
     await clearAuthTokens();
     localStorage.clear();
     sessionStorage.clear();

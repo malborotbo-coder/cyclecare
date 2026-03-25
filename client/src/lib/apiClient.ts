@@ -7,6 +7,9 @@ import { handleAuthFailureResponse, invalidateAuthState } from "./authSession";
 const platform = Capacitor.getPlatform();
 const isNative = platform === "android" || platform === "ios";
 const baseFetch = globalThis.fetch.bind(globalThis);
+const debugAuth =
+  typeof window !== "undefined" &&
+  (import.meta.env.DEV || localStorage.getItem("debug_auth") === "true");
 
 const isApiRequest = (url: string) => url.includes("/api/");
 
@@ -101,15 +104,25 @@ export async function fetchWithFirebaseAuth(
   let usedToken: string | null = null;
 
   if (isApiRequest(urlString)) {
-    const token = await getFirebaseIdToken(true);
-    if (token) {
-      usedToken = token;
-      headers.set("Authorization", `Bearer ${token}`);
+    let tokenSource: "request_header" | "restored_storage" | "firebase_current_user" | "none" = "none";
+    const existingAuthHeader = headers.get("Authorization");
+    if (existingAuthHeader?.startsWith("Bearer ")) {
+      usedToken = existingAuthHeader.slice(7).trim();
+      tokenSource = "request_header";
     } else {
-      const fallbackToken = await getBestAuthToken();
-      if (fallbackToken) {
-        usedToken = fallbackToken;
-        headers.set("Authorization", `Bearer ${fallbackToken}`);
+      // Prefer restored app token (Google/Phone/Email persisted state) over Firebase currentUser.
+      const restoredToken = await getBestAuthToken();
+      if (restoredToken) {
+        usedToken = restoredToken;
+        headers.set("Authorization", `Bearer ${restoredToken}`);
+        tokenSource = "restored_storage";
+      } else {
+        const firebaseToken = await getFirebaseIdToken(true);
+        if (firebaseToken) {
+          usedToken = firebaseToken;
+          headers.set("Authorization", `Bearer ${firebaseToken}`);
+          tokenSource = "firebase_current_user";
+        }
       }
     }
     if (!usedToken && typeof localStorage !== "undefined") {
@@ -137,6 +150,14 @@ export async function fetchWithFirebaseAuth(
           headers: { "Content-Type": "application/json" },
         },
       );
+    }
+    if (debugAuth && apiPath === "/api/auth/session") {
+      console.info("[Auth][Request] /api/auth/session header resolution", {
+        tokenSource,
+        hasAuthorization: Boolean(headers.get("Authorization")),
+        usedTokenPreview: usedToken ? `${usedToken.slice(0, 10)}...` : null,
+        platform,
+      });
     }
   }
 

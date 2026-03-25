@@ -3,6 +3,7 @@ import { buildApiUrl } from "@/lib/apiConfig";
 import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
 import { unregisterPushToken } from "@/lib/pushManager";
 import { AUTH_INVALIDATED_EVENT, invalidateAuthState } from "@/lib/authSession";
+import { auth as firebaseAuth } from "@/lib/firebase";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
@@ -237,6 +238,11 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       // Disable push tokens for this device before clearing auth
       await unregisterPushToken(user?.id);
 
+      // Ensure stale Firebase currentUser does not override restored app JWT flows.
+      if (firebaseAuth.currentUser) {
+        await firebaseAuth.signOut().catch(() => undefined);
+      }
+
       // Clear tokens (native + web) and local state
       await clearAuthTokens();
       localStorage.removeItem("onboarding_completed");
@@ -247,6 +253,9 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       console.error("[Auth] Logout error:", error);
       // Still redirect on error
       await unregisterPushToken(user?.id);
+      if (firebaseAuth.currentUser) {
+        await firebaseAuth.signOut().catch(() => undefined);
+      }
       await clearAuthTokens();
       exitGuestMode();
       window.location.href = "/";

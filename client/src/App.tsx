@@ -94,6 +94,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, isLoading, authReady, isGuest } = useFirebaseAuth();
   const [, setLocation] = useLocation();
   const [bootTimeout, setBootTimeout] = useState(false);
+  const loginGateLoggedRef = useRef(false);
 
   useEffect(() => {
     if (!isLoading && authReady) {
@@ -203,9 +204,22 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   }
 
   if (!user && !isGuest) {
+    if (!loginGateLoggedRef.current) {
+      loginGateLoggedRef.current = true;
+      console.warn("[AuthGate] Rendering login screen", {
+        authReady,
+        isLoading,
+        hasUser: Boolean(user),
+        isGuest,
+        hasAuthToken: Boolean(localStorage.getItem("auth_token")),
+        hasFirebaseToken: Boolean(localStorage.getItem("firebase_token")),
+        hasPhoneSession: Boolean(localStorage.getItem("phone_session")),
+      });
+    }
     return <FirebaseAuthPage />;
   }
 
+  loginGateLoggedRef.current = false;
   return <>{children}</>;
 }
 
