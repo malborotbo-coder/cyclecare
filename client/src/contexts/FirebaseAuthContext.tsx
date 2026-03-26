@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { buildApiUrl } from "@/lib/apiConfig";
-import { clearAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
+import { clearAuthTokens, persistAuthTokens, syncAuthTokensFromPreferences } from "@/lib/authStorage";
 import { unregisterPushToken } from "@/lib/pushManager";
 import { AUTH_INVALIDATED_EVENT, invalidateAuthState } from "@/lib/authSession";
 import { auth as firebaseAuth } from "@/lib/firebase";
@@ -161,6 +161,13 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
           const isAuthenticated = data?.authenticated === true || Boolean(data?.user?.id || data?.id);
           const userData = data.user || data;
           if (isAuthenticated && userData && userData.id) {
+            const responseAuthToken =
+              typeof data?.authToken === "string" && data.authToken.trim().length > 0
+                ? data.authToken.trim()
+                : null;
+            if (responseAuthToken && !localStorage.getItem("auth_token")) {
+              await persistAuthTokens({ authToken: responseAuthToken });
+            }
             console.info("[Bootstrap] Auth session check resolved", { authenticated: true, source, checkId });
             setUser(userData);
             exitGuestMode();

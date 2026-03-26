@@ -43,6 +43,19 @@ const createSessionToken = () =>
 
 const APP_JWT_ISSUER = "cyclecare-app";
 const APP_JWT_AUDIENCE = "cyclecare-users";
+const AUTH_COOKIE_NAME = "cc_auth";
+
+const getAuthCookieOptions = () => {
+  const secure = process.env.NODE_ENV === "production";
+  const configuredDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+    ...(configuredDomain ? { domain: configuredDomain } : {}),
+  };
+};
 
 let auth: admin.auth.Auth | null = null;
 let initialized = false;
@@ -515,6 +528,8 @@ CREATE INDEX IF NOT EXISTS idx_phone_session_expires ON phone_sessions (expires_
         isAdmin,
       };
 
+      res.cookie(AUTH_COOKIE_NAME, authToken, getAuthCookieOptions());
+
       return res.json({
         success: true,
         authenticated: true,
@@ -532,6 +547,7 @@ CREATE INDEX IF NOT EXISTS idx_phone_session_expires ON phone_sessions (expires_
   // Logout endpoints (both paths kept for backward compatibility)
   const handleLogout = (_req: Request, res: Response) => {
     res.clearCookie("session");
+    res.clearCookie(AUTH_COOKIE_NAME, getAuthCookieOptions());
     res.json({ message: "Logged out successfully" });
   };
   app.post("/api/auth/logout", handleLogout);

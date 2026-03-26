@@ -3,6 +3,36 @@ import axios from "axios";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { signJWT, verifyJWT } from "./jwt";
 
+const AUTH_COOKIE_NAME = "cc_auth";
+
+const getAuthCookieOptions = () => {
+  const secure = process.env.NODE_ENV === "production";
+  const configuredDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+    ...(configuredDomain ? { domain: configuredDomain } : {}),
+  };
+};
+
+const readCookieToken = (cookieHeader: string | undefined, name: string): string | null => {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";").map((part) => part.trim());
+  for (const part of parts) {
+    if (!part.startsWith(`${name}=`)) continue;
+    const value = part.slice(name.length + 1);
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+  return null;
+};
+
 // --------------------------------------------------
 // GOOGLE AUTH (JWT ONLY – NO DB – NO SESSION)
 // --------------------------------------------------
@@ -207,6 +237,7 @@ export function setupGoogleAuth(app: Express) {
         redirectTarget,
         tokenPreview,
       });
+      res.cookie(AUTH_COOKIE_NAME, jwt, getAuthCookieOptions());
 
       // If redirect target is an absolute/deep-link URL, send the token directly there
       if (
@@ -238,13 +269,18 @@ export function setupGoogleAuth(app: Express) {
     res.set("Cache-Control", "no-store");
 
     const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
+    const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const cookieToken = readCookieToken(req.headers.cookie, AUTH_COOKIE_NAME);
+    const tokenCandidates = [headerToken, cookieToken].filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    );
+    for (const token of tokenCandidates) {
       const payload = verifyJWT(token);
       if (payload) {
         const isPhoneSession = Boolean(payload.phone);
         return res.status(200).json({
           authenticated: true,
+          authToken: token,
           user: {
             id: payload.sub,
             email: payload.email || null,

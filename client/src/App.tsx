@@ -43,6 +43,7 @@ import Checkout from "@/components/Checkout";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
 import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLogin } from "@/lib/pushManager";
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
+import { hasStoredAuthTokenSync } from "@/lib/authSession";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -95,6 +96,8 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
   const [bootTimeout, setBootTimeout] = useState(false);
   const loginGateLoggedRef = useRef(false);
+  const restoreRetryTriggeredRef = useRef(false);
+  const hasStoredToken = hasStoredAuthTokenSync();
 
   useEffect(() => {
     if (!isLoading && authReady) {
@@ -107,6 +110,21 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     }, 15000);
     return () => window.clearTimeout(timer);
   }, [isLoading, authReady]);
+
+  useEffect(() => {
+    if (!authReady || isLoading || user || isGuest || !hasStoredToken) {
+      restoreRetryTriggeredRef.current = false;
+      return;
+    }
+    if (restoreRetryTriggeredRef.current) return;
+    restoreRetryTriggeredRef.current = true;
+    console.info("[AuthGate] Stored token exists without user, retrying session restore");
+    window.dispatchEvent(
+      new CustomEvent("auth-token-updated", {
+        detail: { action: "persisted", source: "auth_gate_retry" },
+      }),
+    );
+  }, [authReady, isLoading, user, isGuest, hasStoredToken]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -204,6 +222,9 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   }
 
   if (!user && !isGuest) {
+    if (hasStoredToken) {
+      return <FullScreenLoader />;
+    }
     if (!loginGateLoggedRef.current) {
       loginGateLoggedRef.current = true;
       console.warn("[AuthGate] Rendering login screen", {
