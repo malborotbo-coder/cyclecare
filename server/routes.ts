@@ -678,7 +678,7 @@ const normalizeServiceRequestRow = (row: any) => {
 const normalizeNotificationRow = (row: any) => ({
   id: row.id,
   userId: row.user_id ?? row.userId ?? null,
-  role: row.role ?? null,
+  role: normalizePushRole(row.role) ?? row.role ?? null,
   title: row.title ?? "",
   message: row.message ?? "",
   emoji: row.emoji ?? null,
@@ -731,7 +731,7 @@ const NOTIFICATION_COOLDOWN_MS = 1000 * 60 * 60 * 24 * 7;
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || "";
 const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
 const LIVE_ACTIVITIES_ENABLED =
-  String(process.env.LIVE_ACTIVITIES_ENABLED || "true").toLowerCase() !== "false";
+  String(process.env.LIVE_ACTIVITIES_ENABLED || "false").toLowerCase() === "true";
 
 const buildPushPayload = (notification: any) => {
   const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
@@ -1164,6 +1164,23 @@ function normalizePushRole(value?: string | null) {
   return null;
 }
 
+type NotificationScope = "customer" | "technician" | null;
+
+const resolveNotificationScope = (value: unknown): NotificationScope => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "technician") return "technician";
+  if (raw === "customer" || raw === "rider") return "customer";
+  return null;
+};
+
+const matchesNotificationScope = (notification: any, scope: NotificationScope) => {
+  if (!scope) return true;
+  const role = normalizePushRole(notification?.role);
+  if (!role || role === "admin") return true;
+  if (scope === "technician") return role === "technician";
+  return role === "customer";
+};
+
 const resolvePushRole = async (payload: {
   userId: string;
   auth?: AuthContext | null;
@@ -1467,50 +1484,27 @@ const SYSTEM_NOTIFICATION_COPY: Record<SystemNotificationEvent, {
   },
 };
 
+const CUSTOMER_UI_NOTIFICATION_EVENTS = new Set<SystemNotificationEvent>([
+  "ORDER_CREATED",
+  "ORDER_PAID",
+  "TECHNICIAN_ASSIGNED",
+  "TECHNICIAN_ACCEPTED",
+  "TECHNICIAN_ON_THE_WAY",
+  "TECHNICIAN_ARRIVED",
+  "SERVICE_STARTED",
+  "SERVICE_COMPLETED",
+  "SERVICE_CANCELLED",
+]);
+
+const shouldCreateCustomerUiNotification = (event: SystemNotificationEvent) =>
+  CUSTOMER_UI_NOTIFICATION_EVENTS.has(event);
+
 const resolveSystemEvent = (eventOrStatus: string): SystemNotificationEvent | null => {
   if (!eventOrStatus) return null;
   if (SYSTEM_NOTIFICATION_COPY[eventOrStatus as SystemNotificationEvent]) {
     return eventOrStatus as SystemNotificationEvent;
   }
   return SYSTEM_EVENT_BY_STATUS[eventOrStatus] || null;
-};
-
-const resolveLiveActivityState = (eventOrStatus: string, event: SystemNotificationEvent): string | null => {
-  const normalized = String(eventOrStatus || "").trim();
-  const directStates = new Set([
-    "assigned",
-    "assigned_to_technician",
-    "accepted",
-    "on_the_way",
-    "working",
-    "in_progress",
-    "completed",
-    "cancelled",
-    "rejected_by_technician",
-  ]);
-  if (directStates.has(normalized)) {
-    if (normalized === "assigned_to_technician") return "assigned";
-    if (normalized === "accepted") return "assigned";
-    if (normalized === "rejected_by_technician") return "cancelled";
-    return normalized;
-  }
-
-  switch (event) {
-    case "TECHNICIAN_ACCEPTED":
-      return "assigned";
-    case "TECHNICIAN_ASSIGNED":
-      return "assigned";
-    case "TECHNICIAN_ON_THE_WAY":
-      return "on_the_way";
-    case "SERVICE_STARTED":
-      return "working";
-    case "SERVICE_COMPLETED":
-      return "completed";
-    case "SERVICE_CANCELLED":
-      return "cancelled";
-    default:
-      return null;
-  }
 };
 
 const triggerSystemNotification = async (
@@ -1520,10 +1514,12 @@ const triggerSystemNotification = async (
 ) => {
   const event = resolveSystemEvent(eventOrStatus);
   if (!event) return null;
+  if (!shouldCreateCustomerUiNotification(event)) {
+    return null;
+  }
   const copy = SYSTEM_NOTIFICATION_COPY[event];
   const isArabic = lang === "ar";
   const text = isArabic ? copy.ar : copy.en;
-  const resolvedActivityState = resolveLiveActivityState(eventOrStatus, event);
   const created = await createNotification({
     userId: context.userId,
     role: "customer",
@@ -1533,23 +1529,14 @@ const triggerSystemNotification = async (
     type: "order_update",
     entityType: "service_request",
     entityId: context.orderId,
-    activityType: "order_tracking",
-    activityId: context.orderId,
-    activityState: resolvedActivityState ?? copy.activityState ?? null,
-    liveActivityPayload: context.extraData?.liveActivityPayload ?? null,
+    activityType: null,
+    activityId: null,
+    activityState: null,
+    liveActivityPayload: null,
     sendPush: false,
   });
   if (created) {
     await sendNotificationPush(created);
-    if (resolvedActivityState) {
-      await sendLiveActivityUpdate({
-        orderId: context.orderId,
-        status: resolvedActivityState,
-        title: text.title,
-        message: text.message,
-        lang,
-      });
-    }
   }
   return created;
 };
@@ -6792,6 +6779,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
+      const scope = resolveNotificationScope(req.query?.scope);
       const { resp, data } = await pgFetch(
         `/notifications?user_id=eq.${encodeURIComponent(userUuid)}&order=created_at.desc`,
       );
@@ -6799,7 +6787,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         console.warn("[NOTIFICATIONS][LIST][FAILED]", { status: resp.status, body: data });
         return res.json([]);
       }
-      const notifications = Array.isArray(data) ? data.map(normalizeNotificationRow) : [];
+      const notifications = Array.isArray(data)
+        ? data.map(normalizeNotificationRow).filter((item) => matchesNotificationScope(item, scope))
+        : [];
       res.json(notifications);
     } catch (error) {
       console.error("[NOTIFICATIONS][LIST] Error:", error);

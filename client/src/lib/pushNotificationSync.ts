@@ -74,6 +74,8 @@ export const initializeNotificationSyncOnce = () => {
     const orderId = data?.activityId || data?.entityId || null;
     if (!orderId) return;
     const activityState = data?.activityState || (data as any)?.activity_state || null;
+    const isTrackingUpdate = data?.activityType === "order_tracking" && Boolean(activityState);
+    if (!isTrackingUpdate) return;
     await handleLiveActivityFromPush({
       orderId,
       activityState,

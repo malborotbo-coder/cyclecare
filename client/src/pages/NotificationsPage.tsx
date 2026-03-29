@@ -55,14 +55,17 @@ const formatTimeAgo = (value?: string | null, lang?: string) => {
 export default function NotificationsPage() {
   const { lang } = useLanguage();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, isGuest, authReady } = useFirebaseAuth();
   const canCallProtectedEndpoints =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
+  const notificationScope = String(location || "").toLowerCase().startsWith("/technician")
+    ? "technician"
+    : "customer";
 
   const { data: notifications, isLoading } = useQuery<NotificationItem[]>({
-    queryKey: ["/api/notifications"],
-    queryFn: () => apiRequest("/api/notifications", "GET"),
+    queryKey: ["/api/notifications", notificationScope],
+    queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
     enabled: canCallProtectedEndpoints,
   });
 

@@ -28,15 +28,8 @@ type OrderLiveActivityPlugin = {
 const LiveActivity = registerPlugin<OrderLiveActivityPlugin>("OrderLiveActivity");
 const ACTIVE_ORDER_KEY = "live_activity_active_order";
 const ACTIVE_STATUS_KEY = "live_activity_active_status";
-const LIVE_ACTIVITY_FLAG_KEY = "feature_live_activities_enabled";
 const ROLE_STORAGE_KEY = "push_device_role";
-const isLiveActivityFeatureEnabled = () => {
-  if (import.meta.env.VITE_ENABLE_LIVE_ACTIVITIES === "true") return true;
-  if (typeof localStorage !== "undefined") {
-    return localStorage.getItem(LIVE_ACTIVITY_FLAG_KEY) === "true";
-  }
-  return false;
-};
+const isLiveActivityFeatureEnabled = () => import.meta.env.VITE_ENABLE_LIVE_ACTIVITIES === "true";
 const isSupported = () =>
   Capacitor.isNativePlatform() &&
   Capacitor.getPlatform() === "ios" &&
