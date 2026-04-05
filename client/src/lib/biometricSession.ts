@@ -17,6 +17,52 @@ export type BiometricStatus = {
 
 const isNative = () => Capacitor.isNativePlatform();
 
+const normalizeBiometryType = (value: unknown): BiometryType => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "none";
+  if (
+    raw === "face" ||
+    raw === "faceid" ||
+    raw === "face_id" ||
+    raw === "face-id" ||
+    raw === "face id"
+  ) {
+    return "face";
+  }
+  if (
+    raw === "fingerprint" ||
+    raw === "touchid" ||
+    raw === "touch_id" ||
+    raw === "touch-id" ||
+    raw === "touch id" ||
+    raw === "finger"
+  ) {
+    return "fingerprint";
+  }
+  return "none";
+};
+
+const extractBoolean = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (!value || typeof value !== "object") return false;
+  const mapped = value as Record<string, unknown>;
+  if (typeof mapped.credentials === "boolean") return mapped.credentials;
+  if (typeof mapped.exists === "boolean") return mapped.exists;
+  if (typeof mapped.available === "boolean") return mapped.available;
+  if (typeof mapped.isAvailable === "boolean") return mapped.isAvailable;
+  if (typeof mapped.verified === "boolean") return mapped.verified;
+  if (typeof mapped.success === "boolean") return mapped.success;
+  return false;
+};
+
+const hasStoredCredentials = async (): Promise<boolean> => {
+  const result = await NativeBiometric.credentialsExist({
+    server: BIOMETRIC_SERVICE,
+    username: BIOMETRIC_ACCOUNT,
+  });
+  return extractBoolean(result);
+};
+
 const readOptIn = async (): Promise<boolean> => {
   if (isNative()) {
     try {
@@ -58,7 +104,8 @@ export async function isBiometricAvailable(): Promise<boolean> {
   if (!isNative()) return false;
   try {
     const { isAvailable, biometryType } = await NativeBiometric.isAvailable();
-    return isAvailable && !!biometryType && biometryType !== "none";
+    const normalized = normalizeBiometryType(biometryType);
+    return Boolean(isAvailable) && normalized !== "none";
   } catch (err) {
     console.warn("[Biometric] Availability check failed", err);
     return false;
@@ -71,8 +118,7 @@ export async function getBiometricStatus(): Promise<BiometricStatus> {
   }
   try {
     const { isAvailable, biometryType } = await NativeBiometric.isAvailable();
-    const normalized: BiometryType =
-      biometryType === "face" || biometryType === "fingerprint" ? biometryType : "none";
+    const normalized = normalizeBiometryType(biometryType);
     const enabled = await isBiometricEnabled();
     return {
       isAvailable: Boolean(isAvailable) && normalized !== "none",
@@ -88,11 +134,7 @@ export async function getBiometricStatus(): Promise<BiometricStatus> {
 export async function isBiometricEnabled(): Promise<boolean> {
   if (!isNative()) return false;
   try {
-    const exists = await NativeBiometric.credentialsExist({
-      server: BIOMETRIC_SERVICE,
-      username: BIOMETRIC_ACCOUNT,
-    });
-    return exists;
+    return await hasStoredCredentials();
   } catch (err) {
     console.warn("[Biometric] Check enabled failed", err);
     return false;
@@ -125,10 +167,7 @@ export async function enableBiometricSession(token: string): Promise<boolean> {
 export async function disableBiometricSession(): Promise<void> {
   if (!isNative()) return;
   try {
-    const exists = await NativeBiometric.credentialsExist({
-      server: BIOMETRIC_SERVICE,
-      username: BIOMETRIC_ACCOUNT,
-    });
+    const exists = await hasStoredCredentials();
     if (exists) {
       await NativeBiometric.deleteCredentials({
         server: BIOMETRIC_SERVICE,
@@ -143,25 +182,39 @@ export async function disableBiometricSession(): Promise<void> {
 }
 
 export async function restoreBiometricSession(): Promise<boolean> {
-  if (!isNative()) return false;
+  if (!isNative()) {
+    console.info("[Biometric] Restore skipped: web platform");
+    return false;
+  }
   try {
-    const available = await isBiometricAvailable();
-    if (!available) return false;
+    const optedIn = await getBiometricOptIn();
+    console.info("[Biometric] Restore start", { native: true, optedIn });
+    if (!optedIn) {
+      console.info("[Biometric] Restore skipped: opt-in disabled");
+      return false;
+    }
 
-    const exists = await NativeBiometric.credentialsExist({
-      server: BIOMETRIC_SERVICE,
-      username: BIOMETRIC_ACCOUNT,
-    });
+    const available = await isBiometricAvailable();
+    if (!available) {
+      console.info("[Biometric] Restore skipped: biometrics unavailable");
+      return false;
+    }
+
+    const exists = await hasStoredCredentials();
+    console.info("[Biometric] Secure token check", { exists });
     if (!exists) {
       console.log("[Biometric] No stored credentials");
       return false;
     }
 
-    const verified = await NativeBiometric.verifyIdentity({
+    console.info("[Biometric] Prompting device biometrics");
+    const verifiedResult = await NativeBiometric.verifyIdentity({
       reason: "Unlock Cycle Care",
       title: "Biometric Login",
       subtitle: "",
     });
+    const verified =
+      typeof verifiedResult === "undefined" ? true : extractBoolean(verifiedResult);
     if (!verified) {
       console.warn("[Biometric] Verification failed or cancelled");
       return false;
@@ -176,6 +229,7 @@ export async function restoreBiometricSession(): Promise<boolean> {
       return false;
     }
 
+    console.info("[Biometric] Verification success; restoring auth token");
     await persistAuthTokens({ authToken: password, firebaseToken: password });
     console.log("[Biometric] Session restored from secure storage");
     return true;

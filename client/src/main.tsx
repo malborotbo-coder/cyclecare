@@ -2,14 +2,14 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { syncAuthTokensFromPreferences } from "./lib/authStorage";
-import { restoreBiometricSession } from "./lib/biometricSession";
 import { fetchWithFirebaseAuth } from "./lib/apiClient";
 import { AppBootErrorBoundary } from "@/components/AppBootErrorBoundary";
 
 console.info("[Bootstrap] main.tsx start");
 
-// Best-effort native token restore (biometric + preferences)
-Promise.all([restoreBiometricSession(), syncAuthTokensFromPreferences()]).catch(() => null);
+// Best-effort native token restore from Preferences.
+// Biometric restore is intentionally triggered from login flow after auth bootstrap is ready.
+void syncAuthTokensFromPreferences().catch(() => null);
 
 // Attach Firebase ID token to all /api requests
 const originalFetch = window.fetch.bind(window);

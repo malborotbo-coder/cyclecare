@@ -62,9 +62,13 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
       }`}
       style={{
         paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px',
+        paddingLeft: isNative ? "env(safe-area-inset-left, 0px)" : "0px",
+        paddingRight: isNative ? "env(safe-area-inset-right, 0px)" : "0px",
+        minHeight: "calc(env(safe-area-inset-top, 0px) + 64px)",
+        height: "calc(env(safe-area-inset-top, 0px) + 64px)",
       }}
     >
-      <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
+      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <SideMenu onLogout={onLogout} />
           <div onClick={handleLogoClick} className="cursor-pointer">

@@ -16,9 +16,6 @@ export default function AuthPage() {
 
   const handleLogin = () => {
     setIsLoggingIn(true);
-    // Clear any existing session data before login
-    sessionStorage.clear();
-    localStorage.removeItem('auth_state');
     // Redirect to login
     window.location.href = "/api/login";
   };

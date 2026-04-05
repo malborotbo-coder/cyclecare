@@ -449,7 +449,7 @@ export default function TechnicianDashboard() {
   const pendingRequestIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedRequestsRef = useRef(false);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
-    <div className="relative min-h-screen bg-transparent" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="relative min-h-screen bg-transparent pt-3">
       <div
         className="fixed inset-0 z-0"
         style={{

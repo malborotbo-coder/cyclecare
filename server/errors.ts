@@ -7,7 +7,8 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "SERVER_ERROR"
   | "STORAGE_UPLOAD_FAILED"
-  | "DISCOUNT_INVALID";
+  | "DISCOUNT_INVALID"
+  | "LEGAL_CONSENT_REQUIRED";
 export type Language = "ar" | "en";
 
 type FieldError = { field: string; message: string };
@@ -20,6 +21,7 @@ const errorMessages: Record<Language, Record<ErrorCode, string>> = {
     SERVER_ERROR: "Something went wrong. Please try again.",
     STORAGE_UPLOAD_FAILED: "Failed to upload file. Please try again.",
     DISCOUNT_INVALID: "Discount code is invalid",
+    LEGAL_CONSENT_REQUIRED: "You must accept the Privacy Policy and Terms & Conditions to continue.",
   },
   ar: {
     VALIDATION_ERROR: "الرجاء التحقق من الحقول المحددة.",
@@ -28,6 +30,7 @@ const errorMessages: Record<Language, Record<ErrorCode, string>> = {
     SERVER_ERROR: "حدث خطأ، يرجى المحاولة مرة أخرى.",
     STORAGE_UPLOAD_FAILED: "فشل رفع الملف، يرجى المحاولة مرة أخرى.",
     DISCOUNT_INVALID: "كود الخصم غير صالح",
+    LEGAL_CONSENT_REQUIRED: "يجب الموافقة على سياسة الخصوصية والشروط والأحكام للمتابعة.",
   },
 };
 

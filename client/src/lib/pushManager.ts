@@ -19,10 +19,16 @@ const PENDING_TOKEN_TYPE_KEY = "push_pending_token_type";
 const PERMISSION_FLAG_KEY = "push_permission_requested";
 const DEVICE_ID_KEY = "push_device_id";
 const ROLE_STORAGE_KEY = "push_device_role";
+const BACKEND_REGISTERED_KEY = "push_backend_registered";
 
 const isNative = Capacitor.isNativePlatform();
 const platform = Capacitor.getPlatform();
 const environment = import.meta.env.PROD ? "production" : "development";
+const debugPush =
+  typeof window !== "undefined" &&
+  (import.meta.env.DEV || localStorage.getItem("debug_push") === "true");
+const maskToken = (value?: string | null) =>
+  value ? `${value.slice(0, 8)}...${value.slice(-4)}` : null;
 
 let initialized = false;
 let listenersAttached = false;
@@ -132,7 +138,9 @@ const resolveRoleForRegistration = async () => {
       return normalized;
     }
   } catch (error) {
-    console.log("[Push][Role] Failed to fetch roles:", error);
+    if (debugPush) {
+      console.log("[Push][Role] Failed to fetch roles:", error);
+    }
   }
   return null;
 };
@@ -207,9 +215,11 @@ const registerDeviceToken = async (token: string, userId: string, role?: string 
     lastSentRole = resolvedRole || null;
     await writeStoredValue(TOKEN_STORAGE_KEY, token);
     await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
+    await writeStoredValue(BACKEND_REGISTERED_KEY, "true");
     await clearPendingToken();
     console.log("[Push][Token] Registered on backend.");
   } catch (error) {
+    await writeStoredValue(BACKEND_REGISTERED_KEY, "");
     console.log("[Push][Token] Registration failed:", error);
   } finally {
     registerInFlight = false;
@@ -218,11 +228,18 @@ const registerDeviceToken = async (token: string, userId: string, role?: string 
 
 const handleToken = async (tokenValue: string) => {
   cachedToken = tokenValue;
-  console.log("[Push][Token] Received:", tokenValue);
+  console.log("[Push][Token] Received", {
+    tokenPreview: maskToken(tokenValue),
+    platform,
+    environment,
+  });
   await writeStoredValue(TOKEN_STORAGE_KEY, tokenValue);
   await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
+  await writeStoredValue(BACKEND_REGISTERED_KEY, "");
   if (!registrationAllowed || !currentUserId) {
-    console.log("[Push] Skipped: no auth session yet");
+    if (debugPush) {
+      console.log("[Push] Skipped: no auth session yet");
+    }
     await persistPendingToken(tokenValue, getTokenType());
     return;
   }
@@ -242,7 +259,9 @@ const attachListeners = () => {
   });
 
   PushNotifications.addListener("pushNotificationReceived", (notification: PushNotificationSchema) => {
-    console.log("[Push][Received]", notification);
+    if (debugPush) {
+      console.log("[Push][Received]", notification);
+    }
     foregroundHandlers.forEach((handler) => handler(notification));
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("push:received", { detail: notification }));
@@ -250,7 +269,9 @@ const attachListeners = () => {
   });
 
   PushNotifications.addListener("pushNotificationActionPerformed", (action: ActionPerformed) => {
-    console.log("[Push][Action]", action);
+    if (debugPush) {
+      console.log("[Push][Action]", action);
+    }
     tapHandlers.forEach((handler) => handler(action));
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("push:action", { detail: action }));
@@ -264,12 +285,16 @@ const requestPermissionAndRegister = async () => {
   const permissionFlag = await readStoredValue(PERMISSION_FLAG_KEY);
   const status = await PushNotifications.checkPermissions();
   let currentStatus = status.receive;
-  console.log("[Push][Permission]", { status: currentStatus });
+  console.log("[Push][Permission]", {
+    status: currentStatus,
+    platform,
+    permissionRequestedBefore: permissionFlag === "true",
+  });
 
   if (currentStatus === "prompt" && permissionFlag !== "true") {
     const requested = await PushNotifications.requestPermissions();
     currentStatus = requested.receive;
-    console.log("[Push][Permission]", { status: currentStatus });
+    console.log("[Push][Permission]", { status: currentStatus, requestTriggered: true });
     if (currentStatus === "granted" || currentStatus === "denied") {
       await writeStoredValue(PERMISSION_FLAG_KEY, "true");
     }
@@ -287,26 +312,46 @@ const requestPermissionAndRegister = async () => {
 
   if (currentStatus === "granted" && !registerCalled) {
     registerCalled = true;
-    console.log("[Push] Registering device with APNs/FCM.");
-    await PushNotifications.register();
+    try {
+      console.log("[Push] Registering device with APNs/FCM.");
+      await PushNotifications.register();
+    } catch (error) {
+      registerCalled = false;
+      console.log("[Push][Error] Native register call failed:", error);
+    }
   }
 };
 
 export const initializePushManagerOnce = async () => {
   if (!isNative || initialized) return;
   initialized = true;
+  console.info("[Push] Init start", {
+    platform,
+    environment,
+    debugPush,
+    provider: "capacitor_push_notifications_apns_fcm",
+  });
   attachListeners();
   if (!authListenerAttached && typeof window !== "undefined") {
     authListenerAttached = true;
     window.addEventListener("auth-token-updated", (event: Event) => {
       const detail = (event as CustomEvent<{ action?: string }>).detail;
-      if (detail?.action === "cleared") return;
+      if (detail?.action === "cleared") {
+        registrationAllowed = false;
+        currentUserId = null;
+        currentRole = null;
+        roleUserId = null;
+        return;
+      }
       if (currentUserId) {
         void syncPushRegistrationOnLogin(currentUserId);
       }
     });
   }
   await requestPermissionAndRegister();
+  if (debugPush) {
+    console.info("[Push] Init done", { registerCalled });
+  }
 };
 
 export const onForegroundNotification = (handler: ForegroundHandler) => {
@@ -387,6 +432,8 @@ export const unregisterPushToken = async (userId?: string | null) => {
     currentRole = null;
     roleUserId = null;
     await writeStoredValue(ROLE_STORAGE_KEY, "");
+    await clearPendingToken();
+    await writeStoredValue(BACKEND_REGISTERED_KEY, "");
   } catch (error) {
     console.log("[Push][Unregister] Failed:", error);
   }

@@ -14,6 +14,7 @@ const defaultMessages: Record<Language, Record<string, string>> = {
     NOT_FOUND: "The requested item was not found.",
     SERVER_ERROR: "Something went wrong. Please try again.",
     DISCOUNT_INVALID: "Discount code is invalid",
+    LEGAL_CONSENT_REQUIRED: "You must accept the Privacy Policy and Terms & Conditions to continue.",
   },
   ar: {
     VALIDATION_ERROR: "يرجى التحقق من الحقول المحددة.",
@@ -21,6 +22,7 @@ const defaultMessages: Record<Language, Record<string, string>> = {
     NOT_FOUND: "العنصر المطلوب غير موجود.",
     SERVER_ERROR: "حدث خطأ، يرجى المحاولة مرة أخرى.",
     DISCOUNT_INVALID: "كود الخصم غير صالح",
+    LEGAL_CONSENT_REQUIRED: "يجب الموافقة على سياسة الخصوصية والشروط والأحكام للمتابعة.",
   },
 };
 

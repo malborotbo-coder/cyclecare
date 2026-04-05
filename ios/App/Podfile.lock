@@ -1,7 +1,7 @@
 PODS:
-  - Capacitor (7.4.4):
+  - Capacitor (7.6.1):
     - CapacitorCordova
-  - CapacitorApp (7.1.0):
+  - CapacitorApp (7.1.2):
     - Capacitor
   - CapacitorBrowser (7.0.0):
     - Capacitor
@@ -9,7 +9,7 @@ PODS:
     - Capacitor
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
-  - CapacitorCordova (7.4.4)
+  - CapacitorCordova (7.6.1)
   - CapacitorFilesystem (7.1.6):
     - Capacitor
     - IONFilesystemLib (~> 1.0.1)
@@ -17,7 +17,7 @@ PODS:
     - Capacitor
   - CapacitorNativeBiometric (0.0.1):
     - Capacitor
-  - CapacitorPreferences (7.0.0):
+  - CapacitorPreferences (7.0.4):
     - Capacitor
   - CapacitorPushNotifications (7.0.4):
     - Capacitor
@@ -75,16 +75,16 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capgo/capacitor-native-biometric"
 
 SPEC CHECKSUMS:
-  Capacitor: 358dd1c3fdd71d969547b17e159fd8a7736cb45f
-  CapacitorApp: 26587c2ce485d88ddb39adb21cac64f8e481afe3
+  Capacitor: b8dd0e1151c953171b0e02d04aa57f3389edcd97
+  CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
   CapacitorBrowser: 55c21db47416dcc8fc3b623e18fd7d09acb26081
   CapacitorCamera: f9e54db0a18bb218a8dc360907d63aaefe9209ff
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
-  CapacitorCordova: bf648a636f3c153f652d312ae145fb508b6ffced
+  CapacitorCordova: 6ab7337f25a2c9ce7a3fdc2f249c480f447853e0
   CapacitorFilesystem: 66f05ee0d8b1ccdc00d509091273a9b3b57c4a0b
   CapacitorGeolocation: 8c81945cc5da62974d94699c347e7d88888745c0
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
-  CapacitorPreferences: 8e4bef1f937fc991a19d7ea99330c36a62edd24b
+  CapacitorPreferences: 69d9991307507aeab8ef8019c10b9babfda0e9ca
   CapacitorPushNotifications: 7604512af53bbfdf1dd8fb2256b9ef1e8a69cdc2
   CapacitorShare: d94c53d7656f1ce8f6712ae8d19ab0c18a69259f
   CapgoCapacitorNativeBiometric: ede2c497c810fcad523b4e3d1895f989d33fe72b

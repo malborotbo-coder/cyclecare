@@ -138,7 +138,6 @@ export default function HomePage() {
     if (isNative) {
       console.log('[Logout] iOS - clearing native auth state...');
       await nativeAuth.logout();
-      await clearAuthTokens();
       console.log('[Logout] iOS - reloading app');
       window.location.reload();
       return;
@@ -157,52 +156,15 @@ export default function HomePage() {
       console.error('[Logout] API call failed:', e);
     }
     
-    // الخطوة 2: مسح كل البيانات المخزنة محلياً
-    console.log('[Logout] Step 2: Clearing all local data...');
-    
-    // مسح React Query cache بالكامل
+    // الخطوة 2: مسح بيانات المصادقة فقط
+    console.log('[Logout] Step 2: Clearing auth state...');
     queryClient.clear();
     queryClient.removeQueries();
-    
-    // مسح NativeAuth state
     await nativeAuth.logout();
     await clearAuthTokens();
-    
-    // مسح التخزين المحلي
-    sessionStorage.clear();
-    localStorage.clear();
-    
-    // مسح جميع الكوكيز
-    document.cookie.split(";").forEach((c) => {
-      const name = c.split("=")[0].trim();
-      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
-    });
-    
-    // الخطوة 3: إلغاء تسجيل Service Worker لمنع التخزين المؤقت
-    console.log('[Logout] Step 3: Unregistering service workers...');
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      for (const registration of registrations) {
-        await registration.unregister();
-        console.log('[Logout] Service worker unregistered');
-      }
-    }
-    
-    // الخطوة 4: مسح الـ caches
-    console.log('[Logout] Step 4: Clearing caches...');
-    if ('caches' in window) {
-      const cacheNames = await caches.keys();
-      await Promise.all(cacheNames.map(name => caches.delete(name)));
-      console.log('[Logout] All caches cleared');
-    }
-    
-    // الخطوة 5: انتظار قصير للتأكد من مسح كل شيء
-    console.log('[Logout] Step 5: Waiting for cleanup...');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // الخطوة 6: إعادة التوجيه مع timestamp لتجاوز أي cache متبقي
-    console.log('[Logout] Step 6: Redirecting to login page...');
+
+    // الخطوة 3: إعادة التوجيه
+    console.log('[Logout] Step 3: Redirecting to login page...');
     const timestamp = Date.now();
     window.location.href = "/?logout=" + timestamp;
   };
@@ -240,7 +202,7 @@ export default function HomePage() {
         ref={heroRef}
         className="pb-20 relative min-h-screen"
         style={{ 
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)",
+          paddingTop: "12px",
           minHeight: "max(100vh, 100dvh)",
           backgroundImage: `url(${workshopBg})`,
           backgroundSize: "cover",

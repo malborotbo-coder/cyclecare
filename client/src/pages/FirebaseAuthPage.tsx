@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,6 @@ import cycleCareLogo from "@assets/1_1764502393151.png";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 import { motion } from "framer-motion";
 import { Capacitor } from "@capacitor/core";
-import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { buildApiUrl } from "@/lib/apiConfig";
 import { signInWithGoogle, signInWithApple } from "@/lib/googleAuth";
@@ -47,6 +46,7 @@ export default function FirebaseAuthPage() {
   const [otp, setOtp] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [oauthInProgress, setOauthInProgress] = useState(false);
   const [showPhoneForm, setShowPhoneForm] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -63,7 +63,52 @@ export default function FirebaseAuthPage() {
   const isNative = Capacitor.isNativePlatform();
   const ENABLE_BIOMETRIC = isNative;
   const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoBiometricAttemptedRef = useRef(false);
+  
+  const cancelPendingOAuth = async () => {
+    if (!oauthInProgress) return;
+    if (googleTimeoutRef.current) {
+      clearTimeout(googleTimeoutRef.current);
+      googleTimeoutRef.current = null;
+    }
+    setOauthInProgress(false);
+    setIsLoading(false);
+    setError("");
+    if (isNative) {
+      try {
+        await Browser.close();
+      } catch {
+        // Ignore close failures
+      }
+    }
+  };
 
+  const exchangeFirebaseTokenForAppToken = async (idToken: string): Promise<string> => {
+    try {
+      const response = await fetch(buildApiUrl("/api/auth/firebase"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      });
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        console.warn("[EmailAuth] Firebase token exchange failed", {
+          status: response.status,
+          error: errorBody?.error || null,
+        });
+        return idToken;
+      }
+      const data = await response.json().catch(() => ({}));
+      const appToken =
+        (typeof data?.authToken === "string" && data.authToken.trim()) ||
+        (typeof data?.token === "string" && data.token.trim()) ||
+        "";
+      return appToken || idToken;
+    } catch (error) {
+      console.warn("[EmailAuth] Firebase token exchange exception", error);
+      return idToken;
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -76,75 +121,67 @@ export default function FirebaseAuthPage() {
 
   useEffect(() => {
     if (!ENABLE_BIOMETRIC) return;
-    void getBiometricStatus().then(setBiometricStatus);
+    void getBiometricStatus().then((status) => {
+      console.info("[Biometric] Status loaded", {
+        native: isNative,
+        isAvailable: status.isAvailable,
+        isEnabled: status.isEnabled,
+        biometryType: status.biometryType,
+      });
+      setBiometricStatus(status);
+    });
   }, [ENABLE_BIOMETRIC]);
+
+  useEffect(() => {
+    if (!ENABLE_BIOMETRIC) return;
+    if (autoBiometricAttemptedRef.current) return;
+    if (isLoading || oauthInProgress || showEmailForm || showPhoneForm) return;
+    if (!biometricStatus?.isAvailable || !biometricStatus?.isEnabled) return;
+
+    autoBiometricAttemptedRef.current = true;
+    console.info("[Biometric] Auto sign-in attempt");
+    setIsLoading(true);
+    setError("");
+    void restoreBiometricSession()
+      .then((ok) => {
+        if (ok) {
+          console.info("[Biometric] Auto sign-in succeeded");
+          window.location.href = consumePostLoginRedirect("/");
+          return;
+        }
+        console.info("[Biometric] Auto sign-in skipped or cancelled");
+      })
+      .catch((err) => {
+        console.warn("[Biometric] Auto sign-in failed", err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [
+    ENABLE_BIOMETRIC,
+    biometricStatus?.isAvailable,
+    biometricStatus?.isEnabled,
+    isLoading,
+    oauthInProgress,
+    showEmailForm,
+    showPhoneForm,
+  ]);
 
   const handleBiometricSignIn = async () => {
     if (!ENABLE_BIOMETRIC) return;
+    console.info("[Biometric] Manual sign-in attempt");
     setIsLoading(true);
     setError("");
     const ok = await restoreBiometricSession();
     setIsLoading(false);
     if (ok) {
+      console.info("[Biometric] Manual sign-in succeeded");
       window.location.href = consumePostLoginRedirect("/");
       return;
     }
+    console.info("[Biometric] Manual sign-in failed");
     setError(isArabic ? "تعذّر التحقق بالبصمة. حاول مرة أخرى." : "Biometric authentication failed.");
   };
-
-  const handleAuthCallback = useCallback(async (params: URLSearchParams) => {
-    const tokenFromCallback = params.get("token")?.trim() || "";
-    const legacySession = params.get("session")?.trim() || "";
-    const effectiveToken = tokenFromCallback || legacySession;
-    if (effectiveToken) {
-      if (googleTimeoutRef.current) {
-        clearTimeout(googleTimeoutRef.current);
-        googleTimeoutRef.current = null;
-      }
-      if (isNative) {
-        try {
-          await Browser.close();
-        } catch {
-          // Ignore close errors
-        }
-      }
-      if (tokenFromCallback) {
-        await persistAuthTokens({ authToken: tokenFromCallback });
-      } else {
-        await persistAuthTokens({ authToken: effectiveToken, phoneSession: effectiveToken });
-      }
-      console.info("[Auth][DeepLink] Token persisted from callback", {
-        hasToken: true,
-        source: tokenFromCallback ? "oauth_token" : "legacy_session",
-      });
-      setIsLoading(false);
-      window.location.href = consumePostLoginRedirect('/');
-    }
-  }, [isNative]);
-
-  useEffect(() => {
-    if (!isNative) return;
-
-    const handleAppUrlOpen = async (data: { url: string }) => {
-      console.log('[DeepLink] URL opened:', data.url);
-      try {
-        await Browser.close();
-      } catch {
-        // Ignore close errors
-      }
-      try {
-        const url = new URL(data.url);
-        handleAuthCallback(new URLSearchParams(url.search));
-      } catch (e) {
-        console.error('[DeepLink] Parse error:', e);
-      }
-    };
-
-    App.addListener('appUrlOpen', handleAppUrlOpen);
-    return () => {
-      App.removeAllListeners();
-    };
-  }, [isNative, handleAuthCallback]);
 
   const isArabic = lang === "ar";
 
@@ -228,6 +265,7 @@ export default function FirebaseAuthPage() {
     try {
       setIsLoading(true);
       setError("");
+      setOauthInProgress(isNative);
       if (googleTimeoutRef.current) {
         clearTimeout(googleTimeoutRef.current);
       }
@@ -236,6 +274,7 @@ export default function FirebaseAuthPage() {
           console.warn("[GoogleAuth] Mobile OAuth timeout");
           setError(labels.error || "Google sign-in timed out. Please try again.");
           setIsLoading(false);
+          setOauthInProgress(false);
           Browser.close().catch(() => undefined);
         }, 25000);
       }
@@ -252,6 +291,7 @@ export default function FirebaseAuthPage() {
       console.error("[Auth] Google sign-in error:", err);
       setError(err.message || labels.error);
       setIsLoading(false);
+      setOauthInProgress(false);
       if (googleTimeoutRef.current) {
         clearTimeout(googleTimeoutRef.current);
         googleTimeoutRef.current = null;
@@ -263,7 +303,6 @@ export default function FirebaseAuthPage() {
     try {
       setIsLoading(true);
       setError("");
-
       const user = await signInWithApple();
       if (user) {
         console.log('[Auth] Apple sign-in successful:', user.email);
@@ -323,12 +362,19 @@ export default function FirebaseAuthPage() {
       // Get ID token and store for API authentication
       const idToken = await userCredential.user.getIdToken(true);
       console.log('[EmailAuth] Got Firebase ID token, length:', idToken?.length || 0);
+      const appToken = await exchangeFirebaseTokenForAppToken(idToken);
 
       // Store token for backend authentication (will be used by queryClient)
-      await persistAuthTokens({ authToken: idToken, firebaseToken: idToken });
-      console.log("[EmailAuth] Tokens persisted. auth_token in localStorage:", !!localStorage.getItem("auth_token"));
+      await persistAuthTokens({ authToken: appToken, firebaseToken: idToken });
+      console.log("[EmailAuth] Tokens persisted", {
+        hasSessionToken:
+          (typeof sessionStorage !== "undefined" && Boolean(sessionStorage.getItem("auth_token"))) ||
+          false,
+        hasLocalToken:
+          (typeof localStorage !== "undefined" && Boolean(localStorage.getItem("auth_token"))) || false,
+      });
 
-      await promptBiometricEnrollment(idToken, isArabic);
+      await promptBiometricEnrollment(appToken, isArabic);
 
       // Best-effort profile sync to backend
       if (isSignUp) {
@@ -337,7 +383,7 @@ export default function FirebaseAuthPage() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${idToken}`,
+              Authorization: `Bearer ${appToken}`,
             },
             body: JSON.stringify({
               firebaseUid: userCredential.user.uid,
@@ -353,9 +399,6 @@ export default function FirebaseAuthPage() {
           console.warn("[EmailAuth] Profile upsert failed (non-blocking):", profileErr);
         }
       }
-
-      // Clear cache to ensure fresh auth state
-      sessionStorage.clear();
 
       console.log('[EmailAuth] Auth tokens stored, redirecting...');
       window.location.href = consumePostLoginRedirect("/");
@@ -441,14 +484,15 @@ export default function FirebaseAuthPage() {
       if (!USE_TWILIO_ONLY && confirmationResult) {
         const credential = await confirmPhoneOtp(confirmationResult, otp);
         const idToken = await credential.user.getIdToken();
+        const appToken = await exchangeFirebaseTokenForAppToken(idToken);
         await persistAuthTokens({
-          authToken: idToken,
+          authToken: appToken,
           firebaseToken: idToken,
-          phoneSession: idToken,
+          phoneSession: appToken,
           phoneUserId: credential.user.uid,
           phoneNumber: credential.user.phoneNumber || "",
         });
-        await promptBiometricEnrollment(idToken, isArabic);
+        await promptBiometricEnrollment(appToken, isArabic);
         window.location.href = consumePostLoginRedirect("/");
         return;
       }
@@ -491,6 +535,9 @@ export default function FirebaseAuthPage() {
   };
 
   const resetPhoneForm = () => {
+    void cancelPendingOAuth();
+    setIsLoading(false);
+    setOauthInProgress(false);
     setShowPhoneForm(false);
     setPhoneStep("input");
     setPhone("");
@@ -500,6 +547,9 @@ export default function FirebaseAuthPage() {
   };
 
   const resetEmailForm = () => {
+    void cancelPendingOAuth();
+    setIsLoading(false);
+    setOauthInProgress(false);
     setShowEmailForm(false);
     setMode("login");
     setEmail("");
@@ -522,8 +572,12 @@ export default function FirebaseAuthPage() {
 
   return (
     <div 
-      className="min-h-screen overflow-hidden flex flex-col relative"
-      style={{ paddingTop: isNative ? 'env(safe-area-inset-top, 0px)' : '0px' }}
+      className="min-h-screen overflow-x-hidden overflow-y-auto flex flex-col relative"
+      style={{
+        paddingTop: isNative ? "env(safe-area-inset-top, 0px)" : "0px",
+        paddingBottom: isNative ? "env(safe-area-inset-bottom, 0px)" : "0px",
+        minHeight: "max(100vh, 100dvh)",
+      }}
     >
       {/* Backup: original layout محفوظ - إضافة reCAPTCHA مخفي للـ Phone Auth */}
       <div id="recaptcha-container" style={{ display: "none" }} />
@@ -578,7 +632,10 @@ export default function FirebaseAuthPage() {
       </div>
 
       {/* Bottom Section - Sign In Options */}
-      <div className="relative px-4 py-6 pb-12 z-10 backdrop-blur-sm bg-black/30 rounded-t-3xl">
+      <div
+        className="relative px-4 py-6 pb-12 z-10 backdrop-blur-sm bg-black/30 rounded-t-3xl"
+        style={{ paddingBottom: isNative ? "calc(env(safe-area-inset-bottom, 0px) + 32px)" : undefined }}
+      >
         <motion.div
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -627,6 +684,7 @@ export default function FirebaseAuthPage() {
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         type="text"
+                        autoComplete="given-name"
                         placeholder={isArabic ? "الاسم الأول" : "First name"}
                         value={firstName}
                         onChange={(e) => {
@@ -639,6 +697,7 @@ export default function FirebaseAuthPage() {
                       />
                       <Input
                         type="text"
+                        autoComplete="family-name"
                         placeholder={isArabic ? "الاسم الأخير" : "Last name"}
                         value={lastName}
                         onChange={(e) => {
@@ -652,6 +711,8 @@ export default function FirebaseAuthPage() {
                     </div>
                     <Input
                       type="tel"
+                      autoComplete="tel-national"
+                      inputMode="tel"
                       placeholder={isArabic ? "رقم الجوال" : "Phone number"}
                       value={phone}
                       onChange={(e) => {
@@ -667,6 +728,8 @@ export default function FirebaseAuthPage() {
 
                 <Input
                   type="email"
+                  autoComplete="email"
+                  inputMode="email"
                   placeholder="name@example.com"
                   value={email}
                   onChange={(e) => {
@@ -680,6 +743,7 @@ export default function FirebaseAuthPage() {
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
+                    autoComplete={isSignUp ? "new-password" : "current-password"}
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => {
@@ -705,6 +769,7 @@ export default function FirebaseAuthPage() {
                 {isSignUp && (
                   <Input
                     type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={isArabic ? "تأكيد كلمة المرور" : "Confirm password"}
                     value={confirmPassword}
                     onChange={(e) => {
@@ -745,9 +810,11 @@ export default function FirebaseAuthPage() {
             </motion.div>
           ) : (
             <Button
-              onClick={() => setShowEmailForm(true)}
+              onClick={() => {
+                void cancelPendingOAuth().then(() => setShowEmailForm(true));
+              }}
               className="w-full h-12 text-base font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white transition"
-              disabled={isLoading}
+              disabled={isLoading && !oauthInProgress}
               data-testid="button-email-auth"
             >
               <Mail className="w-5 h-5 mr-2" />
@@ -788,6 +855,8 @@ export default function FirebaseAuthPage() {
                       </div>
                       <Input
                         type="tel"
+                        autoComplete="tel-national"
+                        inputMode="numeric"
                         placeholder="505123456"
                         value={phone}
                         onChange={handlePhoneInputChange}
@@ -820,6 +889,8 @@ export default function FirebaseAuthPage() {
                     </p>
                     <Input
                       type="text"
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
                       placeholder="000000"
                       value={otp}
                       onChange={(e) => {
@@ -859,9 +930,11 @@ export default function FirebaseAuthPage() {
             </motion.div>
           ) : (
             <Button
-              onClick={() => setShowPhoneForm(true)}
+              onClick={() => {
+                void cancelPendingOAuth().then(() => setShowPhoneForm(true));
+              }}
               className="w-full h-12 text-base font-semibold rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white transition"
-              disabled={isLoading || showEmailForm}
+              disabled={(isLoading && !oauthInProgress) || showEmailForm}
               data-testid="button-phone-auth"
             >
               <Phone className="w-5 h-5 mr-2" />
@@ -942,7 +1015,7 @@ export default function FirebaseAuthPage() {
               <Button
                 onClick={handleAppleSignIn}
                 className="w-full h-12 text-base font-semibold rounded-xl bg-black text-white hover:bg-gray-900 border border-gray-800 transition flex items-center justify-center gap-3"
-                disabled={isLoading}
+                disabled={isLoading && !oauthInProgress}
                 data-testid="button-apple-auth"
               >
                 {isLoading ? (
@@ -958,14 +1031,29 @@ export default function FirebaseAuthPage() {
               </Button>
 
               <Button
-                onClick={handleGuestContinue}
+                onClick={() => {
+                  void cancelPendingOAuth().then(() => handleGuestContinue());
+                }}
                 variant="outline"
                 className="w-full h-12 text-base font-semibold rounded-xl border border-white/30 text-white hover:bg-white/10 transition"
-                disabled={isLoading}
+                disabled={isLoading && !oauthInProgress}
                 data-testid="button-guest-mode"
               >
                 {labels.guest}
               </Button>
+              {oauthInProgress && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    void cancelPendingOAuth();
+                  }}
+                  className="w-full h-10 text-xs border border-white/10 text-white hover:bg-white/5"
+                  data-testid="button-cancel-oauth"
+                >
+                  {isArabic ? "إلغاء تسجيل الدخول ومتابعة طريقة أخرى" : "Cancel and choose another sign-in method"}
+                </Button>
+              )}
             </>
           )}
         </motion.div>

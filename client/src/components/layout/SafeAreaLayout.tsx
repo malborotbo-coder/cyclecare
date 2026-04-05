@@ -1,23 +1,27 @@
 import React from "react";
 
 /**
- * SafeAreaLayout applies iOS safe-area insets to the top/bottom padding so headers and content
- * stay clear of notches/dynamic island in WebViews and in-app browsers.
+ * SafeAreaLayout applies safe-area insets used by the global app shell.
+ * Top spacing is managed by AppHeader/AppLayout to keep one consistent offset source.
  */
 export default function SafeAreaLayout({
   children,
   className = "",
+  style,
 }: {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }) {
   return (
     <div
       className={`min-h-screen bg-transparent ${className}`}
       style={{
-        paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingLeft: "env(safe-area-inset-left, 0px)",
+        paddingRight: "env(safe-area-inset-right, 0px)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
         minHeight: "max(100vh, 100dvh)",
+        ...style,
       }}
     >
       {children}

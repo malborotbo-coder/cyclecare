@@ -7,10 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		037DA01C32F54F079F54A829 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2E60D281D1714E248FFB546A /* ActivityKit.framework */; };
-		0FAFC05629AB42609846FF90 /* OrderLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B2F66B16DF04EE59364EAB0 /* OrderLiveActivityAttributes.swift */; };
-		13CA4D4768224EB59381DEB5 /* LiveActivitiesBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB66E3508B804597A97FAD98 /* LiveActivitiesBundle.swift */; };
-		2535FDA78B5D4348909E4771 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2E60D281D1714E248FFB546A /* ActivityKit.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -18,45 +14,11 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
-		88CFA4317A8440C28771C817 /* OrderLiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C615C6493DA44E03B460A37F /* OrderLiveActivityPlugin.swift */; };
-		89FB35CBBCCD407180FFEDD4 /* OrderLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B2F66B16DF04EE59364EAB0 /* OrderLiveActivityAttributes.swift */; };
-		972867AD25EC46DA9E77D811 /* LiveActivities.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1AE4F277786F45F1B90D4E42 /* LiveActivities.appex */; };
 		A49A0EC5C042404628CBAC7D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A64482D35190EB954E24215F /* Pods_App.framework */; };
-		A5D38A9F908E4879A90925A2 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4F29B0482F261A4000B784F3 /* SwiftUI.framework */; };
-		BE15572D50C34C0092C4BDA7 /* OrderLiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D97C79C86849427BB76B3257 /* OrderLiveActivityManager.swift */; };
-		C72F3D80F85A4F4E9CE9B094 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4F29B0462F261A4000B784F3 /* WidgetKit.framework */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		A60A097D0B7A447AA6EDA498 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = D60A04A3A81C4D57AB9D4690;
-			remoteInfo = LiveActivities;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		4F29B05B2F261A4100B784F3 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				972867AD25EC46DA9E77D811 /* LiveActivities.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
-		1AE4F277786F45F1B90D4E42 /* LiveActivities.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LiveActivities.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		2E60D281D1714E248FFB546A /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
-		4F29B0462F261A4000B784F3 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
-		4F29B0482F261A4000B784F3 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		4FB2CDD62F0FB20E005295F8 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -67,32 +29,16 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5089268C333E8B54640B2660 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
-		5B1256DC035B467EBA23183B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		8B2F66B16DF04EE59364EAB0 /* OrderLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderLiveActivityAttributes.swift; sourceTree = "<group>"; };
 		A64482D35190EB954E24215F /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		C615C6493DA44E03B460A37F /* OrderLiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderLiveActivityPlugin.swift; sourceTree = "<group>"; };
-		CB66E3508B804597A97FAD98 /* LiveActivitiesBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivitiesBundle.swift; sourceTree = "<group>"; };
-		D97C79C86849427BB76B3257 /* OrderLiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderLiveActivityManager.swift; sourceTree = "<group>"; };
 		E7FDB0E5F082938527C21CB4 /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		22C73562CBBF4BF2BBEC9880 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				037DA01C32F54F079F54A829 /* ActivityKit.framework in Frameworks */,
-				C72F3D80F85A4F4E9CE9B094 /* WidgetKit.framework in Frameworks */,
-				A5D38A9F908E4879A90925A2 /* SwiftUI.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		504EC3011FED79650016851F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				A49A0EC5C042404628CBAC7D /* Pods_App.framework in Frameworks */,
-				2535FDA78B5D4348909E4771 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,30 +54,10 @@
 			path = Pods;
 			sourceTree = "<group>";
 		};
-		1000C62F171C4AD29B934DE9 /* LiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				C615C6493DA44E03B460A37F /* OrderLiveActivityPlugin.swift */,
-				D97C79C86849427BB76B3257 /* OrderLiveActivityManager.swift */,
-				8B2F66B16DF04EE59364EAB0 /* OrderLiveActivityAttributes.swift */,
-			);
-			path = LiveActivity;
-			sourceTree = "<group>";
-		};
-		4FD275AB5B4F4B188C5B2C11 /* LiveActivities */ = {
-			isa = PBXGroup;
-			children = (
-				CB66E3508B804597A97FAD98 /* LiveActivitiesBundle.swift */,
-				5B1256DC035B467EBA23183B /* Info.plist */,
-			);
-			path = LiveActivities;
-			sourceTree = "<group>";
-		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				504EC3061FED79650016851F /* App */,
-				4FD275AB5B4F4B188C5B2C11 /* LiveActivities */,
 				504EC3051FED79650016851F /* Products */,
 				08563086ABE49AC16B04463E /* Pods */,
 				5201932BF42C58CECA2990D9 /* Frameworks */,
@@ -142,7 +68,6 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
-				1AE4F277786F45F1B90D4E42 /* LiveActivities.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -153,7 +78,6 @@
 				4FB2CDD62F0FB20E005295F8 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
-				1000C62F171C4AD29B934DE9 /* LiveActivity */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -168,9 +92,6 @@
 			isa = PBXGroup;
 			children = (
 				A64482D35190EB954E24215F /* Pods_App.framework */,
-				2E60D281D1714E248FFB546A /* ActivityKit.framework */,
-				4F29B0462F261A4000B784F3 /* WidgetKit.framework */,
-				4F29B0482F261A4000B784F3 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -187,34 +108,15 @@
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
 				0207C6D9DD5C1805CD30E839 /* [CP] Embed Pods Frameworks */,
-				4F29B05B2F261A4100B784F3 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				BA33BEAE08614928A1109FC9 /* PBXTargetDependency */,
 			);
 			name = App;
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
-		};
-		D60A04A3A81C4D57AB9D4690 /* LiveActivities */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F63532263C6E4E78A0F51CF1 /* Build configuration list for PBXNativeTarget "LiveActivities" */;
-			buildPhases = (
-				0E943BDB90B04995B504AD18 /* Sources */,
-				22C73562CBBF4BF2BBEC9880 /* Frameworks */,
-				58D18EBE7A544D178AFEB8DC /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = LiveActivities;
-			productName = LiveActivities;
-			productReference = 1AE4F277786F45F1B90D4E42 /* LiveActivities.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -225,16 +127,13 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 2610;
 				LastUpgradeCheck = 2610;
-				TargetAttributes = {
-					504EC3031FED79650016851F = {
-						CreatedOnToolsVersion = 9.2;
-						LastSwiftMigration = 1100;
-					};
-					D60A04A3A81C4D57AB9D4690 = {
-						CreatedOnToolsVersion = 14.0;
+					TargetAttributes = {
+						504EC3031FED79650016851F = {
+							CreatedOnToolsVersion = 9.2;
+							LastSwiftMigration = 1100;
+						};
 					};
 				};
-			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
 			compatibilityVersion = "Xcode 8.0";
 			developmentRegion = en;
@@ -249,7 +148,6 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
-				D60A04A3A81C4D57AB9D4690 /* LiveActivities */,
 			);
 		};
 /* End PBXProject section */
@@ -265,13 +163,6 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		58D18EBE7A544D178AFEB8DC /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -318,35 +209,15 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		0E943BDB90B04995B504AD18 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				13CA4D4768224EB59381DEB5 /* LiveActivitiesBundle.swift in Sources */,
-				89FB35CBBCCD407180FFEDD4 /* OrderLiveActivityAttributes.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		504EC3001FED79650016851F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
-				0FAFC05629AB42609846FF90 /* OrderLiveActivityAttributes.swift in Sources */,
-				BE15572D50C34C0092C4BDA7 /* OrderLiveActivityManager.swift in Sources */,
-				88CFA4317A8440C28771C817 /* OrderLiveActivityPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		BA33BEAE08614928A1109FC9 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = D60A04A3A81C4D57AB9D4690 /* LiveActivities */;
-			targetProxy = A60A097D0B7A447AA6EDA498 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -368,28 +239,6 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		13BF0C0776CD465EB3F32DC1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5TNQN4K5QZ;
-				INFOPLIST_FILE = LiveActivities/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.cyclecatrtec.app.liveactivities;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -567,28 +416,6 @@
 			};
 			name = Release;
 		};
-		7555401FEFC64A2EB0139B4C /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5TNQN4K5QZ;
-				INFOPLIST_FILE = LiveActivities/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.cyclecatrtec.app.liveactivities;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -606,15 +433,6 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F63532263C6E4E78A0F51CF1 /* Build configuration list for PBXNativeTarget "LiveActivities" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				13BF0C0776CD465EB3F32DC1 /* Debug */,
-				7555401FEFC64A2EB0139B4C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

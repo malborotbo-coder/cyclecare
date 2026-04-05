@@ -28,10 +28,10 @@ export function useDeepLink({ onAuthCallback }: DeepLinkHandler) {
       }
     };
 
-    App.addListener('appUrlOpen', handleAppUrlOpen);
+    const listener = App.addListener('appUrlOpen', handleAppUrlOpen);
 
     return () => {
-      App.removeAllListeners();
+      void listener.then((l) => l.remove()).catch(() => undefined);
     };
   }, [onAuthCallback]);
 }

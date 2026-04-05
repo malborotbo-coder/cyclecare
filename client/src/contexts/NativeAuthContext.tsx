@@ -58,6 +58,21 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
   
   const [user, setUserState] = useState<NativeUser | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const AUTH_KEYS_TO_CLEAR = [
+    "auth_token",
+    "phone_session",
+    "phone_user_id",
+    "phone_number",
+    "firebase_token",
+    "guest_mode",
+    "guest_token",
+    "google_auth_user",
+    "nativeAuthUser",
+    "push_backend_registered",
+    "push_device_role",
+    "push_pending_token",
+    "push_pending_token_type",
+  ] as const;
 
   useEffect(() => {
     console.info('[Bootstrap] Native auth init start', { isNative });
@@ -126,14 +141,32 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
   };
 
   const logout = async () => {
-    // Clear all auth data (works for both web and native)
-    sessionStorage.setItem('nativeAuthLogout', 'true');
+    // Clear auth state only (do not wipe app/user preferences like remember-me fields).
+    try {
+      sessionStorage.setItem('nativeAuthLogout', 'true');
+    } catch {
+      // Ignore session storage failures.
+    }
     if (firebaseAuth.currentUser) {
       await firebaseAuth.signOut().catch(() => undefined);
     }
     await clearAuthTokens();
-    localStorage.clear();
-    sessionStorage.clear();
+
+    AUTH_KEYS_TO_CLEAR.forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+      try {
+        if (key !== "nativeAuthLogout") {
+          sessionStorage.removeItem(key);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    });
+
     document.cookie.split(";").forEach((c) => {
       document.cookie = c.replace(/^ +/, "").replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`);
     });

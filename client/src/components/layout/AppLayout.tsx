@@ -17,6 +17,9 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children, transparentHeader = false }: AppLayoutProps) {
   const isNative = Capacitor.isNativePlatform();
+  const headerBaseHeight = 64;
+  const headerSpacing = 12;
+  const headerOffset = `calc(env(safe-area-inset-top, 0px) + ${headerBaseHeight + headerSpacing}px)`;
   const nativeAuth = useNativeAuth();
   const [location] = useLocation();
   const [pullOffset, setPullOffset] = useState(0);
@@ -107,7 +110,6 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
     if (isNative) {
       console.log('[Logout] iOS - clearing native auth state...');
       await nativeAuth.logout();
-      await clearAuthTokens();
       console.log('[Logout] iOS - reloading app');
       window.location.reload();
       return;
@@ -129,44 +131,25 @@ export default function AppLayout({ children, transparentHeader = false }: AppLa
     queryClient.removeQueries();
     await nativeAuth.logout();
     await clearAuthTokens();
-    sessionStorage.clear();
-    localStorage.clear();
-    
-    document.cookie.split(";").forEach((c) => {
-      const name = c.split("=")[0].trim();
-      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
-      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
-    });
-    
-    console.log('[Logout] Step 3: Unregistering service workers...');
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      for (const registration of registrations) {
-        await registration.unregister();
-      }
-    }
-    
-    console.log('[Logout] Step 4: Clearing caches...');
-    if ('caches' in window) {
-      const cacheNames = await caches.keys();
-      await Promise.all(cacheNames.map(name => caches.delete(name)));
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    console.log('[Logout] Step 5: Redirecting to login page...');
+
+    console.log('[Logout] Step 3: Redirecting to login page...');
     const timestamp = Date.now();
     window.location.href = "/?logout=" + timestamp;
   };
 
   return (
-    <SafeAreaLayout className="flex flex-col bg-transparent">
+    <SafeAreaLayout
+      className="flex flex-col bg-transparent"
+      style={{ "--app-header-offset": headerOffset } as React.CSSProperties}
+    >
       <GlobalBackground />
       <AppHeader onLogout={handleLogout} transparent={transparentHeader} />
       <main
         className="flex-1 relative z-10"
         style={{
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 72px)",
+          paddingTop: "var(--app-header-offset)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          minHeight: "max(100vh, 100dvh)",
         }}
       >
         {isNative && (

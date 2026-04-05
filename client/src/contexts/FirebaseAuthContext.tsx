@@ -7,6 +7,7 @@ import { auth as firebaseAuth } from "@/lib/firebase";
 
 // Token storage key
 const AUTH_TOKEN_KEY = "auth_token";
+const PHONE_SESSION_KEY = "phone_session";
 
 // Simple user type for session-based auth
 interface SessionUser {
@@ -37,17 +38,55 @@ const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(u
 
 // Get auth token from localStorage
 export function getAuthToken(): string | null {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  const safeGet = (storage: Storage | undefined, key: string) => {
+    if (!storage) return null;
+    try {
+      return storage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  if (typeof sessionStorage !== "undefined") {
+    const sessionToken = safeGet(sessionStorage, AUTH_TOKEN_KEY);
+    if (sessionToken) return sessionToken;
+  }
+  return typeof localStorage !== "undefined" ? safeGet(localStorage, AUTH_TOKEN_KEY) : null;
 }
 
 // Set auth token in localStorage
 export function setAuthToken(token: string): void {
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  const safeSet = (storage: Storage | undefined, key: string, value: string) => {
+    if (!storage) return;
+    try {
+      storage.setItem(key, value);
+    } catch {
+      // Ignore storage errors
+    }
+  };
+  if (typeof sessionStorage !== "undefined") {
+    safeSet(sessionStorage, AUTH_TOKEN_KEY, token);
+  }
+  if (typeof localStorage !== "undefined") {
+    safeSet(localStorage, AUTH_TOKEN_KEY, token);
+  }
 }
 
 // Clear auth token from localStorage
 export function clearAuthToken(): void {
-  localStorage.removeItem(AUTH_TOKEN_KEY);
+  const safeRemove = (storage: Storage | undefined, key: string) => {
+    if (!storage) return;
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Ignore storage errors
+    }
+  };
+  if (typeof sessionStorage !== "undefined") {
+    safeRemove(sessionStorage, AUTH_TOKEN_KEY);
+  }
+  if (typeof localStorage !== "undefined") {
+    safeRemove(localStorage, AUTH_TOKEN_KEY);
+  }
 }
 
 export function FirebaseAuthProvider({ children }: { children: React.ReactNode }) {
@@ -57,21 +96,54 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
   const [isGuest, setIsGuest] = useState(false);
   const sessionCheckIdRef = useRef(0);
   const bootstrapDebugLoggedRef = useRef(false);
+  const debugAuth =
+    typeof window !== "undefined" &&
+    (import.meta.env.DEV || localStorage.getItem("debug_auth") === "true");
   const GUEST_MODE_KEY = "guest_mode";
   const GUEST_TOKEN_KEY = "guest_token";
 
   const readGuestFlag = () =>
-    typeof localStorage !== "undefined" && localStorage.getItem(GUEST_MODE_KEY) === "true";
+    typeof localStorage !== "undefined" &&
+    (() => {
+      try {
+        return localStorage.getItem(GUEST_MODE_KEY) === "true";
+      } catch {
+        return false;
+      }
+    })();
+  const readStoredToken = useCallback((key: string) => {
+    if (typeof sessionStorage !== "undefined") {
+      let sessionValue: string | null = null;
+      try {
+        sessionValue = sessionStorage.getItem(key);
+      } catch {
+        sessionValue = null;
+      }
+      if (sessionValue) return sessionValue;
+    }
+    if (typeof localStorage !== "undefined") {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, []);
 
   const enterGuestMode = useCallback(() => {
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem(GUEST_MODE_KEY, "true");
-      if (!localStorage.getItem(GUEST_TOKEN_KEY)) {
-        const token =
-          typeof crypto !== "undefined" && "randomUUID" in crypto
-            ? crypto.randomUUID()
-            : `guest_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        localStorage.setItem(GUEST_TOKEN_KEY, token);
+      try {
+        localStorage.setItem(GUEST_MODE_KEY, "true");
+        if (!localStorage.getItem(GUEST_TOKEN_KEY)) {
+          const token =
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `guest_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+          localStorage.setItem(GUEST_TOKEN_KEY, token);
+        }
+      } catch {
+        // Ignore storage errors in guest mode
       }
     }
     setUser(null);
@@ -80,8 +152,12 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
 
   const exitGuestMode = useCallback(() => {
     if (typeof localStorage !== "undefined") {
-      localStorage.removeItem(GUEST_MODE_KEY);
-      localStorage.removeItem(GUEST_TOKEN_KEY);
+      try {
+        localStorage.removeItem(GUEST_MODE_KEY);
+        localStorage.removeItem(GUEST_TOKEN_KEY);
+      } catch {
+        // Ignore storage errors in guest mode
+      }
     }
     setIsGuest(false);
   }, []);
@@ -113,10 +189,10 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       const authToken = getAuthToken();
       
       // Also check for Firebase token stored separately
-      const firebaseToken = localStorage.getItem("firebase_token");
+      const firebaseToken = readStoredToken("firebase_token");
       
       // Check for phone session
-      const phoneSession = localStorage.getItem("phone_session");
+      const phoneSession = readStoredToken("phone_session");
 
       if (!bootstrapDebugLoggedRef.current) {
         bootstrapDebugLoggedRef.current = true;
@@ -165,7 +241,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
               typeof data?.authToken === "string" && data.authToken.trim().length > 0
                 ? data.authToken.trim()
                 : null;
-            if (responseAuthToken && !localStorage.getItem("auth_token")) {
+            if (responseAuthToken && !readStoredToken("auth_token")) {
               await persistAuthTokens({ authToken: responseAuthToken });
             }
             console.info("[Bootstrap] Auth session check resolved", { authenticated: true, source, checkId });
@@ -192,13 +268,15 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
         });
       } else {
         // Only clear if there are still no tokens at resolution time.
-        if (!localStorage.getItem("auth_token") && !localStorage.getItem("firebase_token") && !localStorage.getItem("phone_session")) {
+        if (!readStoredToken("auth_token") && !readStoredToken("firebase_token") && !readStoredToken("phone_session")) {
           await clearAuthTokens({ emitEvent: false }).catch(() => undefined);
         }
       }
 
       if (!isLatestCheck()) return;
-      console.warn("[Auth] No active session", { method: authMethod });
+      if (authMethod !== "none" || debugAuth) {
+        console.warn("[Auth] No active session", { method: authMethod });
+      }
       applyLoggedOutState(true);
     } catch (error) {
       if (!isLatestCheck()) return;
@@ -211,7 +289,7 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
       setAuthReady(true);
       console.info("[Bootstrap] Auth session check end", { source, checkId });
     }
-  }, [applyLoggedOutState, exitGuestMode]);
+  }, [applyLoggedOutState, exitGuestMode, debugAuth, readStoredToken]);
 
   useEffect(() => {
     checkSession("startup");
@@ -279,8 +357,9 @@ export function FirebaseAuthProvider({ children }: { children: React.ReactNode }
     }
 
     // For phone auth, return the session token
-    if (localStorage.getItem("phone_session")) {
-      return localStorage.getItem("phone_session");
+    const phoneSession = readStoredToken(PHONE_SESSION_KEY);
+    if (phoneSession) {
+      return phoneSession;
     }
     
     // For Replit auth, the session is cookie-based

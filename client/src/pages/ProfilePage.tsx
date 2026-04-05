@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useNativeUser, useNativeAuth } from "@/contexts/NativeAuthContext";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { Save, User, Mail, Phone, Loader2, Camera } from "lucide-react";
+import { Save, User, Mail, Phone, Loader2, Camera, FileText, Shield } from "lucide-react";
 import { apiRequest, queryClient, getAuthHeadersAsync } from "@/lib/queryClient";
 import { Capacitor } from "@capacitor/core";
 import { disableBiometricSession, enableBiometricSession, isBiometricAvailable, isBiometricEnabled } from "@/lib/biometricSession";
@@ -350,6 +350,10 @@ export default function ProfilePage() {
       lastNamePlaceholder: "أدخل اسم العائلة",
       emailPlaceholder: "example@email.com",
       phonePlaceholder: "+966 5xxxxxxxx",
+      legalTitle: "الوثائق القانونية",
+      legalDescription: "يمكنك مراجعة المستند القانوني في أي وقت.",
+      legalTerms: "الشروط والأحكام",
+      legalPrivacy: "سياسة الخصوصية",
     },
     en: {
       title: "Profile",
@@ -366,6 +370,10 @@ export default function ProfilePage() {
       lastNamePlaceholder: "Enter your last name",
       emailPlaceholder: "example@email.com",
       phonePlaceholder: "+966 5xxxxxxxx",
+      legalTitle: "Legal Documents",
+      legalDescription: "You can review the legal document at any time.",
+      legalTerms: "Terms & Conditions",
+      legalPrivacy: "Privacy Policy",
     }
   };
 
@@ -378,7 +386,7 @@ export default function ProfilePage() {
     <PageBackground>
       <main
         className="container mx-auto px-4 pb-10 max-w-lg"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 88px)" }}
+        style={{ paddingTop: "24px" }}
         dir={isRTL ? "rtl" : "ltr"}
       >
         <Card className="shadow-xl bg-background/90 dark:bg-slate-900/85 backdrop-blur-md border border-border/60">
@@ -603,6 +611,36 @@ export default function ProfilePage() {
                     </Button>
                   </div>
                 )}
+
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <Shield className="h-4 w-4 mt-0.5 text-primary" />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{l.legalTitle}</p>
+                      <p className="text-xs text-muted-foreground">{l.legalDescription}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setLocation("/legal?section=terms")}
+                      data-testid="button-open-terms"
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      {l.legalTerms}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setLocation("/legal?section=privacy")}
+                      data-testid="button-open-privacy"
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      {l.legalPrivacy}
+                    </Button>
+                  </div>
+                </div>
 
                 <Button 
                   onClick={handleSave} 

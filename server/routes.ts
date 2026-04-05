@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { setupGoogleAuth } from "./googleAuth";
 import { setupFirebaseAuth, isAuthenticated, isAdmin, initializeFirebaseAdmin } from "./firebaseMiddleware";
+import { readFileSync, existsSync } from "fs";
+import path from "path";
 import {
   validateSchema,
   handleRouteError,
@@ -11,6 +13,7 @@ import {
   normalizeErrorBody,
   type Language,
 } from "./errors";
+import { CURRENT_LEGAL_VERSION } from "@shared/legal";
 import {
   insertBikeSchema,
   insertServiceRequestSchema,
@@ -554,12 +557,159 @@ const normalizeUserRow = (row: any) => ({
   authProviderId: row.auth_provider_id ?? row.authProviderId ?? null,
   profileImageUrl: row.profile_image_url ?? row.profileImageUrl ?? null,
   avatarUrl: row.avatar_url ?? row.avatarUrl ?? null,
+  acceptedPrivacyPolicy: row.accepted_privacy_policy ?? row.acceptedPrivacyPolicy ?? false,
+  acceptedTerms: row.accepted_terms ?? row.acceptedTerms ?? false,
+  acceptedLegalAt: row.accepted_legal_at ?? row.acceptedLegalAt ?? null,
+  acceptedLegalVersion: row.accepted_legal_version ?? row.acceptedLegalVersion ?? null,
   isTechnician: row.is_technician ?? row.isTechnician ?? false,
   technicianRemovedAt: row.technician_removed_at ?? row.technicianRemovedAt ?? null,
   isAdmin: row.is_admin ?? row.isAdmin ?? false,
   createdAt: row.created_at ?? row.createdAt ?? null,
   updatedAt: row.updated_at ?? row.updatedAt ?? null,
 });
+
+const LEGAL_DOC_CANDIDATE_FILES = [
+  "privacy and term and condition",
+  "privacy and term and condition ",
+];
+
+const DEFAULT_LEGAL_DOCUMENT = {
+  ar: {
+    privacy:
+      "سياسة الخصوصية غير متاحة حالياً. يرجى مراجعة الصفحة الرسمية في التطبيق.",
+    terms:
+      "الشروط والأحكام غير متاحة حالياً. يرجى مراجعة الصفحة الرسمية في التطبيق.",
+  },
+  en: {
+    privacy:
+      "Privacy Policy is temporarily unavailable. Please review the in-app legal page.",
+    terms:
+      "Terms & Conditions are temporarily unavailable. Please review the in-app legal page.",
+  },
+};
+
+const LEGAL_REQUIRED_MESSAGES: Record<Language, string> = {
+  ar: "يجب الموافقة على سياسة الخصوصية والشروط والأحكام للمتابعة.",
+  en: "You must accept the Privacy Policy and Terms & Conditions to continue.",
+};
+
+const extractLegalSection = (source: string, marker: "PRIVACY_POLICY" | "TERMS_AND_CONDITIONS") => {
+  const pattern = new RegExp(
+    `###\\s*${marker}\\s*\\n([\\s\\S]*?)(?=\\n###\\s*(?:PRIVACY_POLICY|TERMS_AND_CONDITIONS)\\s*\\n|$)`,
+    "i",
+  );
+  const match = source.match(pattern);
+  return match?.[1]?.trim() || "";
+};
+
+const parseLocalizedLegalBlock = (text: string, languageMarker: "ARABIC" | "ENGLISH") => {
+  const pattern = new RegExp(
+    `##\\s*${languageMarker}\\s*\\n([\\s\\S]*?)(?=\\n##\\s*(?:ARABIC|ENGLISH)\\s*\\n|$)`,
+    "i",
+  );
+  const match = text.match(pattern);
+  const block = match?.[1]?.trim() || "";
+  return {
+    privacy: extractLegalSection(block, "PRIVACY_POLICY"),
+    terms: extractLegalSection(block, "TERMS_AND_CONDITIONS"),
+  };
+};
+
+const loadLegalDocumentContent = () => {
+  let rawText = "";
+  let sourcePath: string | null = null;
+
+  for (const candidate of LEGAL_DOC_CANDIDATE_FILES) {
+    const resolved = path.resolve(process.cwd(), candidate);
+    if (!existsSync(resolved)) continue;
+    const content = readFileSync(resolved, "utf8").trim();
+    if (!content) continue;
+    rawText = content.replace(/\r\n/g, "\n");
+    sourcePath = resolved;
+    break;
+  }
+
+  if (!rawText) {
+    return {
+      sourcePath: null,
+      ar: DEFAULT_LEGAL_DOCUMENT.ar,
+      en: DEFAULT_LEGAL_DOCUMENT.en,
+    };
+  }
+
+  const ar = parseLocalizedLegalBlock(rawText, "ARABIC");
+  const en = parseLocalizedLegalBlock(rawText, "ENGLISH");
+
+  return {
+    sourcePath,
+    ar: {
+      privacy: ar.privacy || DEFAULT_LEGAL_DOCUMENT.ar.privacy,
+      terms: ar.terms || DEFAULT_LEGAL_DOCUMENT.ar.terms,
+    },
+    en: {
+      privacy: en.privacy || DEFAULT_LEGAL_DOCUMENT.en.privacy,
+      terms: en.terms || DEFAULT_LEGAL_DOCUMENT.en.terms,
+    },
+  };
+};
+
+type LegalConsentSnapshot = {
+  acceptedPrivacyPolicy: boolean;
+  acceptedTerms: boolean;
+  acceptedLegalAt: string | null;
+  acceptedLegalVersion: string | null;
+};
+
+const buildLegalConsentSnapshot = (row: any): LegalConsentSnapshot => ({
+  acceptedPrivacyPolicy: row?.accepted_privacy_policy === true || row?.acceptedPrivacyPolicy === true,
+  acceptedTerms: row?.accepted_terms === true || row?.acceptedTerms === true,
+  acceptedLegalAt: row?.accepted_legal_at ?? row?.acceptedLegalAt ?? null,
+  acceptedLegalVersion: row?.accepted_legal_version ?? row?.acceptedLegalVersion ?? null,
+});
+
+const hasAcceptedCurrentLegal = (snapshot: LegalConsentSnapshot) =>
+  snapshot.acceptedPrivacyPolicy === true &&
+  snapshot.acceptedTerms === true &&
+  snapshot.acceptedLegalVersion === CURRENT_LEGAL_VERSION;
+
+const getUserLegalConsentSnapshot = async (userId: string): Promise<LegalConsentSnapshot> => {
+  const { resp, data } = await pgFetch(
+    `/users?id=eq.${encodeURIComponent(userId)}&select=accepted_privacy_policy,accepted_terms,accepted_legal_at,accepted_legal_version&limit=1`,
+  );
+  if (!resp.ok) {
+    console.warn("[LEGAL][CONSENT][FETCH_FAILED]", { userId, status: resp.status, body: data });
+    return {
+      acceptedPrivacyPolicy: false,
+      acceptedTerms: false,
+      acceptedLegalAt: null,
+      acceptedLegalVersion: null,
+    };
+  }
+  const row = Array.isArray(data) ? data[0] : data?.[0];
+  return buildLegalConsentSnapshot(row);
+};
+
+const respondLegalConsentRequired = (req: any, res: any, snapshot: LegalConsentSnapshot) => {
+  const lang = getRequestLang(req);
+  return res.status(403).json({
+    code: "LEGAL_CONSENT_REQUIRED",
+    reason: "legal_consent_required",
+    message: LEGAL_REQUIRED_MESSAGES[lang],
+    acceptedPrivacyPolicy: snapshot.acceptedPrivacyPolicy,
+    acceptedTerms: snapshot.acceptedTerms,
+    acceptedLegalVersion: snapshot.acceptedLegalVersion,
+    requiredLegalVersion: CURRENT_LEGAL_VERSION,
+  });
+};
+
+const requireLegalConsentForUser = async (req: any, res: any, userId: string) => {
+  const snapshot = await getUserLegalConsentSnapshot(userId);
+  if (hasAcceptedCurrentLegal(snapshot)) {
+    return { ok: true as const, snapshot };
+  }
+  respondLegalConsentRequired(req, res, snapshot);
+  return { ok: false as const, snapshot };
+};
 
 const buildReferenceFromId = (prefix: string, id?: string | null, createdAt?: string | null) => {
   if (!id) return null;
@@ -2787,6 +2937,16 @@ export async function registerRoutes(app: Express): Promise<void> {
     },
   );
 
+  // Legal document route (public)
+  app.get("/api/legal/document", async (_req, res) => {
+    const legal = loadLegalDocumentContent();
+    return res.json({
+      version: CURRENT_LEGAL_VERSION,
+      ar: legal.ar,
+      en: legal.en,
+    });
+  });
+
   // AUTHENTICATED ROUTES
 
   app.post("/api/auth/apple-native", async (req, res) => {
@@ -2873,6 +3033,75 @@ export async function registerRoutes(app: Express): Promise<void> {
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.get("/api/legal/consent-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) {
+        return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED", reason: "missing_token" });
+      }
+      const userUuid = await ensureUserUuid(auth);
+      const snapshot = await getUserLegalConsentSnapshot(userUuid);
+      return res.json({
+        userId: userUuid,
+        acceptedPrivacyPolicy: snapshot.acceptedPrivacyPolicy,
+        acceptedTerms: snapshot.acceptedTerms,
+        acceptedLegalAt: snapshot.acceptedLegalAt,
+        acceptedLegalVersion: snapshot.acceptedLegalVersion,
+        requiredLegalVersion: CURRENT_LEGAL_VERSION,
+        requiresConsent: !hasAcceptedCurrentLegal(snapshot),
+      });
+    } catch (error) {
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
+      console.error("[LEGAL][CONSENT][STATUS] Error:", error);
+      return res.status(500).json({ code: "SERVER_ERROR", message: "Failed to fetch legal consent status" });
+    }
+  });
+
+  app.post("/api/legal/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const auth = getAuthContext(req);
+      if (!auth) {
+        return res.status(401).json({ message: "Unauthorized", code: "UNAUTHORIZED", reason: "missing_token" });
+      }
+      const userUuid = await ensureUserUuid(auth);
+      const nowIso = new Date().toISOString();
+      const { resp, data } = await pgFetch(`/users?id=eq.${encodeURIComponent(userUuid)}`, {
+        method: "PATCH",
+        body: {
+          accepted_privacy_policy: true,
+          accepted_terms: true,
+          accepted_legal_at: nowIso,
+          accepted_legal_version: CURRENT_LEGAL_VERSION,
+          updated_at: nowIso,
+        },
+        headers: { Prefer: "return=representation" },
+      });
+      if (!resp.ok) {
+        console.error("[LEGAL][CONSENT][ACCEPT][FAILED]", { status: resp.status, body: data });
+        return res.status(resp.status || 500).json({
+          code: "SERVER_ERROR",
+          message: "Failed to update legal consent",
+        });
+      }
+      const row = Array.isArray(data) ? data[0] : data?.[0];
+      const snapshot = buildLegalConsentSnapshot(row);
+      return res.json({
+        success: true,
+        acceptedPrivacyPolicy: snapshot.acceptedPrivacyPolicy,
+        acceptedTerms: snapshot.acceptedTerms,
+        acceptedLegalAt: snapshot.acceptedLegalAt,
+        acceptedLegalVersion: snapshot.acceptedLegalVersion,
+        requiredLegalVersion: CURRENT_LEGAL_VERSION,
+      });
+    } catch (error) {
+      const handled = handleRouteError(error, req, res);
+      if (handled) return handled;
+      console.error("[LEGAL][CONSENT][ACCEPT] Error:", error);
+      return res.status(500).json({ code: "SERVER_ERROR", message: "Failed to accept legal consent" });
     }
   });
 
@@ -5964,6 +6193,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
         const { resp: techResp, data: techData } = await pgFetch(
           `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
         );
@@ -6042,6 +6273,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
         const { resp: techResp, data: techData } = await pgFetch(
           `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
         );
@@ -6117,6 +6350,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
         const { resp: techResp, data: techData } = await pgFetch(
           `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
         );
@@ -6197,6 +6432,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
         const { resp: techResp, data: techData } = await pgFetch(
           `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=id,status,is_active`,
         );
@@ -6350,7 +6587,15 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const auth = getAuthContext(req);
       const guestToken = getGuestToken(req);
-      const userId = auth ? await ensureUserUuid(auth) : await ensureGuestUserId(guestToken);
+      let userId: string;
+      if (auth) {
+        const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
+        userId = userUuid;
+      } else {
+        userId = await ensureGuestUserId(guestToken);
+      }
       const body = req.body || {};
       const technicianId = body.technicianId;
       const requestedTechnicianId = typeof technicianId === "string" ? technicianId.trim() : "";
@@ -6642,6 +6887,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         const auth = getAuthContext(req);
         if (!auth) return res.status(401).json({ message: "Unauthorized" });
         const userUuid = await ensureUserUuid(auth);
+        const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+        if (!legalGate.ok) return;
         const existingRequest = await storage.getServiceRequest(req.params.id);
         if (!existingRequest) {
           return res.status(404).json({ message: "Service request not found" });
@@ -8692,11 +8939,13 @@ export async function registerRoutes(app: Express): Promise<void> {
     try {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
-      const { userId } = auth;
+      const userUuid = await ensureUserUuid(auth);
+      const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+      if (!legalGate.ok) return;
       const orderData = validateSchema(insertOrderSchema, {
         ...req.body,
         orderNumber: req.body?.orderNumber || buildOrderNumber(),
-        userId,
+        userId: userUuid,
       }, req);
 
       const order = await storage.createOrder(orderData);
@@ -9183,12 +9432,11 @@ export async function registerRoutes(app: Express): Promise<void> {
   app.post("/api/payments", isAuthenticated, async (req: any, res) => {
     try {
       const { method, amount, currency, serviceRequestId } = req.body;
-      
-      // Get user ID
-      const userId = req.firebaseUser?.uid || req.user?.claims?.sub;
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
+      const auth = getAuthContext(req);
+      if (!auth) return res.status(401).json({ error: "Unauthorized" });
+      const userUuid = await ensureUserUuid(auth);
+      const legalGate = await requireLegalConsentForUser(req, res, userUuid);
+      if (!legalGate.ok) return;
 
       // Validate payment method
       const validMethods = ["apple_pay", "mada", "tabby", "tamara", "credit_card", "bank_transfer"];
@@ -9196,7 +9444,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ error: "Invalid payment method" });
       }
 
-      console.log(`[Payment] Processing ${method} payment for user ${userId}, amount: ${amount}`);
+      console.log(`[Payment] Processing ${method} payment for user ${userUuid}, amount: ${amount}`);
 
       // TODO: Route to actual payment provider based on method
       // apple_pay -> Apple Pay SDK

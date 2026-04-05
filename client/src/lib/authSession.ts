@@ -42,8 +42,20 @@ const isApiQueryKey = (queryKey: readonly unknown[]) =>
   queryKey.some((part) => typeof part === "string" && part.includes("/api/"));
 
 export const hasStoredAuthTokenSync = () => {
-  if (typeof localStorage === "undefined") return false;
-  return TOKEN_KEYS.some((key) => Boolean(localStorage.getItem(key)));
+  if (typeof localStorage === "undefined" && typeof sessionStorage === "undefined") return false;
+  const safeRead = (storage: Storage | undefined, key: string) => {
+    if (!storage) return null;
+    try {
+      return storage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  return TOKEN_KEYS.some((key) => {
+    const localValue = typeof localStorage !== "undefined" ? safeRead(localStorage, key) : null;
+    const sessionValue = typeof sessionStorage !== "undefined" ? safeRead(sessionStorage, key) : null;
+    return Boolean(localValue || sessionValue);
+  });
 };
 
 export async function invalidateAuthState(options?: {

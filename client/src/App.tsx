@@ -28,6 +28,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import OrdersPage from "@/pages/OrdersPage";
 import SupportPage from "@/pages/Support";
 import NotificationsPage from "@/pages/NotificationsPage";
+import LegalDocumentPage from "@/pages/LegalDocumentPage";
 import {
   FirebaseAuthProvider,
   useFirebaseAuth,
@@ -44,6 +45,7 @@ import { setPostLoginRedirect } from "@/lib/authRedirect";
 import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLogin } from "@/lib/pushManager";
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
+import LegalConsentGate from "@/components/legal/LegalConsentGate";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -97,6 +99,9 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
   const [bootTimeout, setBootTimeout] = useState(false);
   const loginGateLoggedRef = useRef(false);
   const restoreRetryTriggeredRef = useRef(false);
+  const debugAuthGate =
+    typeof window !== "undefined" &&
+    (import.meta.env.DEV || localStorage.getItem("debug_auth") === "true");
   const hasStoredToken = hasStoredAuthTokenSync();
 
   useEffect(() => {
@@ -145,7 +150,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
         
         if (token) {
           console.log('[Deep Link] JWT token received, redirecting to auth callback');
-          setLocation(`/auth/callback?token=${token}`);
+          setLocation(`/auth/callback?token=${encodeURIComponent(token)}`);
         } else if (code) {
           console.log('[Deep Link] OAuth code received, exchanging for token');
           const callbackPath = buildApiUrl(`/api/login/callback?code=${code}`);
@@ -162,7 +167,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
                 const jwtToken = redirectParams.get('token');
                 if (jwtToken) {
                   console.log('[Deep Link] Got JWT from callback, storing');
-                  setLocation(`/auth/callback?token=${jwtToken}`);
+                  setLocation(`/auth/callback?token=${encodeURIComponent(jwtToken)}`);
                   return;
                 }
               }
@@ -171,7 +176,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
             if (response.ok) {
               const data = await response.json();
               if (data.token) {
-                setLocation(`/auth/callback?token=${data.token}`);
+                setLocation(`/auth/callback?token=${encodeURIComponent(data.token)}`);
                 return;
               }
             }
@@ -227,21 +232,26 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     }
     if (!loginGateLoggedRef.current) {
       loginGateLoggedRef.current = true;
-      console.warn("[AuthGate] Rendering login screen", {
-        authReady,
-        isLoading,
-        hasUser: Boolean(user),
-        isGuest,
-        hasAuthToken: Boolean(localStorage.getItem("auth_token")),
-        hasFirebaseToken: Boolean(localStorage.getItem("firebase_token")),
-        hasPhoneSession: Boolean(localStorage.getItem("phone_session")),
-      });
+      if (debugAuthGate) {
+        const readToken = (key: string) =>
+          (typeof sessionStorage !== "undefined" ? sessionStorage.getItem(key) : null) ||
+          (typeof localStorage !== "undefined" ? localStorage.getItem(key) : null);
+        console.warn("[AuthGate] Rendering login screen", {
+          authReady,
+          isLoading,
+          hasUser: Boolean(user),
+          isGuest,
+          hasAuthToken: Boolean(readToken("auth_token")),
+          hasFirebaseToken: Boolean(readToken("firebase_token")),
+          hasPhoneSession: Boolean(readToken("phone_session")),
+        });
+      }
     }
     return <FirebaseAuthPage />;
   }
 
   loginGateLoggedRef.current = false;
-  return <>{children}</>;
+  return <LegalConsentGate>{children}</LegalConsentGate>;
 }
 
 function RequireAuth({
@@ -372,6 +382,12 @@ function Router() {
               <Route path="/my-profile">
                 <AppLayout>
                   <ProfilePage />
+                </AppLayout>
+              </Route>
+
+              <Route path="/legal">
+                <AppLayout>
+                  <LegalDocumentPage />
                 </AppLayout>
               </Route>
 

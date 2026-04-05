@@ -39,8 +39,11 @@ export default function AuthCallback() {
       });
 
       await persistAuthTokens({ authToken: token });
+      const hasStoredToken =
+        (typeof sessionStorage !== "undefined" && Boolean(sessionStorage.getItem("auth_token"))) ||
+        (typeof localStorage !== "undefined" && Boolean(localStorage.getItem("auth_token")));
       console.info("[AuthCallback] Token stored", {
-        hasAuthToken: Boolean(localStorage.getItem("auth_token")),
+        hasAuthToken: hasStoredToken,
       });
 
       await promptBiometricEnrollment(token);
@@ -58,7 +61,10 @@ export default function AuthCallback() {
       window.location.replace(redirectTo);
     };
 
-    processAuth();
+    processAuth().catch((error) => {
+      console.error("[AuthCallback] Failed to process callback", error);
+      setLocation("/?auth_error=callback_process_failed");
+    });
   }, [setLocation]);
 
   return (
