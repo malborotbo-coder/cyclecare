@@ -21,9 +21,11 @@ type SupportAttachment = {
   contentType?: string;
 };
 
-let cachedTransport: nodemailer.Transporter | null = null;
+type MailTransport = ReturnType<typeof nodemailer.createTransport>;
 
-function buildTransport(): nodemailer.Transporter | null {
+let cachedTransport: MailTransport | null = null;
+
+function buildTransport(): MailTransport | null {
   if (cachedTransport) return cachedTransport;
 
   const smtpUrl = process.env.SMTP_URL;

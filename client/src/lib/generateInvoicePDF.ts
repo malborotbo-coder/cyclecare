@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Capacitor } from "@capacitor/core";
 import { Share } from "@capacitor/share";
+import { Browser } from "@capacitor/browser";
 import JsBarcode from "jsbarcode";
 import logoImage from "@assets/cycle-care-new-logo.png";
 
@@ -9,9 +10,9 @@ export type InvoiceLineItem = {
   name?: string;
   description?: string;
   quantity?: number;
-  unitPrice?: number;
-  total?: number;
-  price?: number;
+  unitPrice?: number | string;
+  total?: number | string;
+  price?: number | string;
 };
 
 export type InvoiceLike = {
@@ -277,7 +278,7 @@ const renderInvoiceHtmlToPdf = async (
     },
   ].filter((row) => row.value);
 
-  const items = Array.isArray(invoice.items)
+  const items: InvoiceLineItem[] = Array.isArray(invoice.items)
     ? invoice.items
     : invoice.description
     ? [{ name: invoice.description, quantity: 1, unitPrice: invoice.total, total: invoice.total }]
@@ -586,7 +587,7 @@ export async function generateInvoicePDF(
   doc.text("Total", pageWidth - margin - 5, yPos + 6, { align: "right" });
   yPos += 13;
 
-  const items = Array.isArray(invoice.items)
+  const items: InvoiceLineItem[] = Array.isArray(invoice.items)
     ? invoice.items
     : invoice.description
     ? [{ name: invoice.description, quantity: 1, unitPrice: invoice.total, total: invoice.total }]
@@ -596,7 +597,7 @@ export async function generateInvoicePDF(
   doc.setTextColor(30, 30, 30);
 
   items.forEach((item, index) => {
-    const name = resolveInvoiceItemLabel(item, index, lang === "ar");
+    const name = resolveInvoiceItemLabel(item, index, isArabic);
     const quantity = item.quantity ?? 1;
     const unitPrice = item.unitPrice ?? item.price ?? item.total ?? 0;
     const total = item.total ?? Number(unitPrice) * quantity;

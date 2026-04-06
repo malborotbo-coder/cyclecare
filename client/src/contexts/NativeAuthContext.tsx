@@ -159,7 +159,7 @@ export function NativeAuthProvider({ children }: NativeAuthProviderProps) {
         // Ignore storage errors
       }
       try {
-        if (key !== "nativeAuthLogout") {
+        if (String(key) !== "nativeAuthLogout") {
           sessionStorage.removeItem(key);
         }
       } catch {

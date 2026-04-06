@@ -151,10 +151,10 @@ export default function PaymentPage() {
             <Button
               onClick={handlePayment}
               className="flex-1 bg-primary hover:bg-primary/90"
-              disabled={paymentMutation.isPending || !selectedMethod}
+              disabled={!selectedMethod}
               data-testid="button-submit-payment"
             >
-              {paymentMutation.isPending ? labels.processing : labels.pay}
+              {labels.pay}
             </Button>
           </div>
         </div>

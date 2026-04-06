@@ -40,8 +40,8 @@ export async function signInWithApple(): Promise<GoogleAuthUser | null> {
     }
 
     const { response } = await SignInWithApple.authorize({
-      scopes: ["FULL_NAME", "EMAIL"],
-    });
+      scopes: ["FULL_NAME", "EMAIL"] as any,
+    } as any);
 
     const identityToken = (response as any)?.identityToken;
     if (!identityToken) {

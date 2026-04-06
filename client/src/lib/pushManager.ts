@@ -322,6 +322,36 @@ const requestPermissionAndRegister = async () => {
   }
 };
 
+const ensureAndroidNotificationChannels = async () => {
+  if (!isNative || platform !== "android") return;
+  try {
+    await PushNotifications.createChannel({
+      id: "technician_alerts",
+      name: "طلبات الفني",
+      description: "تنبيهات الطلبات الجديدة للفني",
+      importance: 5,
+      visibility: 1,
+      sound: "default",
+      vibration: true,
+      lights: true,
+    });
+    await PushNotifications.createChannel({
+      id: "customer_updates",
+      name: "تحديثات الطلبات",
+      description: "تحديثات حالة الطلب للعميل",
+      importance: 4,
+      visibility: 1,
+      sound: "default",
+      vibration: true,
+      lights: true,
+    });
+  } catch (error) {
+    if (debugPush) {
+      console.log("[Push][Channel] Failed to create Android channels:", error);
+    }
+  }
+};
+
 export const initializePushManagerOnce = async () => {
   if (!isNative || initialized) return;
   initialized = true;
@@ -348,6 +378,7 @@ export const initializePushManagerOnce = async () => {
       }
     });
   }
+  await ensureAndroidNotificationChannels();
   await requestPermissionAndRegister();
   if (debugPush) {
     console.info("[Push] Init done", { registerCalled });

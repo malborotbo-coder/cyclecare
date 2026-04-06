@@ -26,15 +26,20 @@ interface AppHeaderProps {
 
 export default function AppHeader({ onLogout, transparent = false }: AppHeaderProps) {
   const { lang, toggleLanguage } = useLanguage();
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const isNative = Capacitor.isNativePlatform();
   const { itemCount } = useCart();
   const { user, isGuest, authReady } = useFirebaseAuth();
   const canLoadNotifications =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
-  const notificationScope = String(location || "").toLowerCase().startsWith("/technician")
-    ? "technician"
-    : "customer";
+  const { data: roleInfo } = useQuery<{ isAdmin: boolean; roles: string[] }>({
+    queryKey: ["/api/roles/me"],
+    queryFn: () => apiRequest("/api/roles/me", "GET"),
+    enabled: canLoadNotifications,
+    staleTime: 60_000,
+  });
+  const roles = Array.isArray(roleInfo?.roles) ? roleInfo.roles : [];
+  const notificationScope = roles.includes("technician") ? "technician" : "customer";
 
   const { data: notifications } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],

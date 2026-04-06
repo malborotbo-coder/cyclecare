@@ -8,7 +8,9 @@ export type ErrorCode =
   | "SERVER_ERROR"
   | "STORAGE_UPLOAD_FAILED"
   | "DISCOUNT_INVALID"
-  | "LEGAL_CONSENT_REQUIRED";
+  | "LEGAL_CONSENT_REQUIRED"
+  | "TECH_APPLY_FAILED"
+  | "USER_ROLE_CREATE_FAILED";
 export type Language = "ar" | "en";
 
 type FieldError = { field: string; message: string };
@@ -22,6 +24,8 @@ const errorMessages: Record<Language, Record<ErrorCode, string>> = {
     STORAGE_UPLOAD_FAILED: "Failed to upload file. Please try again.",
     DISCOUNT_INVALID: "Discount code is invalid",
     LEGAL_CONSENT_REQUIRED: "You must accept the Privacy Policy and Terms & Conditions to continue.",
+    TECH_APPLY_FAILED: "Failed to submit technician application",
+    USER_ROLE_CREATE_FAILED: "Failed to assign user role",
   },
   ar: {
     VALIDATION_ERROR: "الرجاء التحقق من الحقول المحددة.",
@@ -31,6 +35,8 @@ const errorMessages: Record<Language, Record<ErrorCode, string>> = {
     STORAGE_UPLOAD_FAILED: "فشل رفع الملف، يرجى المحاولة مرة أخرى.",
     DISCOUNT_INVALID: "كود الخصم غير صالح",
     LEGAL_CONSENT_REQUIRED: "يجب الموافقة على سياسة الخصوصية والشروط والأحكام للمتابعة.",
+    TECH_APPLY_FAILED: "فشل إرسال طلب الفني",
+    USER_ROLE_CREATE_FAILED: "فشل تعيين دور المستخدم",
   },
 };
 

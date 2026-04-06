@@ -40,6 +40,38 @@ import {
   clearBookingDraft,
 } from "@/lib/authRedirect";
 
+type TechnicianBookingCompat = Omit<
+  Partial<Technician>,
+  "createdAt" | "updatedAt" | "latitude" | "longitude" | "rating" | "reviewCount" | "isAvailable"
+> & {
+  id: string;
+  userId?: string | null;
+  name?: string | null;
+  phoneNumber?: string | null;
+  location?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  rating?: number | string | null;
+  reviewCount?: number | null;
+  review_count?: number | null;
+  isAvailable?: boolean | null;
+  is_available?: boolean | null;
+  isApproved?: boolean | null;
+  status?: string | null;
+  is_active?: boolean | null;
+  yearsOfExperience?: number | null;
+  years_of_experience?: number | null;
+  commercialRegister?: string | null;
+  nationalId?: string | null;
+  iban?: string | null;
+  createdAt?: string | Date | null;
+  updatedAt?: string | Date | null;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
+  pricePreview?: { total?: number | string | null } | null;
+  isMock?: boolean;
+};
+
 export default function ServiceBooking() {
   const { toast } = useToast();
   const [, setRouterLocation] = useRouterLocation();
@@ -108,7 +140,7 @@ export default function ServiceBooking() {
     },
   ];
 
-  const { data: technicians, isLoading: loadingTechnicians } = useQuery<Technician[]>({
+  const { data: technicians, isLoading: loadingTechnicians } = useQuery<TechnicianBookingCompat[]>({
     queryKey: ["/api/technicians/nearby", location.lat, location.lng],
     enabled: !!location.lat && !!location.lng,
     staleTime: 0,
@@ -140,7 +172,7 @@ export default function ServiceBooking() {
 
   const bikesList = useMemo(() => (Array.isArray(bikes) ? bikes : []), [bikes]);
 
-  const fallbackTechnicians = useMemo<Technician[]>(() => {
+  const fallbackTechnicians = useMemo<TechnicianBookingCompat[]>(() => {
     const now = new Date().toISOString();
     return [
       {
@@ -166,12 +198,12 @@ export default function ServiceBooking() {
         etaMinutes: 12,
         pricePreview: { total: 150 },
         isMock: true,
-      } as Technician,
+      },
     ];
   }, []);
 
-  const techniciansList = useMemo<Technician[]>(() => {
-    const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const techniciansList = useMemo<TechnicianBookingCompat[]>(() => {
+    const safeTechnicians: TechnicianBookingCompat[] = Array.isArray(technicians) ? technicians : [];
     const liveTechnicians = safeTechnicians.filter((tech: any) => !tech?.isMock);
     const merged = [...liveTechnicians, ...fallbackTechnicians];
     const seen = new Set<string>();
@@ -201,7 +233,7 @@ export default function ServiceBooking() {
     [bikesList, selectedBikeId],
   );
 
-  const selectedTechnician = useMemo(
+  const selectedTechnician = useMemo<TechnicianBookingCompat | undefined>(
     () => techniciansList.find((t) => t.id === selectedTechnicianId),
     [techniciansList, selectedTechnicianId],
   );

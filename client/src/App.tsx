@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "./lib/queryClient";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -516,8 +516,14 @@ function App() {
 
 function PushGate() {
   const { user } = useFirebaseAuth();
-  const [location] = useLocation();
   const lastUserIdRef = useRef<string | null>(null);
+  const canLoadRoles = Boolean(user?.id) && hasStoredAuthTokenSync();
+  const { data: roleInfo } = useQuery<{ isAdmin: boolean; roles: string[] }>({
+    queryKey: ["/api/roles/me"],
+    queryFn: () => apiRequest("/api/roles/me", "GET"),
+    enabled: canLoadRoles,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     const nextUserId = user?.id ?? null;
@@ -533,15 +539,16 @@ function PushGate() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return;
-    const path = String(location || "").toLowerCase();
-    const role = path.startsWith("/technician")
-      ? "technician"
-      : path.startsWith("/admin")
-      ? "admin"
-      : "customer";
+    if (!user?.id || !roleInfo) return;
+    const roles = Array.isArray(roleInfo?.roles) ? roleInfo.roles : [];
+    const role =
+      roleInfo?.isAdmin === true
+        ? "admin"
+        : roles.includes("technician")
+        ? "technician"
+        : "customer";
     void setPushRoleContext(role);
-  }, [location, user?.id]);
+  }, [user?.id, roleInfo]);
 
   return null;
 }

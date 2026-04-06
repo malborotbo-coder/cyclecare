@@ -323,16 +323,16 @@ export default function OrdersPage() {
 
     const meta = {
       orderId: order.orderNumber,
-      serviceName: order.serviceType,
-      technicianName: order.technicianName,
+      serviceName: order.serviceType ?? undefined,
+      technicianName: order.technicianName ?? undefined,
       paymentMethod: paymentLabel,
       bookingDate: order.createdAt,
-      location: order.locationText,
-      routeFrom: order.route?.fromLabel,
-      routeTo: order.route?.toLabel,
+      location: order.locationText ?? undefined,
+      routeFrom: order.route?.fromLabel ?? undefined,
+      routeTo: order.route?.toLabel ?? undefined,
       distanceKm: order.route?.distanceKm,
       etaMinutes: order.route?.etaMinutes,
-      notes: order.notes,
+      notes: order.notes ?? undefined,
     };
 
     const pdfUser = user

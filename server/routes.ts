@@ -410,12 +410,12 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
   ];
 
   if (status === "rejected_by_technician") {
-    const steps = templates.map((step, index) => ({
+    const steps: TrackingStep[] = templates.map((step, index) => ({
       ...step,
-      status: index === 0 ? "done" : "pending",
+      status: (index === 0 ? "done" : "pending") as TrackingStep["status"],
       timestamp: addMinutes(baseTime, index * 6).toISOString(),
     }));
-    const rejectedStep = {
+    const rejectedStep: TrackingStep = {
       id: "rejected",
       title: "تم رفض الطلب",
       description: "الفني رفض الطلب ويمكنك البحث عن فني آخر.",
@@ -443,7 +443,7 @@ const buildDefaultTrackingSteps = (status?: string, createdAt?: string): Trackin
   const stageIndex = stageMap[status || "pending"] ?? 0;
 
   return templates.map((step, index) => {
-    const statusValue =
+    const statusValue: TrackingStep["status"] =
       status === "completed"
         ? "done"
         : index < stageIndex
@@ -883,8 +883,15 @@ const INTERNAL_NOTIFICATION_KEY = process.env.INTERNAL_NOTIFICATION_KEY || "";
 const LIVE_ACTIVITIES_ENABLED =
   String(process.env.LIVE_ACTIVITIES_ENABLED || "false").toLowerCase() === "true";
 
+type PushUrgency = "normal" | "high";
+
 const buildPushPayload = (notification: any) => {
   const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
+  const type = String(notification.type || "").toLowerCase();
+  const isCriticalOrderUpdate =
+    resolvedRole === "technician" ||
+    type === "technician_update" ||
+    type === "order_update";
   const data = {
     notificationId: notification.id ?? null,
     type: notification.type ?? null,
@@ -894,11 +901,14 @@ const buildPushPayload = (notification: any) => {
     activityId: notification.activityId ?? null,
     activityState: notification.activityState ?? null,
     liveActivityPayload: notification.liveActivityPayload ?? null,
+    urgency: isCriticalOrderUpdate ? "high" : "normal",
   };
   return {
     title: notification.title,
     body: notification.message,
     data,
+    urgency: (isCriticalOrderUpdate ? "high" : "normal") as PushUrgency,
+    androidChannelId: resolvedRole === "technician" ? "technician_alerts" : "customer_updates",
   };
 };
 
@@ -1112,7 +1122,12 @@ const normalizeApnsEnv = (value?: string | null) => {
 
 const sendApnsPush = async (
   token: string,
-  payload: { title: string; body: string; data: any },
+  payload: {
+    title: string;
+    body: string;
+    data: any;
+    urgency?: PushUrgency;
+  },
   env?: "development" | "production" | null,
 ) => {
   const result = await sendApns({
@@ -1121,6 +1136,7 @@ const sendApnsPush = async (
     body: payload.body,
     data: payload.data ?? {},
     env: env ?? undefined,
+    priority: payload.urgency === "high" ? 10 : 5,
   });
   return {
     ok: result.ok,
@@ -1129,10 +1145,20 @@ const sendApnsPush = async (
   };
 };
 
-const sendFcmPush = async (token: string, payload: { title: string; body: string; data: any }) => {
+const sendFcmPush = async (
+  token: string,
+  payload: {
+    title: string;
+    body: string;
+    data: any;
+    urgency?: PushUrgency;
+    androidChannelId?: string | null;
+  },
+) => {
   if (!FCM_SERVER_KEY) {
     return { ok: false, status: 500, body: { message: "FCM config missing" } };
   }
+  const isHighUrgency = payload.urgency === "high";
   const res = await fetch("https://fcm.googleapis.com/fcm/send", {
     method: "POST",
     headers: {
@@ -1141,7 +1167,13 @@ const sendFcmPush = async (token: string, payload: { title: string; body: string
     },
     body: JSON.stringify({
       to: token,
-      notification: { title: payload.title, body: payload.body },
+      priority: isHighUrgency ? "high" : "normal",
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        sound: "default",
+        ...(payload.androidChannelId ? { android_channel_id: payload.androidChannelId } : {}),
+      },
       data: payload.data ?? {},
     }),
   });
@@ -1166,6 +1198,8 @@ const deliverNotificationPush = async (notification: any) => {
   const roleFilter = resolvedRole
     ? resolvedRole === "customer"
       ? `&or=(role.eq.${encodeURIComponent(resolvedRole)},role.is.null)`
+      : resolvedRole === "technician"
+      ? "&or=(role.eq.technician,role.is.null)"
       : `&role=eq.${encodeURIComponent(resolvedRole)}`
     : "";
   const { resp, data } = await pgFetch(
@@ -1326,9 +1360,11 @@ const resolveNotificationScope = (value: unknown): NotificationScope => {
 const matchesNotificationScope = (notification: any, scope: NotificationScope) => {
   if (!scope) return true;
   const role = normalizePushRole(notification?.role);
-  if (!role || role === "admin") return true;
-  if (scope === "technician") return role === "technician";
-  return role === "customer";
+  if (scope === "technician") {
+    return role === "technician";
+  }
+  // Customer scope excludes technician-only notifications.
+  return role !== "technician";
 };
 
 const resolvePushRole = async (payload: {
@@ -1689,6 +1725,56 @@ const triggerSystemNotification = async (
     await sendNotificationPush(created);
   }
   return created;
+};
+
+const triggerTechnicianOrderNotification = async (payload: {
+  technicianId?: string | null;
+  orderId?: string | null;
+  serviceType?: string | null;
+  location?: string | null;
+  lang: Language;
+}) => {
+  const technicianId = typeof payload.technicianId === "string" ? payload.technicianId.trim() : "";
+  const orderId = typeof payload.orderId === "string" ? payload.orderId.trim() : "";
+  if (!technicianId || !orderId) return null;
+
+  const { resp: techResp, data: techData } = await pgFetch(
+    `/technicians?id=eq.${encodeURIComponent(technicianId)}&select=id,user_id`,
+  );
+  if (!techResp.ok) {
+    console.warn("[TECH][NOTIFICATIONS][TECH_LOOKUP_FAILED]", {
+      technicianId,
+      orderId,
+      status: techResp.status,
+      body: techData,
+    });
+    return null;
+  }
+  const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
+  const technicianUserId = tech?.user_id ?? tech?.userId;
+  if (!technicianUserId) {
+    console.warn("[TECH][NOTIFICATIONS][TECH_USER_MISSING]", { technicianId, orderId });
+    return null;
+  }
+
+  const isArabic = payload.lang === "ar";
+  const serviceLabel = payload.serviceType || (isArabic ? "خدمة" : "service");
+  const locationLabel = payload.location || (isArabic ? "موقع العميل" : "customer location");
+  return createNotification({
+    userId: technicianUserId,
+    role: "technician",
+    title: isArabic ? "طلب جديد" : "New request",
+    message: isArabic
+      ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
+      : `New ${serviceLabel} request at ${locationLabel}.`,
+    emoji: "🆕",
+    type: "technician_update",
+    entityType: "service_request",
+    entityId: orderId,
+    activityType: "technician_route",
+    activityId: orderId,
+    activityState: "assigned",
+  });
 };
 
 async function maybeCreateMaintenanceNotification(userId: string, status: string, remainingKm: number, lang: Language) {
@@ -2293,7 +2379,7 @@ async function loadRolesFromDb(): Promise<Role[]> {
 
 async function ensureDefaultRoles(): Promise<void> {
   const roles = await loadRolesFromDb();
-  const existing = new Set((roles || []).map((role) => role.name));
+  const existing = new Set<string>((roles || []).map((role) => String(role.name)));
   const missing = DEFAULT_ROLES.filter((name) => !existing.has(name));
   if (missing.length === 0) return;
 
@@ -2419,7 +2505,10 @@ async function requireRoleOrAdmin(
   req: any,
   res: any,
   roleName: string,
-): Promise<{ ok: true; userUuid: string; auth: AuthContext }> {
+): Promise<
+  { ok: true; userUuid: string; auth: AuthContext } |
+  { ok: false; userUuid: string; auth: AuthContext | null }
+> {
   const auth = getAuthContext(req);
   if (!auth) {
     res.status(401).json({ message: "Unauthorized" });
@@ -2447,7 +2536,10 @@ async function requireAnyRoleOrAdmin(
   req: any,
   res: any,
   roleNames: string[],
-): Promise<{ ok: true; userUuid: string; auth: AuthContext }> {
+): Promise<
+  { ok: true; userUuid: string; auth: AuthContext } |
+  { ok: false; userUuid: string; auth: AuthContext | null }
+> {
   const auth = getAuthContext(req);
   if (!auth) {
     res.status(401).json({ message: "Unauthorized" });
@@ -3916,6 +4008,10 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       console.log("[BIKES][STEP 3] Raw body", { bodyKeys: Object.keys(req.body || {}) });
       const bikeData = validateSchema(insertBikeSchema.omit({ userId: true }), req.body, req);
+      const bikeDataCompat = bikeData as typeof bikeData & {
+        total_distance?: number | null;
+        image_url?: string | null;
+      };
       console.log("[BIKES][STEP 4] Validated data", { bikeId: bikeData.bikeId, brand: bikeData.brand, model: bikeData.model });
 
       // No file upload in this route; log presence just in case
@@ -3930,8 +4026,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           brand: bikeData.brand,
           model: bikeData.model,
           year: bikeData.year,
-          total_distance: bikeData.totalDistance ?? bikeData.total_distance ?? 0,
-          image_url: bikeData.imageUrl ?? bikeData.image_url ?? null,
+          total_distance: bikeData.totalDistance ?? bikeDataCompat.total_distance ?? 0,
+          image_url: bikeData.imageUrl ?? bikeDataCompat.image_url ?? null,
         }],
       });
       if (!resp.ok) {
@@ -3946,7 +4042,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       console.log("[BIKES][STEP 7] Insert success", { id: created?.id, userId: userUuid });
       res.status(201).json(created);
     } catch (error) {
-      console.error("[BIKES][ERROR] create bike failed", { error: error?.message });
+      console.error("[BIKES][ERROR] create bike failed", { error: (error as any)?.message });
       const handled = handleRouteError(error, req, res);
       if (handled) return handled;
       const appErr = new AppError({
@@ -5077,8 +5173,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         total = applied.total;
         appliedDiscount = {
           code: normalizedDiscountCode,
-          discountType: discount?.discountType ?? discount?.discount_type ?? null,
-          discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+          discountType: discount?.discountType ?? null,
+          discountValue: discount?.discountValue ?? null,
           discountAmount,
           discountId: discount?.id ?? null,
           raw: discount,
@@ -5211,7 +5307,7 @@ export async function registerRoutes(app: Express): Promise<void> {
 
       let invoice;
       try {
-        invoice = await storage.createInvoice(invoiceData);
+        invoice = await storage.createInvoice(invoiceData as any);
       } catch (error) {
         const restPayload: Record<string, any> = {
           invoice_number: invoiceData.invoiceNumber,
@@ -5319,34 +5415,13 @@ export async function registerRoutes(app: Express): Promise<void> {
           { userId: orderUserId, orderId: serviceRequestId, technicianId, extraData: { orderNumber: updatedRequest?.order_number ?? null } },
           getRequestLang(req),
         );
-        const { resp: techResp, data: techData } = await pgFetch(
-          `/technicians?id=eq.${encodeURIComponent(technicianId)}&select=id,user_id`,
-        );
-        if (techResp.ok) {
-          const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
-          const techUserId = tech?.user_id ?? tech?.userId;
-          if (techUserId) {
-            const lang = getRequestLang(req);
-            const isArabic = lang === "ar";
-            const serviceLabel = sr?.service_type || sr?.serviceType || (isArabic ? "خدمة" : "service");
-            const locationLabel = sr?.location || (isArabic ? "موقع العميل" : "customer location");
-            await createNotification({
-              userId: techUserId,
-              role: "technician",
-              title: isArabic ? "طلب جديد" : "New request",
-              message: isArabic
-                ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
-                : `New ${serviceLabel} request at ${locationLabel}.`,
-              emoji: "🆕",
-              type: "technician_update",
-              entityType: "service_request",
-              entityId: serviceRequestId,
-              activityType: "technician_route",
-              activityId: serviceRequestId,
-              activityState: "assigned",
-            });
-          }
-        }
+        await triggerTechnicianOrderNotification({
+          technicianId,
+          orderId: serviceRequestId,
+          serviceType: sr?.service_type || sr?.serviceType || null,
+          location: sr?.location || null,
+          lang: getRequestLang(req),
+        });
       }
 
       res.status(201).json({ order, invoice, commissionRate, appCommissionAmount, technicianNetAmount });
@@ -5379,7 +5454,17 @@ export async function registerRoutes(app: Express): Promise<void> {
         return res.status(400).json({ message: "items are required" });
       }
 
-      const normalizedItems = items.map((item: any) => {
+      type CheckoutOrderItem = {
+        partId: any;
+        name: any;
+        quantity: number;
+        unitPrice: number;
+        total: number;
+        isFee?: boolean;
+        isDiscount?: boolean;
+        feeType?: string;
+      };
+      const normalizedItems: CheckoutOrderItem[] = items.map((item: any) => {
         const quantity = Number(item.quantity) || 1;
         const unitPrice = Number(item.unitPrice ?? item.unit_price ?? 0);
         const total = Number(item.total ?? unitPrice * quantity);
@@ -5424,7 +5509,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         ? Number((totalQuantity * installFeePerItem).toFixed(2))
         : 0;
 
-      const orderItems = [...normalizedItems];
+      const orderItems: CheckoutOrderItem[] = [...normalizedItems];
       if (deliveryFee > 0) {
         orderItems.push({
           partId: null,
@@ -5480,8 +5565,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         safeTotal = applied.total;
         appliedDiscount = {
           code: normalizedDiscountCode,
-          discountType: discount?.discountType ?? discount?.discount_type ?? null,
-          discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+          discountType: discount?.discountType ?? null,
+          discountValue: discount?.discountValue ?? null,
           discountAmount,
           discountId: discount?.id ?? null,
           raw: discount,
@@ -6141,7 +6226,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       const defaultCommissionRate = 25;
       const enriched = safeRequests.map((request: any) => {
         const invoice = request.id ? invoiceByRequestId.get(request.id) : null;
-        const order = null;
+        const order: any = null;
         const normalized = normalizeServiceRequestRow(request);
         const bikeId = normalized.bikeId ?? request.bike_id ?? request.bikeId;
         const bike = bikeId ? bikeById.get(bikeId) : null;
@@ -6723,7 +6808,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         requestData.status,
         createdAtIso,
       );
-      const route = normalizeRoute(body.route ?? body.route_data ?? body.route_json, requestData.location);
+      const route = normalizeRoute(body.route ?? body.route_data ?? body.route_json, requestData.location ?? undefined);
       const providedOrderNumber = typeof body.orderNumber === "string" ? body.orderNumber.trim() : "";
       const orderNumber = providedOrderNumber || buildOrderNumber();
 
@@ -6791,33 +6876,13 @@ export async function registerRoutes(app: Express): Promise<void> {
                 }, lang);
               }
             }
-            const { resp: techResp, data: techData } = await pgFetch(
-              `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
-            );
-            if (techResp.ok) {
-              const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
-              const techUserId = tech?.user_id ?? tech?.userId;
-              if (techUserId) {
-                const isArabic = lang === "ar";
-                const serviceLabel = requestData?.serviceType || (isArabic ? "خدمة" : "service");
-                const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
-                await createNotification({
-                  userId: techUserId,
-                  role: "technician",
-                  title: isArabic ? "طلب جديد" : "New request",
-                  message: isArabic
-                    ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
-                    : `New ${serviceLabel} request at ${locationLabel}.`,
-                  emoji: "🆕",
-                  type: "technician_update",
-                  entityType: "service_request",
-                  entityId: patched?.id ?? created?.id ?? null,
-                  activityType: "technician_route",
-                  activityId: patched?.id ?? created?.id ?? null,
-                  activityState: "assigned",
-                });
-              }
-            }
+            await triggerTechnicianOrderNotification({
+              technicianId: technicianIdForNotify,
+              orderId: patched?.id ?? created?.id ?? null,
+              serviceType: requestData?.serviceType || null,
+              location: requestData?.location || null,
+              lang,
+            });
           }
           res.status(201).json(patched || created);
           return;
@@ -6838,33 +6903,13 @@ export async function registerRoutes(app: Express): Promise<void> {
             technicianId: technicianIdForNotify,
           }, lang);
         }
-        const { resp: techResp, data: techData } = await pgFetch(
-          `/technicians?id=eq.${encodeURIComponent(technicianIdForNotify)}&select=id,user_id`,
-        );
-        if (techResp.ok) {
-          const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
-          const techUserId = tech?.user_id ?? tech?.userId;
-          if (techUserId) {
-            const isArabic = lang === "ar";
-            const serviceLabel = requestData?.serviceType || (isArabic ? "خدمة" : "service");
-            const locationLabel = requestData?.location || (isArabic ? "موقع العميل" : "customer location");
-            await createNotification({
-              userId: techUserId,
-              role: "technician",
-              title: isArabic ? "طلب جديد" : "New request",
-              message: isArabic
-                ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
-                : `New ${serviceLabel} request at ${locationLabel}.`,
-              emoji: "🆕",
-              type: "technician_update",
-              entityType: "service_request",
-              entityId: created?.id ?? null,
-              activityType: "technician_route",
-              activityId: created?.id ?? null,
-              activityState: "assigned",
-            });
-          }
-        }
+        await triggerTechnicianOrderNotification({
+          technicianId: technicianIdForNotify,
+          orderId: created?.id ?? null,
+          serviceType: requestData?.serviceType || null,
+          location: requestData?.location || null,
+          lang,
+        });
       }
       res.status(201).json(created);
     } catch (error) {
@@ -6948,7 +6993,9 @@ export async function registerRoutes(app: Express): Promise<void> {
         );
 
         if (nextStatus) {
-          const createdAt = existingRequest.createdAt ?? new Date().toISOString();
+          const createdAtRaw = existingRequest.createdAt ?? new Date().toISOString();
+          const createdAt =
+            createdAtRaw instanceof Date ? createdAtRaw.toISOString() : createdAtRaw ?? undefined;
           const trackingSteps = normalizeTrackingSteps(
             (existingRequest as any)?.trackingSteps ?? (existingRequest as any)?.tracking_steps,
             nextStatus,
@@ -6966,42 +7013,22 @@ export async function registerRoutes(app: Express): Promise<void> {
             console.log("[PAYMENT][GATE][ASSIGN_BLOCKED]", { orderId: req.params.id });
             return res.status(409).json({ message: "Payment required before assigning technician" });
           }
-          const { resp: techResp, data: techData } = await pgFetch(
-            `/technicians?id=eq.${encodeURIComponent(nextTechnicianId)}&select=id,user_id`,
-          );
-          if (techResp.ok) {
-            const tech = Array.isArray(techData) ? techData[0] : techData?.[0];
-            const techUserId = tech?.user_id ?? tech?.userId;
-            if (techUserId) {
-              const lang = getRequestLang(req);
-              const requestUserId = existingRequest.userId;
-              if (requestUserId) {
-                await triggerSystemNotification(
-                  "TECHNICIAN_ASSIGNED",
-                  { userId: requestUserId, orderId: req.params.id, technicianId: nextTechnicianId },
-                  lang,
-                );
-              }
-              const isArabic = lang === "ar";
-              const serviceLabel = existingRequest.serviceType || (isArabic ? "خدمة" : "service");
-              const locationLabel = existingRequest.location || (isArabic ? "موقع العميل" : "customer location");
-              await createNotification({
-                userId: techUserId,
-                role: "technician",
-                title: isArabic ? "طلب جديد" : "New request",
-                message: isArabic
-                  ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
-                  : `New ${serviceLabel} request at ${locationLabel}.`,
-                emoji: "🆕",
-                type: "technician_update",
-                entityType: "service_request",
-                entityId: req.params.id,
-                activityType: "technician_route",
-                activityId: req.params.id,
-                activityState: "assigned",
-              });
-            }
+          const lang = getRequestLang(req);
+          const requestUserId = existingRequest.userId;
+          if (requestUserId) {
+            await triggerSystemNotification(
+              "TECHNICIAN_ASSIGNED",
+              { userId: requestUserId, orderId: req.params.id, technicianId: nextTechnicianId },
+              lang,
+            );
           }
+          await triggerTechnicianOrderNotification({
+            technicianId: nextTechnicianId,
+            orderId: req.params.id,
+            serviceType: existingRequest.serviceType || null,
+            location: existingRequest.location || null,
+            lang,
+          });
         }
 
         if (nextStatus && nextStatus !== existingRequest.status && existingRequest.userId) {
@@ -8040,7 +8067,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
       const roleNames = userRoleIds
         .map((id) => roleById.get(id))
-        .filter((name): name is string => !!name);
+        .filter((name): name is Role["name"] => typeof name === "string");
       res.json({ isAdmin: auth.isAdmin === true, roles: roleNames });
     } catch (error) {
       console.error("[ROLES][ME] Error:", error);
@@ -8456,7 +8483,7 @@ export async function registerRoutes(app: Express): Promise<void> {
             const totalEarnings = invData.reduce((sum: number, inv: any) => sum + (Number(inv.total) || 0), 0);
             const lastDate = invData
               .map((inv: any) => inv.issued_date ? new Date(inv.issued_date) : null)
-              .filter(Boolean)
+              .filter((value: Date | null): value is Date => value instanceof Date && !Number.isNaN(value.getTime()))
               .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0] || null;
             return { total_invoices: invData.length, total_earnings: totalEarnings, last_invoice_date: lastDate };
           } catch {
@@ -9249,8 +9276,8 @@ export async function registerRoutes(app: Express): Promise<void> {
       res.json({
         valid: true,
         code: normalized,
-        discountType: discount?.discountType ?? discount?.discount_type ?? null,
-        discountValue: discount?.discountValue ?? discount?.discount_value ?? null,
+        discountType: discount?.discountType ?? null,
+        discountValue: discount?.discountValue ?? null,
         discountAmount,
         originalSubtotal: baseSubtotal,
         discountedSubtotal: applied.discountedSubtotal,

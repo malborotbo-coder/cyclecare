@@ -56,11 +56,14 @@ const extractBoolean = (value: unknown): boolean => {
 };
 
 const hasStoredCredentials = async (): Promise<boolean> => {
-  const result = await NativeBiometric.credentialsExist({
-    server: BIOMETRIC_SERVICE,
-    username: BIOMETRIC_ACCOUNT,
-  });
-  return extractBoolean(result);
+  try {
+    const result = await NativeBiometric.getCredentials({
+      server: BIOMETRIC_SERVICE,
+    } as any);
+    return Boolean((result as any)?.password);
+  } catch {
+    return false;
+  }
 };
 
 const readOptIn = async (): Promise<boolean> => {
@@ -171,7 +174,6 @@ export async function disableBiometricSession(): Promise<void> {
     if (exists) {
       await NativeBiometric.deleteCredentials({
         server: BIOMETRIC_SERVICE,
-        username: BIOMETRIC_ACCOUNT,
       });
       console.log("[Biometric] Credentials deleted");
     }
@@ -222,7 +224,6 @@ export async function restoreBiometricSession(): Promise<boolean> {
 
     const { password } = await NativeBiometric.getCredentials({
       server: BIOMETRIC_SERVICE,
-      username: BIOMETRIC_ACCOUNT,
     });
     if (!password) {
       console.warn("[Biometric] No password found in credentials");

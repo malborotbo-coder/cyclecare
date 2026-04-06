@@ -22,6 +22,13 @@ import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/useAuth";
 import workshopBg from "@assets/generated_images/bike_repair_workshop_background.png";
 
+type TechnicianCardCompat = Technician & {
+  is_available?: boolean | null;
+  is_active?: boolean | null;
+  review_count?: number | null;
+  status?: string | null;
+};
+
 interface ServiceCardProps {
   icon: React.ReactNode;
   title: string;
@@ -102,11 +109,11 @@ export default function HomePage() {
 
   // Skip API calls on iOS - just show mock data
   const shouldSkipAPI = !!nativeUser;
-  const { data: technicians } = useQuery<Technician[]>({
+  const { data: technicians } = useQuery<TechnicianCardCompat[]>({
     queryKey: ["/api/technicians"],
     enabled: !shouldSkipAPI,
   });
-  const safeTechnicians = Array.isArray(technicians) ? technicians : [];
+  const safeTechnicians: TechnicianCardCompat[] = Array.isArray(technicians) ? technicians : [];
   const visibleTechnicians = safeTechnicians.filter(
     (tech) => tech.is_available === true && tech.status === "approved" && tech.is_active === true,
   );

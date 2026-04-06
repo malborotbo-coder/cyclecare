@@ -18,7 +18,7 @@ if (!supabaseServiceKey) {
  * Disable Realtime (WebSocket) completely on the server
  * Render cannot reach Supabase Realtime over IPv6
  */
-const supabaseOptions = {
+const supabaseOptions: any = {
   auth: {
     autoRefreshToken: false,
     persistSession: false,

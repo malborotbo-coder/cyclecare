@@ -8,6 +8,7 @@ type SendApnsInput = {
   body: string;
   data?: Record<string, any>;
   env?: ApnsEnv;
+  priority?: 5 | 10;
 };
 
 type LiveActivityEvent = "update" | "end";
@@ -118,7 +119,8 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
 
   const notification = new apn.Notification();
   notification.topic = topic;
-  notification.pushType = "alert";
+  (notification as any).pushType = "alert";
+  notification.priority = input.priority ?? 10;
   notification.sound = "default";
   notification.expiry = Math.floor(Date.now() / 1000) + 3600;
   notification.alert = { title: input.title, body: input.body };
@@ -132,10 +134,10 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
   const response = await provider.send(notification, input.token);
   if (response.failed && response.failed.length > 0) {
     const failure = response.failed[0];
-    const status = typeof failure.status === "number"
-      ? failure.status
-      : typeof failure.response?.status === "number"
-      ? failure.response.status
+    const status = typeof (failure as any)?.status === "number"
+      ? (failure as any).status
+      : typeof (failure as any)?.response?.status === "number"
+      ? (failure as any).response.status
       : 500;
     const reason = failure.response?.reason || failure.error?.message || "apns_failed";
     console.log("[APNS][SEND][FAILED]", {
@@ -197,7 +199,7 @@ export const sendApnsLiveActivity = async (
 
   const notification = new apn.Notification();
   notification.topic = `${bundleId}.push-type.liveactivity`;
-  notification.pushType = "liveactivity";
+  (notification as any).pushType = "liveactivity";
   notification.priority = 10;
   notification.expiry = Math.floor(Date.now() / 1000) + 3600;
   notification.payload = {
@@ -215,10 +217,10 @@ export const sendApnsLiveActivity = async (
   const response = await provider.send(notification, input.token);
   if (response.failed && response.failed.length > 0) {
     const failure = response.failed[0];
-    const status = typeof failure.status === "number"
-      ? failure.status
-      : typeof failure.response?.status === "number"
-      ? failure.response.status
+    const status = typeof (failure as any)?.status === "number"
+      ? (failure as any).status
+      : typeof (failure as any)?.response?.status === "number"
+      ? (failure as any).response.status
       : 500;
     const reason = failure.response?.reason || failure.error?.message || "apns_failed";
     console.log("[APNS][LIVE_ACTIVITY][FAILED]", {

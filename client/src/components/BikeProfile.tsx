@@ -814,7 +814,7 @@ export default function BikeProfile() {
             <div className="relative">
               <div 
                 className="h-48 bg-cover bg-center rounded-t-md transition-opacity duration-500"
-                style={{ backgroundImage: `url(${firstBike.imageUrl || firstBike.image_url || bikeImage})`, transform: "translateZ(0)" }}
+                style={{ backgroundImage: `url(${firstBike.imageUrl || (firstBike as any).image_url || bikeImage})`, transform: "translateZ(0)" }}
               />
               
               {isUploadingPhoto && uploadProgress > 0 && (
@@ -1024,7 +1024,7 @@ export default function BikeProfile() {
             <div className="grid gap-6 sm:grid-cols-[220px,1fr] items-start">
               <BikeImagePicker
                 key={editPickerKey}
-                initialPreview={editingBike?.imageUrl || editingBike?.image_url || null}
+                initialPreview={editingBike?.imageUrl || (editingBike as any)?.image_url || null}
                 uploadLabel={t[language].uploadPhoto}
                 changeLabel={t[language].changePhoto}
                 removeLabel={language === "ar" ? "اضغط لاختيار صورة" : "Click to select image"}

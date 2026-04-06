@@ -1057,7 +1057,7 @@ export default function AdminDashboard() {
       .reduce((sum: number, invoice: any) => sum + (Number(invoice.total) || 0), 0);
     const totalRevenue = serviceRevenue + shopRevenue;
     const openTickets = safeSupportTickets.filter((ticket) =>
-      (ticket.status || "open") !== "closed" && withinRange(ticket.created_at ?? ticket.createdAt),
+      (ticket.status || "open") !== "closed" && withinRange(ticket.created_at ?? (ticket as any).createdAt),
     ).length;
 
     const serviceCounts = new Map<string, number>();
@@ -3113,7 +3113,7 @@ export default function AdminDashboard() {
                                           <div className="text-sm text-muted-foreground">{txt.supportReply}</div>
                                           {repliesToShow.length > 0 ? (
                                             <div className="space-y-2">
-                                              {repliesToShow.map((reply) => (
+                                              {repliesToShow.map((reply: any) => (
                                                 <div
                                                   key={reply.id}
                                                   className="rounded-md border border-border/60 bg-background/70 p-3 text-sm"
