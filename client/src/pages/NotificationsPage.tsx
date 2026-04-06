@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,7 +72,26 @@ export default function NotificationsPage() {
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
     enabled: canCallProtectedEndpoints,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (!canCallProtectedEndpoints) return;
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    };
+    refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [canCallProtectedEndpoints, notificationScope]);
 
   const unreadCount = useMemo(
     () => (Array.isArray(notifications) ? notifications.filter((n) => !n.readAt).length : 0),

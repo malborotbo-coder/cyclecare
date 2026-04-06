@@ -140,11 +140,17 @@ export const sendApns = async (input: SendApnsInput): Promise<SendApnsResult> =>
       ? (failure as any).response.status
       : 500;
     const reason = failure.response?.reason || failure.error?.message || "apns_failed";
+    const normalizedReason = String(reason || "").toLowerCase();
     console.log("[APNS][SEND][FAILED]", {
       status,
       reason,
       token: maskToken(input.token),
       env,
+      topic,
+      likelyEnvironmentMismatch:
+        normalizedReason.includes("baddevicetoken") || normalizedReason.includes("bad_device_token"),
+      likelyTopicMismatch:
+        normalizedReason.includes("not for topic") || normalizedReason.includes("topic"),
       failed: response.failed,
     });
     return {
@@ -223,11 +229,17 @@ export const sendApnsLiveActivity = async (
       ? (failure as any).response.status
       : 500;
     const reason = failure.response?.reason || failure.error?.message || "apns_failed";
+    const normalizedReason = String(reason || "").toLowerCase();
     console.log("[APNS][LIVE_ACTIVITY][FAILED]", {
       status,
       reason,
       token: maskToken(input.token),
       env,
+      topic: `${bundleId}.push-type.liveactivity`,
+      likelyEnvironmentMismatch:
+        normalizedReason.includes("baddevicetoken") || normalizedReason.includes("bad_device_token"),
+      likelyTopicMismatch:
+        normalizedReason.includes("not for topic") || normalizedReason.includes("topic"),
       failed: response.failed,
     });
     return {

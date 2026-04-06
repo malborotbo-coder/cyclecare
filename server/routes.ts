@@ -1120,6 +1120,46 @@ const normalizeApnsEnv = (value?: string | null) => {
   return null;
 };
 
+const maskPushToken = (value?: string | null) => {
+  const token = String(value || "").trim();
+  if (!token) return null;
+  if (token.length <= 12) return token;
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
+};
+
+const extractPushFailureReason = (body: any) => {
+  const reason =
+    body?.reason ??
+    body?.error?.message ??
+    body?.failed?.[0]?.response?.reason ??
+    body?.failed?.[0]?.error?.message ??
+    body?.results?.[0]?.error ??
+    body?.message ??
+    "";
+  return String(reason || "").trim();
+};
+
+const isApnsInvalidTokenReason = (reason: string) => {
+  const normalized = reason.toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes("baddevicetoken") ||
+    normalized.includes("unregistered") ||
+    normalized.includes("device token not for topic") ||
+    normalized.includes("topicdisallowed")
+  );
+};
+
+const isApnsEnvironmentHint = (reason: string) => {
+  const normalized = reason.toLowerCase();
+  return normalized.includes("baddevicetoken") || normalized.includes("bad_device_token");
+};
+
+const isApnsTopicHint = (reason: string) => {
+  const normalized = reason.toLowerCase();
+  return normalized.includes("not for topic") || normalized.includes("topic");
+};
+
 const sendApnsPush = async (
   token: string,
   payload: {
@@ -1193,7 +1233,9 @@ const resolveNotificationRole = (notification: any) => {
 };
 
 const deliverNotificationPush = async (notification: any) => {
-  if (!notification?.id || !notification?.userId) return { sent: 0, failed: 0 };
+  if (!notification?.id || !notification?.userId) {
+    return { sent: 0, failed: 0, noToken: true, attempted: 0 };
+  }
   const resolvedRole = resolveNotificationRole(notification);
   const roleFilter = resolvedRole
     ? resolvedRole === "customer"
@@ -1207,15 +1249,48 @@ const deliverNotificationPush = async (notification: any) => {
   );
   if (!resp.ok) {
     console.warn("[NOTIFICATIONS][PUSH][TOKENS_FAILED]", { status: resp.status, body: data });
-    return { sent: 0, failed: 0 };
+    return { sent: 0, failed: 0, noToken: true, attempted: 0 };
   }
-  const tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
-  if (tokens.length === 0) return { sent: 0, failed: 0 };
+  let tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
+  let fallbackAnyRoleLookup = false;
+  if (tokens.length === 0 && resolvedRole) {
+    const fallback = await pgFetch(
+      `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true`,
+    );
+    if (fallback.resp.ok) {
+      tokens = Array.isArray(fallback.data) ? fallback.data.map(normalizePushTokenRow) : [];
+      fallbackAnyRoleLookup = true;
+      console.log("[NOTIFICATIONS][PUSH][TOKENS][FALLBACK_ANY_ROLE]", {
+        notificationId: notification.id,
+        userId: notification.userId,
+        role: resolvedRole,
+        count: tokens.length,
+      });
+    } else {
+      console.warn("[NOTIFICATIONS][PUSH][TOKENS_FALLBACK_FAILED]", {
+        notificationId: notification.id,
+        userId: notification.userId,
+        role: resolvedRole,
+        status: fallback.resp.status,
+        body: fallback.data,
+      });
+    }
+  }
+  if (tokens.length === 0) {
+    console.log("[NOTIFICATIONS][PUSH][NO_TOKEN]", {
+      notificationId: notification.id,
+      userId: notification.userId,
+      role: resolvedRole,
+      roleFilter,
+    });
+    return { sent: 0, failed: 0, noToken: true, attempted: 0 };
+  }
   console.log("[NOTIFICATIONS][PUSH][TOKENS]", {
     notificationId: notification.id,
     userId: notification.userId,
     role: resolvedRole,
     count: tokens.length,
+    fallbackAnyRoleLookup,
     tokenIds: tokens.map((t) => t.id).filter(Boolean),
     tokenRoles: tokens.map((t) => t.role).filter(Boolean),
     deviceIds: tokens.map((t) => t.deviceId).filter(Boolean),
@@ -1224,6 +1299,7 @@ const deliverNotificationPush = async (notification: any) => {
   const payload = buildPushPayload(notification);
   let sent = 0;
   let failed = 0;
+  let attempted = 0;
 
   let allowNullCustomerRole: boolean | null = null;
   for (const tokenRow of tokens) {
@@ -1245,20 +1321,27 @@ const deliverNotificationPush = async (notification: any) => {
     }
     const tokenRole = normalizePushRole(tokenRow.role);
     if (resolvedRole && tokenRole && tokenRole !== resolvedRole) {
-      console.warn("[NOTIFICATIONS][PUSH][SKIP][ROLE_MISMATCH]", {
-        notificationId: notification.id,
-        tokenId: tokenRow.id,
-        tokenRole,
-        targetRole: resolvedRole,
-        deviceId: tokenRow.deviceId,
-      });
-      if (tokenRow.id) {
+      if ((resolvedRole === "technician" || fallbackAnyRoleLookup) && tokenRow.id) {
+        console.log("[NOTIFICATIONS][PUSH][ROLE_BACKFILL]", {
+          notificationId: notification.id,
+          tokenId: tokenRow.id,
+          fromRole: tokenRole,
+          toRole: resolvedRole,
+        });
         await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
           method: "PATCH",
-          body: { is_active: false, updated_at: new Date().toISOString() },
+          body: { role: resolvedRole, updated_at: new Date().toISOString() },
         }).catch(() => {});
+      } else {
+        console.warn("[NOTIFICATIONS][PUSH][SKIP][ROLE_MISMATCH]", {
+          notificationId: notification.id,
+          tokenId: tokenRow.id,
+          tokenRole,
+          targetRole: resolvedRole,
+          deviceId: tokenRow.deviceId,
+        });
+        continue;
       }
-      continue;
     }
     if (resolvedRole && !tokenRole && tokenRow.id) {
       if (resolvedRole === "customer") {
@@ -1276,10 +1359,6 @@ const deliverNotificationPush = async (notification: any) => {
             tokenId: tokenRow.id,
             deviceId: tokenRow.deviceId,
           });
-          await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
-            method: "PATCH",
-            body: { is_active: false, updated_at: new Date().toISOString() },
-          }).catch(() => {});
           continue;
         }
       }
@@ -1289,10 +1368,18 @@ const deliverNotificationPush = async (notification: any) => {
       }).catch(() => {});
     }
     const token = tokenRow.token;
-    if (!token) continue;
+    if (!token) {
+      console.warn("[NOTIFICATIONS][PUSH][SKIP][MISSING_TOKEN]", {
+        notificationId: notification.id,
+        tokenId: tokenRow.id,
+        userId: notification.userId,
+      });
+      continue;
+    }
     const platform = tokenRow.platform ?? null;
     const tokenType = tokenRow.tokenType ?? (platform === "ios" ? "apns" : "fcm");
     const tokenEnv = tokenType === "apns" ? normalizeApnsEnv(tokenRow.environment) : null;
+    attempted += 1;
     const response =
       tokenType === "apns"
         ? await sendApnsPush(token, payload, tokenEnv)
@@ -1309,6 +1396,22 @@ const deliverNotificationPush = async (notification: any) => {
       });
     } else {
       failed += 1;
+      const failureReason = extractPushFailureReason(response.body);
+      const apnsInvalid = tokenType === "apns" && isApnsInvalidTokenReason(failureReason);
+      console.warn("[NOTIFICATIONS][PUSH][FAILED]", {
+        notificationId: notification.id,
+        userId: notification.userId,
+        tokenId: tokenRow.id,
+        tokenType,
+        tokenEnv,
+        tokenPreview: maskPushToken(token),
+        reason: failureReason || null,
+        invalidToken: apnsInvalid,
+        likelyEnvironmentMismatch:
+          tokenType === "apns" ? isApnsEnvironmentHint(failureReason) : false,
+        likelyTopicMismatch: tokenType === "apns" ? isApnsTopicHint(failureReason) : false,
+        bundleId: tokenType === "apns" ? process.env.APNS_BUNDLE_ID || null : null,
+      });
       await logDeliveryAttempt({
         notificationId: notification.id,
         userId: notification.userId,
@@ -1317,16 +1420,39 @@ const deliverNotificationPush = async (notification: any) => {
         status: "failed",
         response: response.body,
       });
+      if (apnsInvalid && tokenRow.id) {
+        const { resp: deactivateResp, data: deactivateData } = await pgFetch(
+          `/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`,
+          {
+            method: "PATCH",
+            body: { is_active: false, updated_at: new Date().toISOString() },
+          },
+        );
+        console.warn("[NOTIFICATIONS][PUSH][TOKEN_DEACTIVATED]", {
+          notificationId: notification.id,
+          tokenId: tokenRow.id,
+          success: deactivateResp.ok,
+          status: deactivateResp.status,
+          body: deactivateResp.ok ? undefined : deactivateData,
+        });
+      }
     }
   }
 
-  return { sent, failed };
+  return { sent, failed, noToken: false, attempted };
 };
 
 const sendNotificationPush = async (notification: any) => {
-  if (!notification?.id) return { sent: 0, failed: 0 };
+  if (!notification?.id) return { sent: 0, failed: 0, noToken: true, attempted: 0 };
   const delivery = await deliverNotificationPush(notification);
-  const nextState = delivery.sent > 0 ? "sent" : "failed";
+  const nextState =
+    delivery.sent > 0
+      ? "delivered_in_app"
+      : delivery.noToken
+      ? "no_push_token"
+      : delivery.failed > 0
+      ? "push_failed"
+      : "created";
   await pgFetch(`/notifications?id=eq.${encodeURIComponent(notification.id)}`, {
     method: "PATCH",
     body: { state: nextState },
@@ -1335,6 +1461,8 @@ const sendNotificationPush = async (notification: any) => {
     id: notification.id,
     sent: delivery.sent,
     failed: delivery.failed,
+    noToken: delivery.noToken,
+    attempted: delivery.attempted,
     state: nextState,
   });
   return delivery;
@@ -1360,11 +1488,13 @@ const resolveNotificationScope = (value: unknown): NotificationScope => {
 const matchesNotificationScope = (notification: any, scope: NotificationScope) => {
   if (!scope) return true;
   const role = normalizePushRole(notification?.role);
+  const type = String(notification?.type || "").toLowerCase();
+  const activityType = String(notification?.activityType || "").toLowerCase();
   if (scope === "technician") {
-    return role === "technician";
+    return role === "technician" || type.includes("technician") || activityType === "technician_route";
   }
   // Customer scope excludes technician-only notifications.
-  return role !== "technician";
+  return role !== "technician" && !type.includes("technician") && activityType !== "technician_route";
 };
 
 const resolvePushRole = async (payload: {
@@ -1380,6 +1510,20 @@ const resolvePushRole = async (payload: {
     if (hasTechnicianRole) return "technician";
   } catch (error) {
     console.warn("[PUSH][ROLE] Failed to resolve roles:", error);
+  }
+  try {
+    const { resp, data } = await pgFetch(
+      `/technicians?user_id=eq.${encodeURIComponent(payload.userId)}&select=id,status,is_active&limit=1`,
+    );
+    if (resp.ok) {
+      const row = Array.isArray(data) ? data[0] : data?.[0];
+      const status = String(row?.status || "").toLowerCase();
+      if (row?.id && (status === "approved" || row?.is_active === true)) {
+        return "technician";
+      }
+    }
+  } catch (error) {
+    console.warn("[PUSH][ROLE] Failed to check technician profile:", error);
   }
   try {
     const { resp, data } = await pgFetch(
@@ -1477,7 +1621,20 @@ const registerDeviceToken = async (payload: {
     return null;
   }
   const row = Array.isArray(data) ? data[0] : data?.[0];
-  return row ? normalizePushTokenRow(row) : null;
+  const normalized = row ? normalizePushTokenRow(row) : null;
+  if (normalized) {
+    console.log("[PUSH][REGISTER][UPSERT]", {
+      userId: payload.userId,
+      rowId: normalized.id,
+      role: normalized.role ?? resolvedRole,
+      tokenType: payload.tokenType,
+      tokenPreview: maskPushToken(payload.token),
+      platform: payload.platform || null,
+      environment: payload.environment || null,
+      isActive: normalized.isActive ?? true,
+    });
+  }
+  return normalized;
 };
 
 const registerLiveActivityToken = async (payload: {
@@ -1756,6 +1913,36 @@ const triggerTechnicianOrderNotification = async (payload: {
     console.warn("[TECH][NOTIFICATIONS][TECH_USER_MISSING]", { technicianId, orderId });
     return null;
   }
+  let activePushTokens = 0;
+  try {
+    const { resp: tokenResp, data: tokenData } = await pgFetch(
+      `/push_tokens?user_id=eq.${encodeURIComponent(technicianUserId)}&is_active=eq.true`,
+    );
+    if (tokenResp.ok) {
+      activePushTokens = Array.isArray(tokenData) ? tokenData.length : 0;
+    } else {
+      console.warn("[TECH][NOTIFICATIONS][TOKEN_LOOKUP_FAILED]", {
+        technicianId,
+        technicianUserId,
+        orderId,
+        status: tokenResp.status,
+        body: tokenData,
+      });
+    }
+  } catch (error) {
+    console.warn("[TECH][NOTIFICATIONS][TOKEN_LOOKUP_ERROR]", {
+      technicianId,
+      technicianUserId,
+      orderId,
+      error: (error as any)?.message || String(error),
+    });
+  }
+  console.log("[TECH][NOTIFICATIONS][TARGET]", {
+    technicianId,
+    technicianUserId,
+    orderId,
+    activePushTokens,
+  });
 
   const isArabic = payload.lang === "ar";
   const serviceLabel = payload.serviceType || (isArabic ? "خدمة" : "service");
@@ -7402,6 +7589,16 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!tokenType) {
         return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
       }
+      console.log("[PUSH][REGISTER][REQUEST]", {
+        authUserId: resolved.auth.userId,
+        resolvedUserId: userUuid,
+        requestedRole: rawRole || null,
+        tokenType,
+        tokenPreview: maskPushToken(rawToken),
+        platform: rawPlatform || null,
+        deviceId: rawDeviceId || null,
+        environment: rawEnv || null,
+      });
 
       const role = await resolvePushRole({ userId: userUuid, auth: resolved.auth, requestedRole: rawRole });
       const row = await registerDeviceToken({

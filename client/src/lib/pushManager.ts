@@ -29,6 +29,8 @@ const debugPush =
   (import.meta.env.DEV || localStorage.getItem("debug_push") === "true");
 const maskToken = (value?: string | null) =>
   value ? `${value.slice(0, 8)}...${value.slice(-4)}` : null;
+const REGISTRATION_RETRY_DELAY_MS = 3500;
+const MAX_REGISTRATION_RETRIES = 3;
 
 let initialized = false;
 let listenersAttached = false;
@@ -45,6 +47,8 @@ let currentUserId: string | null = null;
 let currentRole: string | null = null;
 let roleUserId: string | null = null;
 let cachedAppVersion: string | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryCount = 0;
 
 type ForegroundHandler = (notification: PushNotificationSchema) => void;
 type TapHandler = (action: ActionPerformed) => void;
@@ -163,6 +167,15 @@ const sendRegisterRequest = async (payload: {
   appVersion?: string | null;
   role?: string | null;
 }) => {
+  console.log("[Push][Register][Request]", {
+    userId: currentUserId,
+    role: payload.role ?? null,
+    tokenType: payload.tokenType,
+    tokenPreview: maskToken(payload.token),
+    platform: payload.platform,
+    environment,
+    deviceId: payload.deviceId ?? null,
+  });
   const res = await fetchWithFirebaseAuth(buildApiUrl("/api/push/register"), {
     method: "POST",
     headers: {
@@ -186,6 +199,16 @@ const sendRegisterRequest = async (payload: {
 };
 
 const registerDeviceToken = async (token: string, userId: string, role?: string | null) => {
+  if (currentUserId && userId !== currentUserId) {
+    if (debugPush) {
+      console.log("[Push][Token] Skipped stale registration attempt", {
+        targetUserId: userId,
+        activeUserId: currentUserId,
+        tokenPreview: maskToken(token),
+      });
+    }
+    return;
+  }
   if (
     !token ||
     !userId ||
@@ -201,7 +224,14 @@ const registerDeviceToken = async (token: string, userId: string, role?: string 
       : await App.getInfo().catch(() => ({ version: null }));
     cachedAppVersion = info?.version || cachedAppVersion;
     const deviceId = await ensureDeviceId();
-    const resolvedRole = role || (await resolveRoleForRegistration());
+    const resolvedRole = role || currentRole || (await resolveRoleForRegistration());
+    console.log("[Push][Token] Register attempt", {
+      userId,
+      roleRequested: role ?? null,
+      roleResolved: resolvedRole ?? null,
+      tokenPreview: maskToken(token),
+      retryCount,
+    });
     await sendRegisterRequest({
       token,
       tokenType: getTokenType(),
@@ -217,10 +247,31 @@ const registerDeviceToken = async (token: string, userId: string, role?: string 
     await writeStoredValue(TOKEN_TYPE_STORAGE_KEY, getTokenType());
     await writeStoredValue(BACKEND_REGISTERED_KEY, "true");
     await clearPendingToken();
+    retryCount = 0;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     console.log("[Push][Token] Registered on backend.");
   } catch (error) {
     await writeStoredValue(BACKEND_REGISTERED_KEY, "");
     console.log("[Push][Token] Registration failed:", error);
+    if (registrationAllowed && currentUserId === userId && retryCount < MAX_REGISTRATION_RETRIES) {
+      retryCount += 1;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void registerDeviceToken(token, userId, currentRole);
+      }, REGISTRATION_RETRY_DELAY_MS);
+      if (debugPush) {
+        console.log("[Push][Token] Scheduled retry", {
+          retryCount,
+          delayMs: REGISTRATION_RETRY_DELAY_MS,
+          userId,
+          tokenPreview: maskToken(token),
+        });
+      }
+    }
   } finally {
     registerInFlight = false;
   }
@@ -410,6 +461,12 @@ export const syncPushRegistrationOnLogin = async (userId?: string | null) => {
   if (effectiveToken) {
     const role = await resolveRoleForRegistration();
     await registerDeviceToken(effectiveToken, currentUserId, role);
+    // Safe delayed retry to cover auth/role readiness races during startup.
+    setTimeout(() => {
+      if (!currentUserId || !registrationAllowed) return;
+      if (currentUserId !== userId) return;
+      void registerDeviceToken(effectiveToken, currentUserId, currentRole);
+    }, 1800);
   }
 };
 
