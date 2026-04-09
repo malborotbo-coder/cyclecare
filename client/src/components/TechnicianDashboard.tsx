@@ -221,7 +221,7 @@ function ServiceRequestCard(props: ServiceRequestCardProps) {
   const badgeVariant = isNewStatus ? "default" : status === "accepted" ? "secondary" : "outline";
 
   return (
-    <Card className={`border-r-4 ${borderClass}`}>
+    <Card className={`border-r-4 ${borderClass}`} data-request-id={id}>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -455,6 +455,7 @@ export default function TechnicianDashboard() {
   const pendingRequestIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedRequestsRef = useRef(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const handledDeepLinkRequestRef = useRef<string | null>(null);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
     <div className="relative min-h-screen bg-transparent pt-3">
       <div
@@ -567,6 +568,38 @@ export default function TechnicianDashboard() {
     () => effectiveRequests.filter((r) => r.status === 'completed'),
     [effectiveRequests],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const requestId = params.get("requestId");
+    if (!requestId || handledDeepLinkRequestRef.current === requestId) return;
+
+    const inNew = pendingRequests.some((request) => request.id === requestId);
+    const inProgress = inProgressRequests.some((request) => request.id === requestId);
+    const inDone = completedRequests.some((request) => request.id === requestId);
+    const targetTab: 'new' | 'progress' | 'done' | null = inNew
+      ? "new"
+      : inProgress
+      ? "progress"
+      : inDone
+      ? "done"
+      : null;
+
+    if (targetTab && activeTab !== targetTab) {
+      setActiveTab(targetTab);
+      return;
+    }
+
+    if (targetTab) {
+      const selectorId = requestId.replace(/"/g, '\\"');
+      const element = document.querySelector(`[data-request-id="${selectorId}"]`);
+      if (element instanceof HTMLElement) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      handledDeepLinkRequestRef.current = requestId;
+    }
+  }, [activeTab, pendingRequests, inProgressRequests, completedRequests]);
 
   const availabilityMutation = useMutation({
     mutationFn: async (next: boolean) => {

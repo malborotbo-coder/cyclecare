@@ -7,6 +7,10 @@ type NotificationData = {
   role?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  requestId?: string | null;
+  serviceType?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
   activityType?: string | null;
   activityId?: string | null;
   activityState?: string | null;
@@ -27,6 +31,10 @@ const refreshNotifications = () => {
 const resolveNotificationTarget = (data?: NotificationData | null) => {
   if (!data) return null;
   if (data.role === "technician" || data.type === "technician_update" || data.activityType === "technician_route") {
+    const requestId = data.requestId || data.activityId || data.entityId;
+    if (requestId) {
+      return `/technician?requestId=${encodeURIComponent(String(requestId))}`;
+    }
     return "/technician";
   }
   if (isOrderNotification(data)) {

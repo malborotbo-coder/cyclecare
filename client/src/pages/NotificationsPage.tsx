@@ -21,6 +21,8 @@ type NotificationItem = {
   role?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  activityId?: string | null;
+  requestId?: string | null;
   readAt?: string | null;
   createdAt?: string | null;
 };
@@ -133,7 +135,12 @@ export default function NotificationsPage() {
       const isTechnician =
         notification.role === "technician" ||
         notification.type === "technician_update";
-      const target = isTechnician ? "/technician" : "/orders";
+      const requestId = notification.requestId || notification.activityId || notification.entityId;
+      const target = isTechnician
+        ? requestId
+          ? `/technician?requestId=${encodeURIComponent(String(requestId))}`
+          : "/technician"
+        : "/orders";
       setLocation(target);
     }
   };

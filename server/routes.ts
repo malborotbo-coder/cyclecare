@@ -890,6 +890,14 @@ type PushUrgency = "normal" | "high";
 const buildPushPayload = (notification: any) => {
   const resolvedRole = normalizePushRole(notification.role) ?? notification.role ?? null;
   const type = String(notification.type || "").toLowerCase();
+  const meta =
+    notification?.liveActivityPayload && typeof notification.liveActivityPayload === "object"
+      ? notification.liveActivityPayload
+      : null;
+  const requestId = meta?.requestId ?? notification.activityId ?? notification.entityId ?? null;
+  const serviceType = meta?.serviceType ?? null;
+  const latitude = meta?.latitude ?? null;
+  const longitude = meta?.longitude ?? null;
   const isCriticalOrderUpdate =
     resolvedRole === "technician" ||
     type === "technician_update" ||
@@ -898,6 +906,10 @@ const buildPushPayload = (notification: any) => {
     notificationId: notification.id ?? null,
     type: notification.type ?? null,
     role: resolvedRole,
+    requestId,
+    serviceType,
+    latitude,
+    longitude,
     entityId: notification.entityId ?? null,
     activityType: notification.activityType ?? null,
     activityId: notification.activityId ?? null,
@@ -1907,6 +1919,8 @@ const triggerTechnicianOrderNotification = async (payload: {
   orderId?: string | null;
   serviceType?: string | null;
   location?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
   lang: Language;
 }) => {
   const technicianId = typeof payload.technicianId === "string" ? payload.technicianId.trim() : "";
@@ -1962,16 +1976,30 @@ const triggerTechnicianOrderNotification = async (payload: {
     activePushTokens,
   });
 
-  const isArabic = payload.lang === "ar";
-  const serviceLabel = payload.serviceType || (isArabic ? "خدمة" : "service");
-  const locationLabel = payload.location || (isArabic ? "موقع العميل" : "customer location");
+  const parseCoordinate = (value: unknown) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const latitude = parseCoordinate(payload.latitude);
+  const longitude = parseCoordinate(payload.longitude);
+  const messageVariants = [
+    "🚴‍♂️ في دراجة مستنية لمساتك الفنية! وافق الآن وزوّد دخلك 💰",
+    "🚴‍♂️ دراجة تحتاج خبرتك الآن… لا تفوّت الطلب",
+    "💰 فرصة جديدة لزيادة دخلك — اقبل الطلب الآن",
+    "⚡ طلب سريع قريب منك — كن أول من يقبله",
+  ];
+  const variantIndex = Math.floor(Math.random() * messageVariants.length);
+  const selectedMessage = messageVariants[variantIndex] || messageVariants[0];
+  console.log("[TECH][NOTIFICATIONS][MESSAGE_VARIANT]", {
+    orderId,
+    technicianId,
+    variantIndex,
+  });
   return createNotification({
     userId: technicianUserId,
     role: "technician",
-    title: isArabic ? "طلب جديد" : "New request",
-    message: isArabic
-      ? `طلب جديد للخدمة (${serviceLabel}) في ${locationLabel}.`
-      : `New ${serviceLabel} request at ${locationLabel}.`,
+    title: "📍 طلب جديد قريب منك",
+    message: selectedMessage,
     emoji: "🆕",
     type: "technician_update",
     entityType: "service_request",
@@ -1979,6 +2007,12 @@ const triggerTechnicianOrderNotification = async (payload: {
     activityType: "technician_route",
     activityId: orderId,
     activityState: "assigned",
+    liveActivityPayload: {
+      requestId: orderId,
+      serviceType: payload.serviceType || null,
+      latitude,
+      longitude,
+    },
   });
 };
 
@@ -5660,6 +5694,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           orderId: serviceRequestId,
           serviceType: sr?.service_type || sr?.serviceType || null,
           location: sr?.location || null,
+          latitude: sr?.latitude ?? null,
+          longitude: sr?.longitude ?? null,
           lang: getRequestLang(req),
         });
       }
@@ -7121,6 +7157,8 @@ export async function registerRoutes(app: Express): Promise<void> {
               orderId: patched?.id ?? created?.id ?? null,
               serviceType: requestData?.serviceType || null,
               location: requestData?.location || null,
+              latitude: requestData?.latitude ?? null,
+              longitude: requestData?.longitude ?? null,
               lang,
             });
           }
@@ -7148,6 +7186,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           orderId: created?.id ?? null,
           serviceType: requestData?.serviceType || null,
           location: requestData?.location || null,
+          latitude: requestData?.latitude ?? null,
+          longitude: requestData?.longitude ?? null,
           lang,
         });
       }
@@ -7267,6 +7307,8 @@ export async function registerRoutes(app: Express): Promise<void> {
             orderId: req.params.id,
             serviceType: existingRequest.serviceType || null,
             location: existingRequest.location || null,
+            latitude: (existingRequest as any)?.latitude ?? null,
+            longitude: (existingRequest as any)?.longitude ?? null,
             lang,
           });
         }
