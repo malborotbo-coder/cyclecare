@@ -23,7 +23,18 @@ const BACKEND_REGISTERED_KEY = "push_backend_registered";
 
 const isNative = Capacitor.isNativePlatform();
 const platform = Capacitor.getPlatform();
-const environment = import.meta.env.PROD ? "production" : "development";
+const normalizeApnsEnvironment = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "production") return "production";
+  if (raw === "development" || raw === "sandbox") return "development";
+  return null;
+};
+const environmentOverride = normalizeApnsEnvironment(
+  import.meta.env.VITE_APNS_ENV ?? import.meta.env.VITE_PUSH_ENV ?? null,
+);
+const environment = environmentOverride ?? (import.meta.env.PROD ? "production" : "development");
+const environmentSource = environmentOverride ? "vite_override" : "build_mode";
 const debugPush =
   typeof window !== "undefined" &&
   (import.meta.env.DEV || localStorage.getItem("debug_push") === "true");
@@ -174,6 +185,7 @@ const sendRegisterRequest = async (payload: {
     tokenPreview: maskToken(payload.token),
     platform: payload.platform,
     environment,
+    environmentSource,
     deviceId: payload.deviceId ?? null,
   });
   const res = await fetchWithFirebaseAuth(buildApiUrl("/api/push/register"), {
@@ -409,6 +421,7 @@ export const initializePushManagerOnce = async () => {
   console.info("[Push] Init start", {
     platform,
     environment,
+    environmentSource,
     debugPush,
     provider: "capacitor_push_notifications_apns_fcm",
   });

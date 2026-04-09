@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench, AlertTriangle } from "lucide-react";
+import { MapPin, Clock, Phone, CheckCircle, XCircle, Home, Wrench, AlertTriangle, Camera, Loader2, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -22,6 +22,11 @@ type TechnicianOrder = ServiceRequest & {
   technicianNetAmount?: number | string | null;
   commissionRate?: number | string | null;
   bike?: Bike | null;
+};
+
+type TechnicianProfileData = {
+  profileImageUrl?: string | null;
+  avatarUrl?: string | null;
 };
 
 interface ServiceRequestCardProps extends ServiceRequest {
@@ -444,10 +449,12 @@ export default function TechnicianDashboard() {
   // Keep the active tab stable after mutations; previously defaultValue reset the view on rerender.
   const [activeTab, setActiveTab] = useState<'new' | 'progress' | 'done'>('new');
   const [optimisticStatuses, setOptimisticStatuses] = useState<Record<string, string>>({});
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const isNative = Capacitor.isNativePlatform();
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingRequestIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedRequestsRef = useRef(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const PageBackground = ({ children }: { children: React.ReactNode }) => (
     <div className="relative min-h-screen bg-transparent pt-3">
       <div
@@ -520,6 +527,12 @@ export default function TechnicianDashboard() {
   const isActive = (technician as any)?.is_active ?? (technician as any)?.isActive;
   const currentOnline = (technician as any)?.is_available ?? false;
   const isApprovedStatus = approvalStatus === "approved";
+  const { data: technicianProfile } = useQuery<TechnicianProfileData>({
+    queryKey: ["/api/user/profile"],
+    queryFn: () => apiRequest("/api/user/profile", "GET"),
+    enabled: Boolean(technician),
+    staleTime: 60_000,
+  });
 
   const { data: requests = [], isLoading: reqLoading } = useQuery<TechnicianOrder[]>({
     queryKey: ['/api/technician/orders'],
@@ -781,6 +794,53 @@ export default function TechnicianDashboard() {
     completeMutation.mutate({ id, file });
   };
 
+  const handleProfilePhotoSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: lang === "ar" ? "ملف غير صالح" : "Invalid file",
+        description: lang === "ar" ? "يرجى اختيار صورة فقط." : "Please choose an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast({
+        title: lang === "ar" ? "الصورة كبيرة" : "Image too large",
+        description: lang === "ar" ? "الحد الأقصى 5MB." : "Maximum size is 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("photo", file);
+      await apiRequest("/api/user/profile/avatar", "POST", form);
+      queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/technicians/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/technicians"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => (query.queryKey as any[])[0] === "/api/technicians/nearby",
+      });
+      toast({
+        title: lang === "ar" ? "تم تحديث الصورة" : "Profile image updated",
+      });
+    } catch (error: any) {
+      toast({
+        title: lang === "ar" ? "تعذر رفع الصورة" : "Upload failed",
+        description:
+          error?.message || (lang === "ar" ? "حاول مرة أخرى لاحقاً." : "Please try again later."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   if (techLoading) {
     return (
       <PageBackground>
@@ -866,11 +926,69 @@ export default function TechnicianDashboard() {
     rejectMutation.isPending ||
     statusMutation.isPending ||
     completeMutation.isPending;
+  const technicianUser = (technician as any)?.user;
+  const technicianImageUrl =
+    technicianProfile?.avatarUrl ??
+    technicianProfile?.profileImageUrl ??
+    technicianUser?.avatar_url ??
+    technicianUser?.profile_image_url ??
+    (technician as any)?.avatar_url ??
+    (technician as any)?.profile_image_url ??
+    null;
 
   return (
     <PageBackground>
       <main className="p-4">
         <div className="max-w-5xl mx-auto space-y-4">
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleProfilePhotoSelect}
+            disabled={isUploadingPhoto}
+          />
+          <Card className="border border-white/40 bg-white/85 backdrop-blur-md dark:border-white/15 dark:bg-black/20">
+            <CardContent className="p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-16 w-16 overflow-hidden rounded-2xl border border-primary/20 bg-primary/10 flex items-center justify-center">
+                  {technicianImageUrl ? (
+                    <img src={technicianImageUrl} alt={lang === "ar" ? "صورة الفني" : "Technician profile"} className="h-full w-full object-cover" />
+                  ) : (
+                    <User className="h-7 w-7 text-primary" />
+                  )}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold">
+                    {lang === "ar" ? "الصورة الشخصية للفني" : "Technician profile image"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {lang === "ar" ? "تظهر هذه الصورة في بطاقات الفني للعملاء." : "This image appears in customer technician cards."}
+                  </div>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+              >
+                {isUploadingPhoto ? (
+                  <>
+                    <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                    {lang === "ar" ? "جارٍ الرفع..." : "Uploading..."}
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-4 h-4 ml-2" />
+                    {technicianImageUrl
+                      ? lang === "ar" ? "تغيير الصورة" : "Change image"
+                      : lang === "ar" ? "رفع صورة" : "Upload image"}
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
           <div className="flex flex-col gap-3 bg-muted/60 border rounded-xl px-4 py-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? "bg-emerald-500" : "bg-muted-foreground"}`} />

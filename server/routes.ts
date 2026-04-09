@@ -734,6 +734,8 @@ const normalizeOrderRow = (row: any) => {
   return {
     id: row.id,
     userId: row.user_id ?? row.userId ?? null,
+    serviceRequestId: row.service_request_id ?? row.serviceRequestId ?? null,
+    technicianId: row.technician_id ?? row.technicianId ?? null,
     orderNumber: row.order_number ?? row.orderNumber ?? buildReferenceFromId("ORD", row.id, createdAt),
     subtotal: row.subtotal,
     taxRate: row.tax_rate ?? row.taxRate,
@@ -1120,6 +1122,12 @@ const normalizeApnsEnv = (value?: string | null) => {
   return null;
 };
 
+const toggleApnsEnv = (value?: "development" | "production" | null) => {
+  if (value === "production") return "development" as const;
+  if (value === "development") return "production" as const;
+  return null;
+};
+
 const maskPushToken = (value?: string | null) => {
   const token = String(value || "").trim();
   if (!token) return null;
@@ -1241,7 +1249,7 @@ const deliverNotificationPush = async (notification: any) => {
     ? resolvedRole === "customer"
       ? `&or=(role.eq.${encodeURIComponent(resolvedRole)},role.is.null)`
       : resolvedRole === "technician"
-      ? "&or=(role.eq.technician,role.is.null)"
+      ? "&role=eq.technician"
       : `&role=eq.${encodeURIComponent(resolvedRole)}`
     : "";
   const { resp, data } = await pgFetch(
@@ -1251,31 +1259,7 @@ const deliverNotificationPush = async (notification: any) => {
     console.warn("[NOTIFICATIONS][PUSH][TOKENS_FAILED]", { status: resp.status, body: data });
     return { sent: 0, failed: 0, noToken: true, attempted: 0 };
   }
-  let tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
-  let fallbackAnyRoleLookup = false;
-  if (tokens.length === 0 && resolvedRole) {
-    const fallback = await pgFetch(
-      `/push_tokens?user_id=eq.${encodeURIComponent(notification.userId)}&is_active=eq.true`,
-    );
-    if (fallback.resp.ok) {
-      tokens = Array.isArray(fallback.data) ? fallback.data.map(normalizePushTokenRow) : [];
-      fallbackAnyRoleLookup = true;
-      console.log("[NOTIFICATIONS][PUSH][TOKENS][FALLBACK_ANY_ROLE]", {
-        notificationId: notification.id,
-        userId: notification.userId,
-        role: resolvedRole,
-        count: tokens.length,
-      });
-    } else {
-      console.warn("[NOTIFICATIONS][PUSH][TOKENS_FALLBACK_FAILED]", {
-        notificationId: notification.id,
-        userId: notification.userId,
-        role: resolvedRole,
-        status: fallback.resp.status,
-        body: fallback.data,
-      });
-    }
-  }
+  const tokens = Array.isArray(data) ? data.map(normalizePushTokenRow) : [];
   if (tokens.length === 0) {
     console.log("[NOTIFICATIONS][PUSH][NO_TOKEN]", {
       notificationId: notification.id,
@@ -1290,7 +1274,6 @@ const deliverNotificationPush = async (notification: any) => {
     userId: notification.userId,
     role: resolvedRole,
     count: tokens.length,
-    fallbackAnyRoleLookup,
     tokenIds: tokens.map((t) => t.id).filter(Boolean),
     tokenRoles: tokens.map((t) => t.role).filter(Boolean),
     deviceIds: tokens.map((t) => t.deviceId).filter(Boolean),
@@ -1301,7 +1284,6 @@ const deliverNotificationPush = async (notification: any) => {
   let failed = 0;
   let attempted = 0;
 
-  let allowNullCustomerRole: boolean | null = null;
   for (const tokenRow of tokens) {
     if (tokenRow.userId && tokenRow.userId !== notification.userId) {
       console.warn("[NOTIFICATIONS][PUSH][SKIP][USER_MISMATCH]", {
@@ -1321,51 +1303,23 @@ const deliverNotificationPush = async (notification: any) => {
     }
     const tokenRole = normalizePushRole(tokenRow.role);
     if (resolvedRole && tokenRole && tokenRole !== resolvedRole) {
-      if ((resolvedRole === "technician" || fallbackAnyRoleLookup) && tokenRow.id) {
-        console.log("[NOTIFICATIONS][PUSH][ROLE_BACKFILL]", {
-          notificationId: notification.id,
-          tokenId: tokenRow.id,
-          fromRole: tokenRole,
-          toRole: resolvedRole,
-        });
-        await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
-          method: "PATCH",
-          body: { role: resolvedRole, updated_at: new Date().toISOString() },
-        }).catch(() => {});
-      } else {
-        console.warn("[NOTIFICATIONS][PUSH][SKIP][ROLE_MISMATCH]", {
-          notificationId: notification.id,
-          tokenId: tokenRow.id,
-          tokenRole,
-          targetRole: resolvedRole,
-          deviceId: tokenRow.deviceId,
-        });
-        continue;
-      }
+      console.warn("[NOTIFICATIONS][PUSH][SKIP][ROLE_MISMATCH]", {
+        notificationId: notification.id,
+        tokenId: tokenRow.id,
+        tokenRole,
+        targetRole: resolvedRole,
+        deviceId: tokenRow.deviceId,
+      });
+      continue;
     }
-    if (resolvedRole && !tokenRole && tokenRow.id) {
-      if (resolvedRole === "customer") {
-        if (allowNullCustomerRole === null) {
-          try {
-            allowNullCustomerRole = !(await userHasRole(notification.userId, "technician"));
-          } catch (error) {
-            console.warn("[NOTIFICATIONS][PUSH][ROLE_CHECK_FAILED]", error);
-            allowNullCustomerRole = true;
-          }
-        }
-        if (!allowNullCustomerRole) {
-          console.warn("[NOTIFICATIONS][PUSH][SKIP][LEGACY_ROLE_NULL]", {
-            notificationId: notification.id,
-            tokenId: tokenRow.id,
-            deviceId: tokenRow.deviceId,
-          });
-          continue;
-        }
-      }
-      await pgFetch(`/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`, {
-        method: "PATCH",
-        body: { role: resolvedRole, updated_at: new Date().toISOString() },
-      }).catch(() => {});
+    if (resolvedRole && !tokenRole && resolvedRole !== "customer") {
+      console.warn("[NOTIFICATIONS][PUSH][SKIP][LEGACY_ROLE_NULL]", {
+        notificationId: notification.id,
+        tokenId: tokenRow.id,
+        targetRole: resolvedRole,
+        deviceId: tokenRow.deviceId,
+      });
+      continue;
     }
     const token = tokenRow.token;
     if (!token) {
@@ -1379,11 +1333,54 @@ const deliverNotificationPush = async (notification: any) => {
     const platform = tokenRow.platform ?? null;
     const tokenType = tokenRow.tokenType ?? (platform === "ios" ? "apns" : "fcm");
     const tokenEnv = tokenType === "apns" ? normalizeApnsEnv(tokenRow.environment) : null;
+    let apnsEnvUsed = tokenEnv;
     attempted += 1;
-    const response =
+    let response =
       tokenType === "apns"
         ? await sendApnsPush(token, payload, tokenEnv)
         : await sendFcmPush(token, payload);
+    if (!response.ok && tokenType === "apns") {
+      const firstFailureReason = extractPushFailureReason(response.body);
+      const likelyEnvironmentMismatch = isApnsEnvironmentHint(firstFailureReason);
+      const alternateEnv = likelyEnvironmentMismatch ? toggleApnsEnv(tokenEnv) : null;
+      if (alternateEnv) {
+        console.warn("[NOTIFICATIONS][PUSH][APNS_ENV_RETRY]", {
+          notificationId: notification.id,
+          userId: notification.userId,
+          tokenId: tokenRow.id,
+          tokenPreview: maskPushToken(token),
+          tokenEnv,
+          retryEnv: alternateEnv,
+          reason: firstFailureReason || null,
+        });
+        const retryResponse = await sendApnsPush(token, payload, alternateEnv);
+        apnsEnvUsed = alternateEnv;
+        response = retryResponse;
+        if (retryResponse.ok && tokenRow.id) {
+          const { resp: patchResp, data: patchData } = await pgFetch(
+            `/push_tokens?id=eq.${encodeURIComponent(tokenRow.id)}`,
+            {
+              method: "PATCH",
+              body: {
+                environment: alternateEnv,
+                is_active: true,
+                last_seen_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+              headers: { Prefer: "return=representation" },
+            },
+          );
+          console.log("[NOTIFICATIONS][PUSH][APNS_ENV_UPDATED]", {
+            notificationId: notification.id,
+            tokenId: tokenRow.id,
+            env: alternateEnv,
+            success: patchResp.ok,
+            status: patchResp.status,
+            body: patchResp.ok ? undefined : patchData,
+          });
+        }
+      }
+    }
     if (response.ok) {
       sent += 1;
       await logDeliveryAttempt({
@@ -1392,7 +1389,7 @@ const deliverNotificationPush = async (notification: any) => {
         token,
         platform,
         status: "sent",
-        response: response.body,
+        response: tokenType === "apns" ? { ...(response.body || {}), env: apnsEnvUsed } : response.body,
       });
     } else {
       failed += 1;
@@ -1404,6 +1401,7 @@ const deliverNotificationPush = async (notification: any) => {
         tokenId: tokenRow.id,
         tokenType,
         tokenEnv,
+        apnsEnvUsed,
         tokenPreview: maskPushToken(token),
         reason: failureReason || null,
         invalidToken: apnsInvalid,
@@ -1418,7 +1416,7 @@ const deliverNotificationPush = async (notification: any) => {
         token,
         platform,
         status: "failed",
-        response: response.body,
+        response: tokenType === "apns" ? { ...(response.body || {}), env: apnsEnvUsed } : response.body,
       });
       if (apnsInvalid && tokenRow.id) {
         const { resp: deactivateResp, data: deactivateData } = await pgFetch(
@@ -1502,41 +1500,59 @@ const resolvePushRole = async (payload: {
   auth?: AuthContext | null;
   requestedRole?: string | null;
 }) => {
-  const normalized = normalizePushRole(payload.requestedRole);
-  if (normalized) return normalized;
-  if (payload.auth?.isAdmin) return "admin";
+  const requestedRole = normalizePushRole(payload.requestedRole);
+  if (payload.auth?.isAdmin) {
+    return "admin";
+  }
+
+  let derivedRole: "technician" | "customer" = "customer";
   try {
     const hasTechnicianRole = await userHasRole(payload.userId, "technician");
-    if (hasTechnicianRole) return "technician";
+    if (hasTechnicianRole) {
+      derivedRole = "technician";
+    }
   } catch (error) {
     console.warn("[PUSH][ROLE] Failed to resolve roles:", error);
   }
-  try {
-    const { resp, data } = await pgFetch(
-      `/technicians?user_id=eq.${encodeURIComponent(payload.userId)}&select=id,status,is_active&limit=1`,
-    );
-    if (resp.ok) {
-      const row = Array.isArray(data) ? data[0] : data?.[0];
-      const status = String(row?.status || "").toLowerCase();
-      if (row?.id && (status === "approved" || row?.is_active === true)) {
-        return "technician";
+  if (derivedRole !== "technician") {
+    try {
+      const { resp, data } = await pgFetch(
+        `/technicians?user_id=eq.${encodeURIComponent(payload.userId)}&select=id,status,is_active&limit=1`,
+      );
+      if (resp.ok) {
+        const row = Array.isArray(data) ? data[0] : data?.[0];
+        const status = String(row?.status || "").toLowerCase();
+        if (row?.id && (status === "approved" || row?.is_active === true)) {
+          derivedRole = "technician";
+        }
       }
+    } catch (error) {
+      console.warn("[PUSH][ROLE] Failed to check technician profile:", error);
     }
-  } catch (error) {
-    console.warn("[PUSH][ROLE] Failed to check technician profile:", error);
   }
-  try {
-    const { resp, data } = await pgFetch(
-      `/users?id=eq.${encodeURIComponent(payload.userId)}&select=is_technician`,
-    );
-    if (resp.ok) {
-      const row = Array.isArray(data) ? data[0] : data?.[0];
-      if (row?.is_technician === true) return "technician";
+  if (derivedRole !== "technician") {
+    try {
+      const { resp, data } = await pgFetch(
+        `/users?id=eq.${encodeURIComponent(payload.userId)}&select=is_technician`,
+      );
+      if (resp.ok) {
+        const row = Array.isArray(data) ? data[0] : data?.[0];
+        if (row?.is_technician === true) {
+          derivedRole = "technician";
+        }
+      }
+    } catch (error) {
+      console.warn("[PUSH][ROLE] Failed to check user flag:", error);
     }
-  } catch (error) {
-    console.warn("[PUSH][ROLE] Failed to check user flag:", error);
   }
-  return "customer";
+  if (requestedRole && requestedRole !== derivedRole) {
+    console.log("[PUSH][ROLE][OVERRIDE]", {
+      userId: payload.userId,
+      requestedRole,
+      resolvedRole: derivedRole,
+    });
+  }
+  return derivedRole;
 };
 
 const buildPushTokenFilter = (payload: {
@@ -1570,6 +1586,8 @@ const registerDeviceToken = async (payload: {
 }) => {
   const now = new Date().toISOString();
   const resolvedRole = normalizePushRole(payload.role) ?? payload.role ?? null;
+  const normalizedEnvironment =
+    payload.tokenType === "apns" ? normalizeApnsEnv(payload.environment) : null;
   const tokenFilter = buildPushTokenFilter({
     token: payload.token,
     tokenType: payload.tokenType,
@@ -1608,7 +1626,7 @@ const registerDeviceToken = async (payload: {
         platform: payload.platform || null,
         device_id: payload.deviceId || null,
         app_version: payload.appVersion || null,
-        environment: payload.environment || null,
+        environment: normalizedEnvironment,
         last_seen_at: now,
         updated_at: now,
         is_active: true,
@@ -1630,7 +1648,7 @@ const registerDeviceToken = async (payload: {
       tokenType: payload.tokenType,
       tokenPreview: maskPushToken(payload.token),
       platform: payload.platform || null,
-      environment: payload.environment || null,
+      environment: normalizedEnvironment,
       isActive: normalized.isActive ?? true,
     });
   }
@@ -1916,7 +1934,7 @@ const triggerTechnicianOrderNotification = async (payload: {
   let activePushTokens = 0;
   try {
     const { resp: tokenResp, data: tokenData } = await pgFetch(
-      `/push_tokens?user_id=eq.${encodeURIComponent(technicianUserId)}&is_active=eq.true`,
+      `/push_tokens?user_id=eq.${encodeURIComponent(technicianUserId)}&is_active=eq.true&role=eq.technician`,
     );
     if (tokenResp.ok) {
       activePushTokens = Array.isArray(tokenData) ? tokenData.length : 0;
@@ -4517,12 +4535,27 @@ export async function registerRoutes(app: Express): Promise<void> {
   // Technician routes
   app.get("/api/technicians", async (req, res) => {
     try {
-      const { resp, data } = await pgFetch("/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&order=created_at.desc");
+      const { resp, data } = await pgFetch(
+        "/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&order=created_at.desc&select=*,user:users(first_name,last_name,profile_image_url,avatar_url)",
+      );
       if (!resp.ok) {
         console.log("[TECH][LIST][FAILED]", { status: resp.status, body: data });
         return res.json([]);
       }
-      res.json(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      const normalized = rows.map((row: any) => {
+        const user = row?.user;
+        const nameFromUser = user
+          ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+          : "";
+        return {
+          ...row,
+          name: row?.name || row?.full_name || nameFromUser || null,
+          profileImageUrl: row?.profile_image_url ?? user?.profile_image_url ?? user?.avatar_url ?? null,
+          avatarUrl: row?.avatar_url ?? user?.avatar_url ?? user?.profile_image_url ?? null,
+        };
+      });
+      res.json(normalized);
     } catch (error) {
       console.error("Error fetching technicians:", error);
       res.status(500).json({ message: "Failed to fetch technicians" });
@@ -4846,7 +4879,9 @@ export async function registerRoutes(app: Express): Promise<void> {
       const auth = getAuthContext(req);
       if (!auth) return res.status(401).json({ message: "Unauthorized" });
       const userUuid = await ensureUserUuid(auth);
-      let { resp, data } = await pgFetch(`/technicians?user_id=eq.${encodeURIComponent(userUuid)}`);
+      let { resp, data } = await pgFetch(
+        `/technicians?user_id=eq.${encodeURIComponent(userUuid)}&select=*,user:users(first_name,last_name,profile_image_url,avatar_url)`,
+      );
       if (!resp.ok) {
         console.log("[TECH][ME][FAILED]", { status: resp.status, body: data });
         return res.json(null);
@@ -4858,7 +4893,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         if (guestToken) {
           const guestUserId = await ensureGuestUserId(guestToken);
           const { resp: guestResp, data: guestData } = await pgFetch(
-            `/technicians?user_id=eq.${encodeURIComponent(guestUserId)}&limit=1`,
+            `/technicians?user_id=eq.${encodeURIComponent(guestUserId)}&limit=1&select=*,user:users(first_name,last_name,profile_image_url,avatar_url)`,
           );
           if (guestResp.ok) {
             const guestTechnician = Array.isArray(guestData) ? guestData[0] : guestData?.[0];
@@ -5137,7 +5172,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       }
 
       const techFilter =
-        "/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name)";
+        "/technicians?status=eq.approved&is_active=eq.true&is_available=eq.true&select=*,user:users(first_name,last_name,profile_image_url,avatar_url)";
       console.info("[TECH][NEARBY][QUERY]", { filter: techFilter, lat, lng });
       const { resp: techResp, data: techData } = await pgFetch(techFilter);
       if (!techResp.ok) {
@@ -5153,6 +5188,8 @@ export async function registerRoutes(app: Express): Promise<void> {
             id: "mock-tech-1",
             name: "فني تجريبي",
             photo_url: "/assets/mock-tech.png",
+            profileImageUrl: "/assets/mock-tech.png",
+            avatarUrl: "/assets/mock-tech.png",
             rating: 4.8,
             reviewCount: 120,
             is_available: true,
@@ -5209,6 +5246,18 @@ export async function registerRoutes(app: Express): Promise<void> {
             ? [user.first_name, user.last_name].filter(Boolean).join(" ")
             : "";
           const resolvedName = tech.name || tech.full_name || nameFromUser || null;
+          const profileImageUrl =
+            tech.profile_image_url ??
+            tech.profileImageUrl ??
+            user?.profile_image_url ??
+            user?.avatar_url ??
+            null;
+          const avatarUrl =
+            tech.avatar_url ??
+            tech.avatarUrl ??
+            user?.avatar_url ??
+            user?.profile_image_url ??
+            null;
           const distanceKm = haversineKm(lat, lng, Number(loc.latitude), Number(loc.longitude));
           const etaMinutes = Math.round((distanceKm / 30) * 60); // assume 30km/h
           const pricePreview = computePricing({
@@ -5219,6 +5268,8 @@ export async function registerRoutes(app: Express): Promise<void> {
           return {
             ...tech,
             name: resolvedName,
+            profileImageUrl,
+            avatarUrl,
             distanceKm: Number(distanceKm.toFixed(2)),
             etaMinutes,
             lastUpdated: loc.last_updated,
@@ -5247,6 +5298,8 @@ export async function registerRoutes(app: Express): Promise<void> {
         id: "mock-tech-1",
         name: "فني تجريبي",
         photo_url: "/assets/mock-tech.png",
+        profileImageUrl: "/assets/mock-tech.png",
+        avatarUrl: "/assets/mock-tech.png",
         rating: 4.8,
         reviewCount: 120,
         is_available: true,
@@ -7589,6 +7642,7 @@ export async function registerRoutes(app: Express): Promise<void> {
       if (!tokenType) {
         return res.status(400).json({ message: "tokenType must be 'fcm' or 'apns'" });
       }
+      const normalizedEnv = tokenType === "apns" ? normalizeApnsEnv(rawEnv) : null;
       console.log("[PUSH][REGISTER][REQUEST]", {
         authUserId: resolved.auth.userId,
         resolvedUserId: userUuid,
@@ -7597,7 +7651,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         tokenPreview: maskPushToken(rawToken),
         platform: rawPlatform || null,
         deviceId: rawDeviceId || null,
-        environment: rawEnv || null,
+        environment: normalizedEnv,
       });
 
       const role = await resolvePushRole({ userId: userUuid, auth: resolved.auth, requestedRole: rawRole });
@@ -7609,7 +7663,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         platform: rawPlatform || null,
         deviceId: rawDeviceId || null,
         appVersion: rawAppVersion || null,
-        environment: rawEnv || null,
+        environment: normalizedEnv,
       });
 
       if (!row) {
@@ -7623,7 +7677,7 @@ export async function registerRoutes(app: Express): Promise<void> {
         role,
         platform: rawPlatform || null,
         deviceId: rawDeviceId || null,
-        environment: rawEnv || null,
+        environment: normalizedEnv,
         bundleId: process.env.APNS_BUNDLE_ID || null,
       });
       res.json(row);
@@ -9126,6 +9180,15 @@ export async function registerRoutes(app: Express): Promise<void> {
         orders = Array.isArray(data) ? data.map(normalizeOrderRow) : [];
       } else {
         orders = await storage.getUserOrders(userUuid);
+      }
+      const serviceLinkedBeforeFilter = orders.filter((order: any) => Boolean(order?.serviceRequestId)).length;
+      if (serviceLinkedBeforeFilter > 0) {
+        console.log("[ORDERS][SHOP][FILTER_SERVICE_LINKED]", {
+          userId: userUuid,
+          removed: serviceLinkedBeforeFilter,
+          before: orders.length,
+        });
+        orders = orders.filter((order: any) => !order?.serviceRequestId);
       }
 
       const orderIds = orders.map((order) => order.id).filter(Boolean);

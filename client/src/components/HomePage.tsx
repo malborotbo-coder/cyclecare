@@ -27,6 +27,21 @@ type TechnicianCardCompat = Technician & {
   is_active?: boolean | null;
   review_count?: number | null;
   status?: string | null;
+  name?: string | null;
+  distanceKm?: number | string | null;
+  etaMinutes?: number | string | null;
+  years_of_experience?: number | null;
+  yearsOfExperience?: number | null;
+  profileImageUrl?: string | null;
+  profile_image_url?: string | null;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
+  user?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    profile_image_url?: string | null;
+    avatar_url?: string | null;
+  } | null;
 };
 
 interface ServiceCardProps {
@@ -64,17 +79,40 @@ interface TechnicianCardProps {
   rating: string;
   reviewCount: number;
   available: boolean;
+  imageUrl?: string | null;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
+  yearsOfExperience?: number | null;
 }
 
-function TechnicianCard({ name, rating, reviewCount, available }: TechnicianCardProps) {
+function TechnicianCard({
+  name,
+  rating,
+  reviewCount,
+  available,
+  imageUrl,
+  distanceKm,
+  etaMinutes,
+  yearsOfExperience,
+}: TechnicianCardProps) {
   const { t, lang } = useLanguage();
+  const distanceValue = typeof distanceKm === "number" && Number.isFinite(distanceKm) ? distanceKm : null;
+  const etaValue = typeof etaMinutes === "number" && Number.isFinite(etaMinutes) ? etaMinutes : null;
+  const experienceValue =
+    typeof yearsOfExperience === "number" && Number.isFinite(yearsOfExperience)
+      ? yearsOfExperience
+      : null;
 
   return (
-    <Card className="w-64 flex-shrink-0 hover-elevate cursor-pointer" data-testid={`card-technician-${name}`}>
-      <CardContent className="p-4">
+    <Card className="w-72 flex-shrink-0 hover-elevate cursor-pointer border border-white/50 bg-white/85 backdrop-blur-md dark:border-white/15 dark:bg-black/25" data-testid={`card-technician-${name}`}>
+      <CardContent className="p-4 space-y-3">
         <div className="flex items-start gap-3">
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-            <UserCircle className="w-8 h-8 text-primary" />
+          <div className="w-14 h-14 rounded-2xl overflow-hidden bg-primary/10 border border-primary/20 flex items-center justify-center shadow-sm">
+            {imageUrl ? (
+              <img src={imageUrl} alt={name} className="h-full w-full object-cover" />
+            ) : (
+              <UserCircle className="w-8 h-8 text-primary" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h4 className="font-semibold truncate">{name}</h4>
@@ -89,6 +127,19 @@ function TechnicianCard({ name, rating, reviewCount, available }: TechnicianCard
             <Badge variant={available ? "default" : "secondary"} className="mt-2 text-xs">
               {available ? t('availableNow') : t('busy')}
             </Badge>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+          <div className="rounded-lg bg-white/70 px-2 py-1 text-center dark:bg-white/10">
+            {distanceValue !== null ? `${distanceValue.toFixed(1)} ${lang === 'ar' ? 'كم' : 'km'}` : "--"}
+          </div>
+          <div className="rounded-lg bg-white/70 px-2 py-1 text-center dark:bg-white/10">
+            {etaValue !== null ? `${Math.max(1, Math.round(etaValue))} ${lang === 'ar' ? 'د' : 'min'}` : "--"}
+          </div>
+          <div className="rounded-lg bg-white/70 px-2 py-1 text-center dark:bg-white/10">
+            {experienceValue !== null
+              ? `${experienceValue} ${lang === 'ar' ? 'سنوات' : 'yrs'}`
+              : "--"}
           </div>
         </div>
       </CardContent>
@@ -296,15 +347,40 @@ export default function HomePage() {
                     <h2 className="text-xl font-bold">{t('nearbyTechnicians')}</h2>
                   </div>
                   <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4">
-                    {visibleTechnicians.map((tech, idx) => (
-                      <TechnicianCard
-                        key={tech.id}
-                        name={`${lang === 'ar' ? 'فني' : 'Technician'} #${idx + 1}`}
-                        rating={(tech.rating as any) || "0.0"}
-                        reviewCount={tech.review_count || tech.reviewCount || 0}
-                        available={tech.is_available || tech.isAvailable || false}
-                      />
-                    ))}
+                    {visibleTechnicians.map((tech, idx) => {
+                      const user = (tech as any)?.user;
+                      const nameFromUser = user
+                        ? [user.first_name, user.last_name].filter(Boolean).join(" ")
+                        : "";
+                      const displayName =
+                        (tech as any)?.name ||
+                        nameFromUser ||
+                        `${lang === 'ar' ? 'فني' : 'Technician'} #${idx + 1}`;
+                      const imageUrl =
+                        (tech as any)?.avatarUrl ??
+                        (tech as any)?.avatar_url ??
+                        (tech as any)?.profileImageUrl ??
+                        (tech as any)?.profile_image_url ??
+                        user?.avatar_url ??
+                        user?.profile_image_url ??
+                        null;
+                      const distanceRaw = Number((tech as any)?.distanceKm);
+                      const etaRaw = Number((tech as any)?.etaMinutes);
+                      const experienceRaw = Number((tech as any)?.yearsOfExperience ?? (tech as any)?.years_of_experience);
+                      return (
+                        <TechnicianCard
+                          key={tech.id}
+                          name={displayName}
+                          rating={(tech.rating as any) || "0.0"}
+                          reviewCount={tech.review_count || tech.reviewCount || 0}
+                          available={tech.is_available || tech.isAvailable || false}
+                          imageUrl={imageUrl}
+                          distanceKm={Number.isFinite(distanceRaw) ? distanceRaw : null}
+                          etaMinutes={Number.isFinite(etaRaw) ? etaRaw : null}
+                          yearsOfExperience={Number.isFinite(experienceRaw) ? experienceRaw : null}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}

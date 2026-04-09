@@ -59,6 +59,17 @@ type TechnicianBookingCompat = Omit<
   isApproved?: boolean | null;
   status?: string | null;
   is_active?: boolean | null;
+  profileImageUrl?: string | null;
+  profile_image_url?: string | null;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
+  photo_url?: string | null;
+  user?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    profile_image_url?: string | null;
+    avatar_url?: string | null;
+  } | null;
   yearsOfExperience?: number | null;
   years_of_experience?: number | null;
   commercialRegister?: string | null;
@@ -790,9 +801,18 @@ export default function ServiceBooking() {
                           const nameFromUser = user
                             ? [user.first_name, user.last_name].filter(Boolean).join(" ")
                             : "";
+                          const profileImage =
+                            (tech as any)?.avatarUrl ??
+                            (tech as any)?.avatar_url ??
+                            (tech as any)?.profileImageUrl ??
+                            (tech as any)?.profile_image_url ??
+                            user?.avatar_url ??
+                            user?.profile_image_url ??
+                            (tech as any)?.photo_url ??
+                            null;
                           const ratingValue = Number(tech.rating ?? 0);
                           const reviewCount = Number((tech as any)?.reviewCount ?? (tech as any)?.review_count ?? 0);
-                          const displayName = nameFromUser || tr("فني معتمد", "Certified technician");
+                          const displayName = (tech as any)?.name || nameFromUser || tr("فني معتمد", "Certified technician");
                           const isAvailable = Boolean(tech.isAvailable ?? (tech as any).is_available);
                           const phoneNumber = (tech as any).phoneNumber ?? (tech as any).phone_number ?? null;
                           const yearsOfExperience =
@@ -827,9 +847,17 @@ export default function ServiceBooking() {
                             >
                               <RadioGroupItem value={tech.id} id={`tech-${tech.id}`} className="sr-only" />
                               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                                <div className="flex items-center gap-4">
-                                  <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
-                                    <User className="h-7 w-7 text-primary" />
+                                <div className="flex items-start gap-4">
+                                  <div className="h-16 w-16 overflow-hidden rounded-2xl border border-primary/20 bg-primary/10 flex items-center justify-center shadow-sm">
+                                    {profileImage ? (
+                                      <img
+                                        src={profileImage}
+                                        alt={displayName}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <User className="h-7 w-7 text-primary" />
+                                    )}
                                   </div>
                                   <div className="space-y-2">
                                     <div className="flex flex-wrap items-center gap-2">

@@ -60,6 +60,13 @@ type ServiceOrderSummary = {
   createdAt: string;
 };
 
+type ShopOrderCompat = Order & {
+  serviceRequestId?: string | null;
+  service_request_id?: string | null;
+  invoiceNumber?: string | null;
+  invoice_number?: string | null;
+};
+
 type NearbyTechnician = {
   id: string;
   name?: string | null;
@@ -94,7 +101,7 @@ export default function OrdersPage() {
     queryKey: ["/api/shop/orders"],
     enabled: canCallProtectedEndpoints,
   });
-  const shopOrders = Array.isArray(shopOrdersData) ? shopOrdersData : [];
+  const rawShopOrders: ShopOrderCompat[] = Array.isArray(shopOrdersData) ? (shopOrdersData as ShopOrderCompat[]) : [];
   const { data: serviceRequestsData } = useQuery<ServiceRequest[]>({
     queryKey: ["/api/service-requests"],
     enabled: canCallProtectedEndpoints,
@@ -207,10 +214,44 @@ export default function OrdersPage() {
     };
   };
 
-  const normalizedServiceOrders = useMemo(
-    () => rawServiceOrders.map((order) => normalizeServiceOrder(order)),
-    [rawServiceOrders],
-  );
+  const normalizedServiceOrders = useMemo(() => {
+    const seen = new Set<string>();
+    return rawServiceOrders
+      .map((order) => normalizeServiceOrder(order))
+      .filter((order) => {
+        const stableKey = order.serviceRequestId || order.id || order.orderNumber;
+        if (!stableKey) return true;
+        if (seen.has(stableKey)) return false;
+        seen.add(stableKey);
+        return true;
+      });
+  }, [rawServiceOrders]);
+
+  const shopOrders = useMemo(() => {
+    const serviceKeys = new Set(
+      normalizedServiceOrders.map((order) => order.serviceRequestId || order.id).filter(Boolean),
+    );
+    const serviceInvoiceNumbers = new Set(
+      normalizedServiceOrders.map((order) => order.invoiceNumber).filter(Boolean),
+    );
+    const serviceOrderNumbers = new Set(
+      normalizedServiceOrders.map((order) => order.orderNumber).filter(Boolean),
+    );
+    const seenShopKeys = new Set<string>();
+    return rawShopOrders.filter((order) => {
+      const serviceRequestId = (order as any).serviceRequestId ?? (order as any).service_request_id ?? null;
+      const invoiceNumber = (order as any).invoiceNumber ?? (order as any).invoice_number ?? null;
+      const orderNumber = (order as any).orderNumber ?? null;
+      if (serviceRequestId && serviceKeys.has(serviceRequestId)) return false;
+      if (invoiceNumber && serviceInvoiceNumbers.has(invoiceNumber)) return false;
+      if (orderNumber && serviceOrderNumbers.has(orderNumber)) return false;
+      const stableKey = String(order.id || orderNumber || `${invoiceNumber || ""}-${order.createdAt || ""}`);
+      if (!stableKey) return true;
+      if (seenShopKeys.has(stableKey)) return false;
+      seenShopKeys.add(stableKey);
+      return true;
+    });
+  }, [rawShopOrders, normalizedServiceOrders]);
 
   const totals = useMemo(() => {
     const serviceTotal = normalizedServiceOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
