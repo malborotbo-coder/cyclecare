@@ -303,21 +303,28 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 function EnforceSelectedRoleGate({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { appMode, isModeLoading } = useAppMode();
+  const locationPath = location.split("?")[0];
+  const blockedAllowedPaths = new Set([
+    NOT_TECHNICIAN_ROUTE,
+    "/my-profile",
+    "/profile",
+  ]);
+  const isBlockedAllowedPath = blockedAllowedPaths.has(locationPath);
 
   useEffect(() => {
     if (isModeLoading) return;
-    if (appMode === "blocked" && location !== NOT_TECHNICIAN_ROUTE) {
+    if (appMode === "blocked" && !isBlockedAllowedPath) {
       setLocation(NOT_TECHNICIAN_ROUTE);
       return;
     }
-    if (appMode !== "blocked" && location === NOT_TECHNICIAN_ROUTE) {
+    if (appMode !== "blocked" && locationPath === NOT_TECHNICIAN_ROUTE) {
       setLocation(appMode === "technician" ? "/technician/dashboard" : "/");
     }
-  }, [appMode, isModeLoading, location, setLocation]);
+  }, [appMode, isModeLoading, isBlockedAllowedPath, locationPath, setLocation]);
 
   if (isModeLoading) return <FullScreenLoader />;
-  if (appMode === "blocked" && location !== NOT_TECHNICIAN_ROUTE) return null;
-  if (appMode !== "blocked" && location === NOT_TECHNICIAN_ROUTE) return null;
+  if (appMode === "blocked" && !isBlockedAllowedPath) return null;
+  if (appMode !== "blocked" && locationPath === NOT_TECHNICIAN_ROUTE) return null;
 
   return <>{children}</>;
 }

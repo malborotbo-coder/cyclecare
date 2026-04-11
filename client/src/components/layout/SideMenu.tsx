@@ -52,6 +52,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       orders: "طلباتي",
       support: "الدعم الفني",
       notifications: "الإشعارات",
+      technicianRegistration: "تسجيل الفنيين",
     },
     en: {
       menu: "Menu",
@@ -68,6 +69,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       orders: "My Orders",
       support: "Support",
       notifications: "Notifications",
+      technicianRegistration: "Technician Registration",
     },
   };
   const profileLabel =
@@ -94,10 +96,20 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     },
     { id: "notifications", path: "/notifications", icon: Bell, label: t[lang].notifications },
   ];
+  const blockedMenuItems = [
+    {
+      id: "technician-register",
+      path: "/technician/register",
+      icon: Briefcase,
+      label: t[lang].technicianRegistration,
+    },
+  ];
   const menuItems = isModeLoading && user && !isGuest
     ? []
     : isTechnicianMode
     ? technicianMenuItems
+    : appMode === "blocked"
+    ? blockedMenuItems
     : riderMenuItems;
 
   const handleNavigate = (path: string) => {
@@ -219,7 +231,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
         {user && !isGuest && (
           <div className="absolute bottom-6 left-4 right-4 space-y-2">
-            {!isTechnicianMode && (
+            {appMode === "rider" && (
               <Button
                 variant={isActive("/support") ? "default" : "ghost"}
                 className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${

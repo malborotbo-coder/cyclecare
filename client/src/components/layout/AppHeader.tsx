@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
 import { useAppMode } from "@/hooks/useAppMode";
+import { NOT_TECHNICIAN_ROUTE } from "@/lib/authRole";
 
 type NotificationItem = {
   id: string;
@@ -35,12 +36,15 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const canLoadNotifications =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
   const isTechnicianMode = appMode === "technician";
+  const isRiderMode = appMode === "rider";
+  const isBlockedMode = appMode === "blocked";
   const notificationScope = isTechnicianMode ? "technician" : "customer";
+  const showNotifications = user && !isGuest && !isBlockedMode;
 
   const { data: notifications } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
-    enabled: canLoadNotifications && !isModeLoading,
+    enabled: canLoadNotifications && !isModeLoading && !isBlockedMode,
     refetchOnWindowFocus: true,
   });
 
@@ -51,6 +55,10 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   const handleLogoClick = () => {
+    if (isBlockedMode) {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
     setLocation(isTechnicianMode ? "/technician/dashboard" : "/");
   };
 
@@ -78,7 +86,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
         </div>
         
         <div className="flex items-center gap-2">
-          {user && !isGuest && (
+          {showNotifications && (
             <Button
               variant="ghost"
               size="icon"
@@ -95,7 +103,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
               )}
             </Button>
           )}
-          {!isTechnicianMode && (
+          {isRiderMode && (
             <Button
               variant="ghost"
               size="icon"
