@@ -46,8 +46,12 @@ import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLo
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
 import LegalConsentGate from "@/components/legal/LegalConsentGate";
-import { useUserRole } from "@/hooks/useUserRole";
-import { POST_LOGIN_RESOLVER_PATH } from "@/lib/authRole";
+import { useAppMode } from "@/hooks/useAppMode";
+import {
+  NOT_TECHNICIAN_ROUTE,
+  POST_LOGIN_RESOLVER_PATH,
+} from "@/lib/authRole";
+import TechnicianAccessBlocked from "@/pages/TechnicianAccessBlocked";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -296,71 +300,124 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function ResolvePostLoginRoute() {
-  const [, setLocation] = useLocation();
-  const { role, isRoleLoading } = useUserRole();
+function EnforceSelectedRoleGate({ children }: { children: React.ReactNode }) {
+  const [location, setLocation] = useLocation();
+  const { appMode, isModeLoading } = useAppMode();
 
   useEffect(() => {
-    if (isRoleLoading) return;
-    if (role === "technician") {
+    if (isModeLoading) return;
+    if (appMode === "blocked" && location !== NOT_TECHNICIAN_ROUTE) {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
+    if (appMode !== "blocked" && location === NOT_TECHNICIAN_ROUTE) {
+      setLocation(appMode === "technician" ? "/technician/dashboard" : "/");
+    }
+  }, [appMode, isModeLoading, location, setLocation]);
+
+  if (isModeLoading) return <FullScreenLoader />;
+  if (appMode === "blocked" && location !== NOT_TECHNICIAN_ROUTE) return null;
+  if (appMode !== "blocked" && location === NOT_TECHNICIAN_ROUTE) return null;
+
+  return <>{children}</>;
+}
+
+function ResolvePostLoginRoute() {
+  const [, setLocation] = useLocation();
+  const { appMode, isModeLoading } = useAppMode();
+
+  useEffect(() => {
+    if (isModeLoading) return;
+    if (appMode === "blocked") {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
+    if (appMode === "technician") {
       setLocation("/technician/dashboard");
       return;
     }
     setLocation("/");
-  }, [isRoleLoading, role, setLocation]);
+  }, [appMode, isModeLoading, setLocation]);
 
   return <FullScreenLoader />;
 }
 
 function RequireRiderArea({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
-  const { role, isRoleLoading } = useUserRole();
-  const canAccess = role === "guest" || role === "rider" || role === "admin";
+  const { appMode, isModeLoading } = useAppMode();
+  const canAccess = appMode === "rider";
 
   useEffect(() => {
-    if (isRoleLoading || canAccess) return;
+    if (isModeLoading || canAccess) return;
+    if (appMode === "blocked") {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
     setLocation("/technician/dashboard");
-  }, [isRoleLoading, canAccess, setLocation]);
+  }, [appMode, isModeLoading, canAccess, setLocation]);
 
-  if (isRoleLoading) return <FullScreenLoader />;
+  if (isModeLoading) return <FullScreenLoader />;
   if (!canAccess) return null;
   return <>{children}</>;
 }
 
 function RequireTechnicianArea({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
-  const { role, isRoleLoading } = useUserRole();
-  const canAccess = role === "technician" || role === "admin";
+  const { appMode, isModeLoading } = useAppMode();
+  const canAccess = appMode === "technician";
 
   useEffect(() => {
-    if (isRoleLoading || canAccess) return;
+    if (isModeLoading || canAccess) return;
+    if (appMode === "blocked") {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
     setLocation("/");
-  }, [isRoleLoading, canAccess, setLocation]);
+  }, [appMode, isModeLoading, canAccess, setLocation]);
 
-  if (isRoleLoading) return <FullScreenLoader />;
+  if (isModeLoading) return <FullScreenLoader />;
   if (!canAccess) return null;
   return <>{children}</>;
 }
 
 function RoleAwareHome() {
   const [, setLocation] = useLocation();
-  const { role, isRoleLoading } = useUserRole();
+  const { appMode, isModeLoading } = useAppMode();
 
   useEffect(() => {
-    if (isRoleLoading) return;
-    if (role === "technician") {
+    if (isModeLoading) return;
+    if (appMode === "blocked") {
+      setLocation(NOT_TECHNICIAN_ROUTE);
+      return;
+    }
+    if (appMode === "technician") {
       setLocation("/technician/dashboard");
     }
-  }, [isRoleLoading, role, setLocation]);
+  }, [appMode, isModeLoading, setLocation]);
 
-  if (isRoleLoading) return <FullScreenLoader />;
-  if (role === "technician") return null;
+  if (isModeLoading) return <FullScreenLoader />;
+  if (appMode !== "rider") return null;
 
   return (
     <AppLayout>
       <HomePage />
     </AppLayout>
   );
+}
+
+function NotTechnicianRoute() {
+  const [, setLocation] = useLocation();
+  const { appMode, isModeLoading } = useAppMode();
+
+  useEffect(() => {
+    if (isModeLoading) return;
+    if (appMode === "blocked") return;
+    setLocation(appMode === "technician" ? "/technician/dashboard" : "/");
+  }, [appMode, isModeLoading, setLocation]);
+
+  if (isModeLoading) return <FullScreenLoader />;
+  if (appMode !== "blocked") return null;
+  return <TechnicianAccessBlocked />;
 }
 
 
@@ -390,153 +447,159 @@ function Router() {
       <Route>
         {() => (
           <AuthWrapper>
-            <Switch>
-              <Route path={POST_LOGIN_RESOLVER_PATH}>
-                <ResolvePostLoginRoute />
-              </Route>
+            <EnforceSelectedRoleGate>
+              <Switch>
+                <Route path={NOT_TECHNICIAN_ROUTE}>
+                  <NotTechnicianRoute />
+                </Route>
 
-              <Route path="/">
-                <RoleAwareHome />
-              </Route>
+                <Route path={POST_LOGIN_RESOLVER_PATH}>
+                  <ResolvePostLoginRoute />
+                </Route>
 
-              <Route path="/booking">
-                <RequireRiderArea>
+                <Route path="/">
+                  <RoleAwareHome />
+                </Route>
+
+                <Route path="/booking">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <ServiceBooking />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/payment">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <PaymentPage />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/parts">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <PartsCatalog />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/cart">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <Cart />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/checkout">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <Checkout />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/orders">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <OrdersPage />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                <Route path="/notifications">
+                  <RequireAuth redirectTo="/notifications">
+                    <AppLayout>
+                      <NotificationsPage />
+                    </AppLayout>
+                  </RequireAuth>
+                </Route>
+
+                <Route path="/support">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <SupportPage />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
+
+                {/* User Profile route */}
+                <Route path="/my-profile">
                   <AppLayout>
-                    <ServiceBooking />
+                    <ProfilePage />
                   </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                </Route>
 
-              <Route path="/payment">
-                <RequireRiderArea>
+                <Route path="/legal">
                   <AppLayout>
-                    <PaymentPage />
+                    <LegalDocumentPage />
                   </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                </Route>
 
-              <Route path="/parts">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <PartsCatalog />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                {/* Bike Profile route */}
+                <Route path="/profile">
+                  <RedirectToMyProfile />
+                </Route>
 
-              <Route path="/cart">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <Cart />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                <Route path="/bikes">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <BikeProfile />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
 
-              <Route path="/checkout">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <Checkout />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                <Route path="/history">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <BikeLogPage />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
 
-              <Route path="/orders">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <OrdersPage />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                <Route path="/bike-log">
+                  <RequireRiderArea>
+                    <AppLayout>
+                      <BikeLogPage />
+                    </AppLayout>
+                  </RequireRiderArea>
+                </Route>
 
-              <Route path="/notifications">
-                <RequireAuth redirectTo="/notifications">
-                  <AppLayout>
-                    <NotificationsPage />
-                  </AppLayout>
-                </RequireAuth>
-              </Route>
+                {/* Technician routes - both paths work */}
+                <Route path="/technician">
+                  <RequireTechnicianArea>
+                    <AppLayout>
+                      <TechnicianDashboard />
+                    </AppLayout>
+                  </RequireTechnicianArea>
+                </Route>
 
-              <Route path="/support">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <SupportPage />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
+                <Route path="/technician/dashboard">
+                  <RequireTechnicianArea>
+                    <AppLayout>
+                      <TechnicianDashboard />
+                    </AppLayout>
+                  </RequireTechnicianArea>
+                </Route>
 
-              {/* User Profile route */}
-              <Route path="/my-profile">
-                <AppLayout>
-                  <ProfilePage />
-                </AppLayout>
-              </Route>
+                <Route path="/admin">
+                  <RequireAdmin>
+                    <AppLayout>
+                      <Suspense fallback={<FullScreenLoader />}>
+                        <AdminDashboard />
+                      </Suspense>
+                    </AppLayout>
+                  </RequireAdmin>
+                </Route>
 
-              <Route path="/legal">
-                <AppLayout>
-                  <LegalDocumentPage />
-                </AppLayout>
-              </Route>
-
-              {/* Bike Profile route */}
-              <Route path="/profile">
-                <RedirectToMyProfile />
-              </Route>
-
-              <Route path="/bikes">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <BikeProfile />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
-
-              <Route path="/history">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <BikeLogPage />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
-
-              <Route path="/bike-log">
-                <RequireRiderArea>
-                  <AppLayout>
-                    <BikeLogPage />
-                  </AppLayout>
-                </RequireRiderArea>
-              </Route>
-
-              {/* Technician routes - both paths work */}
-              <Route path="/technician">
-                <RequireTechnicianArea>
-                  <AppLayout>
-                    <TechnicianDashboard />
-                  </AppLayout>
-                </RequireTechnicianArea>
-              </Route>
-
-              <Route path="/technician/dashboard">
-                <RequireTechnicianArea>
-                  <AppLayout>
-                    <TechnicianDashboard />
-                  </AppLayout>
-                </RequireTechnicianArea>
-              </Route>
-
-              <Route path="/admin">
-                <RequireAdmin>
-                  <AppLayout>
-                    <Suspense fallback={<FullScreenLoader />}>
-                      <AdminDashboard />
-                    </Suspense>
-                  </AppLayout>
-                </RequireAdmin>
-              </Route>
-
-              {/* 404 Page */}
-              <Route>
-                <NotFound />
-              </Route>
-            </Switch>
+                {/* 404 Page */}
+                <Route>
+                  <NotFound />
+                </Route>
+              </Switch>
+            </EnforceSelectedRoleGate>
           </AuthWrapper>
         )}
       </Route>

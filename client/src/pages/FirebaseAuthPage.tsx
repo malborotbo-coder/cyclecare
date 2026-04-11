@@ -34,10 +34,8 @@ import { consumePostLoginRedirect } from "@/lib/authRedirect";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import {
   POST_LOGIN_RESOLVER_PATH,
-  getStoredLoginMode,
-  setStoredLoginMode,
-  type LoginMode,
 } from "@/lib/authRole";
+import { useLoginMode } from "@/hooks/useLoginMode";
 
 export default function FirebaseAuthPage() {
   const [, setLocation] = useLocation();
@@ -56,7 +54,7 @@ export default function FirebaseAuthPage() {
   const [showPhoneForm, setShowPhoneForm] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [loginMode, setLoginMode] = useState<LoginMode>(() => getStoredLoginMode());
+  const { loginMode, setLoginMode } = useLoginMode();
   const isSignUp = mode === "signup";
   const [phoneStep, setPhoneStep] = useState<"input" | "verify">("input");
   const [error, setError] = useState("");
@@ -274,10 +272,9 @@ export default function FirebaseAuthPage() {
 
   const labels = t[isArabic ? "ar" : "en"];
 
-  const handleLoginModeChange = (nextMode: LoginMode) => {
+  const handleLoginModeChange = (nextMode: "rider" | "technician") => {
     if (nextMode === loginMode) return;
     setLoginMode(nextMode);
-    setStoredLoginMode(nextMode);
     void cancelPendingOAuth();
     setError("");
     setShowEmailForm(false);
@@ -288,7 +285,7 @@ export default function FirebaseAuthPage() {
   };
 
   const handleGuestContinue = () => {
-    setStoredLoginMode("rider");
+    setLoginMode("rider");
     enterGuestMode();
     setLocation("/");
   };

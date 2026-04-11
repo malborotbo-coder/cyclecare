@@ -11,7 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { parseTimestamp } from "@/lib/date";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAppMode } from "@/hooks/useAppMode";
 
 type NotificationItem = {
   id: string;
@@ -60,15 +60,15 @@ export default function NotificationsPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { user, isGuest, authReady } = useFirebaseAuth();
-  const { isTechnician, isRoleLoading } = useUserRole();
+  const { appMode, isModeLoading } = useAppMode();
   const canCallProtectedEndpoints =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
-  const notificationScope = isTechnician ? "technician" : "customer";
+  const notificationScope = appMode === "technician" ? "technician" : "customer";
 
   const { data: notifications, isLoading } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
-    enabled: canCallProtectedEndpoints && !isRoleLoading,
+    enabled: canCallProtectedEndpoints && !isModeLoading,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
@@ -127,11 +127,8 @@ export default function NotificationsPage() {
       markOneMutation.mutate(notification.id);
     }
     if (notification.entityType === "service_request") {
-      const isTechnician =
-        notification.role === "technician" ||
-        notification.type === "technician_update";
       const requestId = notification.requestId || notification.activityId || notification.entityId;
-      const target = isTechnician
+      const target = appMode === "technician"
         ? requestId
           ? `/technician?requestId=${encodeURIComponent(String(requestId))}`
           : "/technician"

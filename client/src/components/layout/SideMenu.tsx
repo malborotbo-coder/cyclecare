@@ -22,7 +22,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import Logo from "@/components/Logo";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAppMode } from "@/hooks/useAppMode";
 
 interface SideMenuProps {
   onLogout?: () => void;
@@ -31,7 +31,7 @@ interface SideMenuProps {
 export default function SideMenu({ onLogout }: SideMenuProps) {
   const { lang } = useLanguage();
   const { user, isGuest, exitGuestMode } = useFirebaseAuth();
-  const { role, isRoleLoading } = useUserRole();
+  const { appMode, isModeLoading } = useAppMode();
   const [, setLocation] = useLocation();
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
@@ -73,7 +73,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
   const profileLabel =
     user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : t[lang].profile;
 
-  const isTechnicianRole = role === "technician";
+  const isTechnicianMode = appMode === "technician";
   const riderMenuItems = [
     { id: "home", path: "/", icon: Home, label: t[lang].home },
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
@@ -94,9 +94,9 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
     },
     { id: "notifications", path: "/notifications", icon: Bell, label: t[lang].notifications },
   ];
-  const menuItems = isRoleLoading && user && !isGuest
+  const menuItems = isModeLoading && user && !isGuest
     ? []
-    : isTechnicianRole
+    : isTechnicianMode
     ? technicianMenuItems
     : riderMenuItems;
 
@@ -145,7 +145,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
             <Logo
               size="sm"
               onClick={() =>
-                handleNavigate(isTechnicianRole ? "/technician/dashboard" : "/")
+                handleNavigate(isTechnicianMode ? "/technician/dashboard" : "/")
               }
             />
             <Button 
@@ -219,7 +219,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
         {user && !isGuest && (
           <div className="absolute bottom-6 left-4 right-4 space-y-2">
-            {!isTechnicianRole && (
+            {!isTechnicianMode && (
               <Button
                 variant={isActive("/support") ? "default" : "ghost"}
                 className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${

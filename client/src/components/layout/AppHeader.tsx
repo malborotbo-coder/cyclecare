@@ -13,7 +13,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
-import { useUserRole } from "@/hooks/useUserRole";
+import { useAppMode } from "@/hooks/useAppMode";
 
 type NotificationItem = {
   id: string;
@@ -31,15 +31,16 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const isNative = Capacitor.isNativePlatform();
   const { itemCount } = useCart();
   const { user, isGuest, authReady } = useFirebaseAuth();
-  const { isTechnician, isRoleLoading } = useUserRole();
+  const { appMode, isModeLoading } = useAppMode();
   const canLoadNotifications =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
-  const notificationScope = isTechnician ? "technician" : "customer";
+  const isTechnicianMode = appMode === "technician";
+  const notificationScope = isTechnicianMode ? "technician" : "customer";
 
   const { data: notifications } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
-    enabled: canLoadNotifications && !isRoleLoading,
+    enabled: canLoadNotifications && !isModeLoading,
     refetchOnWindowFocus: true,
   });
 
@@ -50,7 +51,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   const handleLogoClick = () => {
-    setLocation(isTechnician ? "/technician/dashboard" : "/");
+    setLocation(isTechnicianMode ? "/technician/dashboard" : "/");
   };
 
   return (
@@ -94,7 +95,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
               )}
             </Button>
           )}
-          {!isTechnician && (
+          {!isTechnicianMode && (
             <Button
               variant="ghost"
               size="icon"
