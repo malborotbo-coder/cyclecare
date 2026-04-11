@@ -11,6 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { parseTimestamp } from "@/lib/date";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
+import { useUserRole } from "@/hooks/useUserRole";
 
 type NotificationItem = {
   id: string;
@@ -59,21 +60,15 @@ export default function NotificationsPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { user, isGuest, authReady } = useFirebaseAuth();
+  const { isTechnician, isRoleLoading } = useUserRole();
   const canCallProtectedEndpoints =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
-  const { data: roleInfo } = useQuery<{ isAdmin: boolean; roles: string[] }>({
-    queryKey: ["/api/roles/me"],
-    queryFn: () => apiRequest("/api/roles/me", "GET"),
-    enabled: canCallProtectedEndpoints,
-    staleTime: 60_000,
-  });
-  const roles = Array.isArray(roleInfo?.roles) ? roleInfo.roles : [];
-  const notificationScope = roles.includes("technician") ? "technician" : "customer";
+  const notificationScope = isTechnician ? "technician" : "customer";
 
   const { data: notifications, isLoading } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
-    enabled: canCallProtectedEndpoints,
+    enabled: canCallProtectedEndpoints && !isRoleLoading,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });

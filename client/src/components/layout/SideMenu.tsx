@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Headset,
   Shield,
+  Bell,
   LogOut,
   User,
   Bike,
@@ -21,6 +22,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import Logo from "@/components/Logo";
 import { setPostLoginRedirect } from "@/lib/authRedirect";
+import { useUserRole } from "@/hooks/useUserRole";
 
 interface SideMenuProps {
   onLogout?: () => void;
@@ -29,6 +31,7 @@ interface SideMenuProps {
 export default function SideMenu({ onLogout }: SideMenuProps) {
   const { lang } = useLanguage();
   const { user, isGuest, exitGuestMode } = useFirebaseAuth();
+  const { role, isRoleLoading } = useUserRole();
   const [, setLocation] = useLocation();
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
@@ -40,6 +43,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       services: "الخدمات",
       parts: "القطع",
       technician: "الفني",
+      technicianDashboard: "لوحة الفني",
       admin: "المسؤول",
       profile: "بياناتي",
       bikes: "دراجتي",
@@ -47,6 +51,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       login: "تسجيل الدخول",
       orders: "طلباتي",
       support: "الدعم الفني",
+      notifications: "الإشعارات",
     },
     en: {
       menu: "Menu",
@@ -54,6 +59,7 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       services: "Services",
       parts: "Parts",
       technician: "Technician",
+      technicianDashboard: "Technician Dashboard",
       admin: "Admin",
       profile: "My Profile",
       bikes: "My Bike",
@@ -61,23 +67,38 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       login: "Sign In",
       orders: "My Orders",
       support: "Support",
+      notifications: "Notifications",
     },
   };
   const profileLabel =
     user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : t[lang].profile;
 
-  const menuItems = [
+  const isTechnicianRole = role === "technician";
+  const riderMenuItems = [
     { id: "home", path: "/", icon: Home, label: t[lang].home },
     { id: "services", path: "/booking", icon: Wrench, label: t[lang].services },
     { id: "parts", path: "/parts", icon: Package, label: t[lang].parts },
     ...(isGuest
       ? []
       : [
-          { id: "technician", path: "/technician", icon: Briefcase, label: t[lang].technician },
           { id: "orders", path: "/orders", icon: ClipboardList, label: t[lang].orders },
           { id: "bike", path: "/bikes", icon: Bike, label: t[lang].bikes },
         ]),
   ];
+  const technicianMenuItems = [
+    {
+      id: "technician",
+      path: "/technician/dashboard",
+      icon: Briefcase,
+      label: t[lang].technicianDashboard,
+    },
+    { id: "notifications", path: "/notifications", icon: Bell, label: t[lang].notifications },
+  ];
+  const menuItems = isRoleLoading && user && !isGuest
+    ? []
+    : isTechnicianRole
+    ? technicianMenuItems
+    : riderMenuItems;
 
   const handleNavigate = (path: string) => {
     setLocation(path);
@@ -121,7 +142,12 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
       >
         <SheetHeader className="pb-4">
           <div className="flex items-center justify-between">
-            <Logo size="sm" onClick={() => handleNavigate("/")} />
+            <Logo
+              size="sm"
+              onClick={() =>
+                handleNavigate(isTechnicianRole ? "/technician/dashboard" : "/")
+              }
+            />
             <Button 
               variant="ghost" 
               size="icon"
@@ -193,17 +219,19 @@ export default function SideMenu({ onLogout }: SideMenuProps) {
 
         {user && !isGuest && (
           <div className="absolute bottom-6 left-4 right-4 space-y-2">
-            <Button
-              variant={isActive("/support") ? "default" : "ghost"}
-              className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
-                isActive("/support") ? "bg-primary text-white" : ""
-              }`}
-              onClick={() => handleNavigate("/support")}
-              data-testid="menu-support"
-            >
-              <Headset className="h-5 w-5" />
-              {t[lang].support}
-            </Button>
+            {!isTechnicianRole && (
+              <Button
+                variant={isActive("/support") ? "default" : "ghost"}
+                className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${
+                  isActive("/support") ? "bg-primary text-white" : ""
+                }`}
+                onClick={() => handleNavigate("/support")}
+                data-testid="menu-support"
+              >
+                <Headset className="h-5 w-5" />
+                {t[lang].support}
+              </Button>
+            )}
             <Button
               variant={isActive("/my-profile") ? "default" : "ghost"}
               className={`w-full justify-start gap-3 min-h-[52px] py-3 text-lg ${

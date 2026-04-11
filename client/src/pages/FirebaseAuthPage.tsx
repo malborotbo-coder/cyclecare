@@ -32,6 +32,12 @@ import { persistAuthTokens } from "@/lib/authStorage";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
 import { consumePostLoginRedirect } from "@/lib/authRedirect";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import {
+  POST_LOGIN_RESOLVER_PATH,
+  getStoredLoginMode,
+  setStoredLoginMode,
+  type LoginMode,
+} from "@/lib/authRole";
 
 export default function FirebaseAuthPage() {
   const [, setLocation] = useLocation();
@@ -50,6 +56,7 @@ export default function FirebaseAuthPage() {
   const [showPhoneForm, setShowPhoneForm] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [loginMode, setLoginMode] = useState<LoginMode>(() => getStoredLoginMode());
   const isSignUp = mode === "signup";
   const [phoneStep, setPhoneStep] = useState<"input" | "verify">("input");
   const [error, setError] = useState("");
@@ -64,6 +71,9 @@ export default function FirebaseAuthPage() {
   const ENABLE_BIOMETRIC = isNative;
   const googleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoBiometricAttemptedRef = useRef(false);
+  const fallbackPostLoginPath = POST_LOGIN_RESOLVER_PATH;
+
+  const resolvePostLoginPath = () => consumePostLoginRedirect(fallbackPostLoginPath);
   
   const cancelPendingOAuth = async () => {
     if (!oauthInProgress) return;
@@ -146,7 +156,7 @@ export default function FirebaseAuthPage() {
       .then((ok) => {
         if (ok) {
           console.info("[Biometric] Auto sign-in succeeded");
-          window.location.href = consumePostLoginRedirect("/");
+          window.location.href = resolvePostLoginPath();
           return;
         }
         console.info("[Biometric] Auto sign-in skipped or cancelled");
@@ -176,7 +186,7 @@ export default function FirebaseAuthPage() {
     setIsLoading(false);
     if (ok) {
       console.info("[Biometric] Manual sign-in succeeded");
-      window.location.href = consumePostLoginRedirect("/");
+      window.location.href = resolvePostLoginPath();
       return;
     }
     console.info("[Biometric] Manual sign-in failed");
@@ -218,6 +228,10 @@ export default function FirebaseAuthPage() {
       noAccount: "ليس لديك حساب؟",
       continueWith: "الدخول عبر",
       guest: "المتابعة كزائر",
+      rider: "الدراج",
+      technician: "الفني",
+      riderModeHint: "الوصول الكامل لخدمات العملاء",
+      technicianModeHint: "دخول لوحة الفني وإدارة الطلبات",
     },
     en: {
       title: "Cycle Care",
@@ -251,12 +265,30 @@ export default function FirebaseAuthPage() {
       noAccount: "Don't have an account?",
       continueWith: "Continue with",
       guest: "Continue as Guest",
+      rider: "Rider",
+      technician: "Technician",
+      riderModeHint: "Full access to rider services",
+      technicianModeHint: "Technician dashboard and task access",
     },
   };
 
   const labels = t[isArabic ? "ar" : "en"];
 
+  const handleLoginModeChange = (nextMode: LoginMode) => {
+    if (nextMode === loginMode) return;
+    setLoginMode(nextMode);
+    setStoredLoginMode(nextMode);
+    void cancelPendingOAuth();
+    setError("");
+    setShowEmailForm(false);
+    setShowPhoneForm(false);
+    setPhoneStep("input");
+    setOtp("");
+    setMode("login");
+  };
+
   const handleGuestContinue = () => {
+    setStoredLoginMode("rider");
     enterGuestMode();
     setLocation("/");
   };
@@ -283,7 +315,7 @@ export default function FirebaseAuthPage() {
       const user = await signInWithGoogle();
       if (user) {
         console.log("[Auth] Google sign-in successful:", user.email);
-        setLocation(consumePostLoginRedirect("/"));
+        setLocation(resolvePostLoginPath());
       } else {
         console.log("[Auth] Redirecting to OAuth flow...");
       }
@@ -307,7 +339,7 @@ export default function FirebaseAuthPage() {
       if (user) {
         console.log('[Auth] Apple sign-in successful:', user.email);
         setIsLoading(false);
-        window.location.href = consumePostLoginRedirect("/");
+        window.location.href = resolvePostLoginPath();
       } else {
         setIsLoading(false);
       }
@@ -401,7 +433,7 @@ export default function FirebaseAuthPage() {
       }
 
       console.log('[EmailAuth] Auth tokens stored, redirecting...');
-      window.location.href = consumePostLoginRedirect("/");
+      window.location.href = resolvePostLoginPath();
     } catch (err: any) {
       console.error("Email auth error:", err);
       
@@ -493,7 +525,7 @@ export default function FirebaseAuthPage() {
           phoneNumber: credential.user.phoneNumber || "",
         });
         await promptBiometricEnrollment(appToken, isArabic);
-        window.location.href = consumePostLoginRedirect("/");
+        window.location.href = resolvePostLoginPath();
         return;
       }
 
@@ -526,7 +558,7 @@ export default function FirebaseAuthPage() {
         phoneNumber: data.user?.phone || data.phoneNumber || fullPhone,
       });
       await promptBiometricEnrollment(authToken, isArabic);
-      window.location.href = consumePostLoginRedirect("/");
+      window.location.href = resolvePostLoginPath();
     } catch (error: any) {
       console.error("OTP verification error:", error);
       setError(error.message || labels.error);
@@ -652,6 +684,42 @@ export default function FirebaseAuthPage() {
             </div>
           )}
 
+          <div className="mb-4">
+            <div className="mx-auto max-w-md rounded-2xl border border-white/15 bg-white/10 p-1 backdrop-blur-xl shadow-[0_16px_45px_-25px_rgba(0,0,0,0.9)]">
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleLoginModeChange("rider")}
+                  className={`h-11 rounded-xl text-sm font-semibold transition-all duration-300 ${
+                    loginMode === "rider"
+                      ? "bg-white/25 text-white shadow-[0_8px_20px_-12px_rgba(255,255,255,0.75)] ring-1 ring-white/30"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                  data-testid="button-role-rider"
+                >
+                  {labels.rider}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLoginModeChange("technician")}
+                  className={`h-11 rounded-xl text-sm font-semibold transition-all duration-300 ${
+                    loginMode === "technician"
+                      ? "bg-white/25 text-white shadow-[0_8px_20px_-12px_rgba(255,255,255,0.75)] ring-1 ring-white/30"
+                      : "text-white/70 hover:text-white hover:bg-white/10"
+                  }`}
+                  data-testid="button-role-technician"
+                >
+                  {labels.technician}
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-center text-xs text-gray-300">
+              {loginMode === "technician"
+                ? labels.technicianModeHint
+                : labels.riderModeHint}
+            </p>
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
@@ -668,7 +736,13 @@ export default function FirebaseAuthPage() {
             >
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-white font-semibold">
-                  {isSignUp ? labels.signup : labels.login}
+                  {isSignUp
+                    ? labels.signup
+                    : `${labels.login} · ${
+                        loginMode === "technician"
+                          ? labels.technician
+                          : labels.rider
+                      }`}
                 </h3>
                 <button
                   onClick={resetEmailForm}
@@ -1030,17 +1104,19 @@ export default function FirebaseAuthPage() {
                 )}
               </Button>
 
-              <Button
-                onClick={() => {
-                  void cancelPendingOAuth().then(() => handleGuestContinue());
-                }}
-                variant="outline"
-                className="w-full h-12 text-base font-semibold rounded-xl border border-white/30 text-white hover:bg-white/10 transition"
-                disabled={isLoading && !oauthInProgress}
-                data-testid="button-guest-mode"
-              >
-                {labels.guest}
-              </Button>
+              {loginMode === "rider" && (
+                <Button
+                  onClick={() => {
+                    void cancelPendingOAuth().then(() => handleGuestContinue());
+                  }}
+                  variant="outline"
+                  className="w-full h-12 text-base font-semibold rounded-xl border border-white/30 text-white hover:bg-white/10 transition"
+                  disabled={isLoading && !oauthInProgress}
+                  data-testid="button-guest-mode"
+                >
+                  {labels.guest}
+                </Button>
+              )}
               {oauthInProgress && (
                 <Button
                   type="button"

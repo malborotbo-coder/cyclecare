@@ -5,6 +5,7 @@ import { Browser } from "@capacitor/browser";
 import { persistAuthTokens } from "@/lib/authStorage";
 import { promptBiometricEnrollment } from "@/lib/biometricSession";
 import { consumePostLoginRedirect } from "@/lib/authRedirect";
+import { POST_LOGIN_RESOLVER_PATH } from "@/lib/authRole";
 
 export default function AuthCallback() {
   const [, setLocation] = useLocation();
@@ -20,7 +21,8 @@ export default function AuthCallback() {
       const params = new URLSearchParams(window.location.search);
       const token = params.get("token")?.trim() || "";
       const storedRedirect = consumePostLoginRedirect("");
-      const redirectToRaw = storedRedirect || params.get("redirectTo") || "/";
+      const redirectToRaw =
+        storedRedirect || params.get("redirectTo") || POST_LOGIN_RESOLVER_PATH;
       const normalizedRedirect =
         redirectToRaw === "/auth/callback" || redirectToRaw === "auth/callback"
           ? "/"

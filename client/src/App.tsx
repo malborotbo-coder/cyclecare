@@ -46,6 +46,8 @@ import { initializePushManagerOnce, setPushRoleContext, syncPushRegistrationOnLo
 import { initializeNotificationSyncOnce } from "@/lib/pushNotificationSync";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
 import LegalConsentGate from "@/components/legal/LegalConsentGate";
+import { useUserRole } from "@/hooks/useUserRole";
+import { POST_LOGIN_RESOLVER_PATH } from "@/lib/authRole";
 
 const AdminDashboard = lazy(() => import("@/pages/AdminDashboard"));
 
@@ -294,6 +296,73 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ResolvePostLoginRoute() {
+  const [, setLocation] = useLocation();
+  const { role, isRoleLoading } = useUserRole();
+
+  useEffect(() => {
+    if (isRoleLoading) return;
+    if (role === "technician") {
+      setLocation("/technician/dashboard");
+      return;
+    }
+    setLocation("/");
+  }, [isRoleLoading, role, setLocation]);
+
+  return <FullScreenLoader />;
+}
+
+function RequireRiderArea({ children }: { children: React.ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { role, isRoleLoading } = useUserRole();
+  const canAccess = role === "guest" || role === "rider" || role === "admin";
+
+  useEffect(() => {
+    if (isRoleLoading || canAccess) return;
+    setLocation("/technician/dashboard");
+  }, [isRoleLoading, canAccess, setLocation]);
+
+  if (isRoleLoading) return <FullScreenLoader />;
+  if (!canAccess) return null;
+  return <>{children}</>;
+}
+
+function RequireTechnicianArea({ children }: { children: React.ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { role, isRoleLoading } = useUserRole();
+  const canAccess = role === "technician" || role === "admin";
+
+  useEffect(() => {
+    if (isRoleLoading || canAccess) return;
+    setLocation("/");
+  }, [isRoleLoading, canAccess, setLocation]);
+
+  if (isRoleLoading) return <FullScreenLoader />;
+  if (!canAccess) return null;
+  return <>{children}</>;
+}
+
+function RoleAwareHome() {
+  const [, setLocation] = useLocation();
+  const { role, isRoleLoading } = useUserRole();
+
+  useEffect(() => {
+    if (isRoleLoading) return;
+    if (role === "technician") {
+      setLocation("/technician/dashboard");
+    }
+  }, [isRoleLoading, role, setLocation]);
+
+  if (isRoleLoading) return <FullScreenLoader />;
+  if (role === "technician") return null;
+
+  return (
+    <AppLayout>
+      <HomePage />
+    </AppLayout>
+  );
+}
+
 
 function Router() {
   useEffect(() => {
@@ -322,46 +391,60 @@ function Router() {
         {() => (
           <AuthWrapper>
             <Switch>
+              <Route path={POST_LOGIN_RESOLVER_PATH}>
+                <ResolvePostLoginRoute />
+              </Route>
+
               <Route path="/">
-                <AppLayout>
-                  <HomePage />
-                </AppLayout>
+                <RoleAwareHome />
               </Route>
 
               <Route path="/booking">
-                <AppLayout>
-                  <ServiceBooking />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <ServiceBooking />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/payment">
-                <AppLayout>
-                  <PaymentPage />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <PaymentPage />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/parts">
-                <AppLayout>
-                  <PartsCatalog />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <PartsCatalog />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/cart">
-                <AppLayout>
-                  <Cart />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <Cart />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/checkout">
-                <AppLayout>
-                  <Checkout />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <Checkout />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/orders">
-                <AppLayout>
-                  <OrdersPage />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <OrdersPage />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/notifications">
@@ -373,9 +456,11 @@ function Router() {
               </Route>
 
               <Route path="/support">
-                <AppLayout>
-                  <SupportPage />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <SupportPage />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               {/* User Profile route */}
@@ -397,38 +482,44 @@ function Router() {
               </Route>
 
               <Route path="/bikes">
-                <AppLayout>
-                  <BikeProfile />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <BikeProfile />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/history">
-                <AppLayout>
-                  <BikeLogPage />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <BikeLogPage />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               <Route path="/bike-log">
-                <AppLayout>
-                  <BikeLogPage />
-                </AppLayout>
+                <RequireRiderArea>
+                  <AppLayout>
+                    <BikeLogPage />
+                  </AppLayout>
+                </RequireRiderArea>
               </Route>
 
               {/* Technician routes - both paths work */}
               <Route path="/technician">
-                <RequireAuth redirectTo="/technician">
+                <RequireTechnicianArea>
                   <AppLayout>
                     <TechnicianDashboard />
                   </AppLayout>
-                </RequireAuth>
+                </RequireTechnicianArea>
               </Route>
 
               <Route path="/technician/dashboard">
-                <RequireAuth redirectTo="/technician/dashboard">
+                <RequireTechnicianArea>
                   <AppLayout>
                     <TechnicianDashboard />
                   </AppLayout>
-                </RequireAuth>
+                </RequireTechnicianArea>
               </Route>
 
               <Route path="/admin">

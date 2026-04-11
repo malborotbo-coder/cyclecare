@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { hasStoredAuthTokenSync } from "@/lib/authSession";
+import { useUserRole } from "@/hooks/useUserRole";
 
 type NotificationItem = {
   id: string;
@@ -30,21 +31,15 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const isNative = Capacitor.isNativePlatform();
   const { itemCount } = useCart();
   const { user, isGuest, authReady } = useFirebaseAuth();
+  const { isTechnician, isRoleLoading } = useUserRole();
   const canLoadNotifications =
     authReady && Boolean(user) && !isGuest && hasStoredAuthTokenSync();
-  const { data: roleInfo } = useQuery<{ isAdmin: boolean; roles: string[] }>({
-    queryKey: ["/api/roles/me"],
-    queryFn: () => apiRequest("/api/roles/me", "GET"),
-    enabled: canLoadNotifications,
-    staleTime: 60_000,
-  });
-  const roles = Array.isArray(roleInfo?.roles) ? roleInfo.roles : [];
-  const notificationScope = roles.includes("technician") ? "technician" : "customer";
+  const notificationScope = isTechnician ? "technician" : "customer";
 
   const { data: notifications } = useQuery<NotificationItem[]>({
     queryKey: ["/api/notifications", notificationScope],
     queryFn: () => apiRequest(`/api/notifications?scope=${notificationScope}`, "GET"),
-    enabled: canLoadNotifications,
+    enabled: canLoadNotifications && !isRoleLoading,
     refetchOnWindowFocus: true,
   });
 
@@ -55,7 +50,7 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
   const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   const handleLogoClick = () => {
-    setLocation("/");
+    setLocation(isTechnician ? "/technician/dashboard" : "/");
   };
 
   return (
@@ -99,20 +94,22 @@ export default function AppHeader({ onLogout, transparent = false }: AppHeaderPr
               )}
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setLocation("/cart")}
-            className="relative"
-            data-testid="button-cart"
-          >
-            <ShoppingCart className="h-5 w-5" />
-            {itemCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-black text-[11px] font-bold flex items-center justify-center">
-                {itemCount}
-              </span>
-            )}
-          </Button>
+          {!isTechnician && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLocation("/cart")}
+              className="relative"
+              data-testid="button-cart"
+            >
+              <ShoppingCart className="h-5 w-5" />
+              {itemCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-black text-[11px] font-bold flex items-center justify-center">
+                  {itemCount}
+                </span>
+              )}
+            </Button>
+          )}
           <ThemeToggle />
           <LanguageToggle currentLang={lang} onToggle={toggleLanguage} />
         </div>
